@@ -77,12 +77,10 @@ During compression, you can control the process using keyboard shortcuts:
 
 ### Performance
 
-Typical compression achieves **94-95% space savings** while maintaining good quality at CQ45.
-
-For example:
-- 3.6GB video → ~180MB (95% reduction)
-- 1.4GB video → ~70MB (95% reduction)
-- 640MB video → ~32MB (95% reduction)
+Typical compression achieves **85-95% space savings** at CQ45, depending on the source video compression:
+- Lightly compressed sources: ~95% reduction
+- Moderately compressed sources: ~90% reduction
+- Already well-compressed sources: ~85% reduction
 
 Average processing speed depends on GPU, but typically:
 - ~10-15MB/s throughput on modern NVIDIA GPUs
