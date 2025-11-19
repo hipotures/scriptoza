@@ -1,0 +1,30 @@
+# Ignore everything by default
+*
+
+# But allow these:
+!.gitignore
+!README.md
+!*.sh
+
+# Allow video directory and its Python scripts
+!video/
+!video/*.py
+!video/*.sh
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+*.err
+*_out/
