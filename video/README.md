@@ -85,3 +85,118 @@ Typical compression achieves **85-95% space savings** at CQ45, depending on the 
 Average processing speed depends on GPU, but typically:
 - ~10-15MB/s throughput on modern NVIDIA GPUs
 - ~30-60 seconds per GB of video content
+
+---
+
+## rename_video.py
+
+Universal video file renaming tool supporting multiple camera brands (DJI, Panasonic, Sony).
+
+### Features
+
+- Automatic camera detection from EXIF metadata
+- Multi-threaded processing (up to 24 threads)
+- Standardized naming: `YYYYMMDD_HHMMSS_WIDTHxHEIGHT_FPSfps_FILESIZE.ext`
+- Supports multiple video formats (.mp4, .mov, .avi)
+- Automatic collision handling with numeric suffixes
+- Fallback to original filename when date is missing
+
+### Requirements
+
+- Python 3.7+
+- exiftool
+
+### Installation
+
+```bash
+# Install exiftool (Manjaro/Arch)
+sudo pacman -S perl-image-exiftool
+
+# Ubuntu/Debian
+sudo apt install libimage-exiftool-perl
+```
+
+### Usage
+
+```bash
+# Run in directory containing video files
+cd /path/to/videos
+python /path/to/scriptoza/video/rename_video.py
+```
+
+### Output Format
+
+Files are renamed to: `YYYYMMDD_HHMMSS_WIDTHxHEIGHT_FPSfps_FILESIZE.ext`
+
+Example:
+- `20251025_150032_3840x2160_60fps_785976622.mp4`
+- `20251025_150757_5728x3024_60fps_412841693.mov`
+
+### Technical Features
+
+- TAG_ALIASES for flexible EXIF field detection
+- Thread-safe file operations
+- Automatic lowercase extension normalization
+- Handles missing or invalid EXIF data gracefully
+
+---
+
+## sort_video_qvr.sh
+
+Organizes QVR video files into date-based directory structure.
+
+### Features
+
+- Sorts QVR_*.mp4 files by date
+- Creates `QVR/YYYYMMDD/` directory structure
+- Safe file operations with existence checks
+
+### Usage
+
+```bash
+# Run in directory containing QVR files
+cd /path/to/videos
+bash /path/to/scriptoza/video/sort_video_qvr.sh
+```
+
+### Output Structure
+
+```
+QVR/
+├── 20241025/
+│   ├── QVR_20241025_150032.mp4
+│   └── QVR_20241025_151234.mp4
+└── 20241026/
+    └── QVR_20241026_090000.mp4
+```
+
+---
+
+## sort_video_sr.sh
+
+Organizes Screen Recording video files into date-based directory structure.
+
+### Features
+
+- Sorts Screen_Recording_*.mp4 files by date
+- Creates `SR/YYYYMMDD/` directory structure
+- Safe file operations with existence checks
+
+### Usage
+
+```bash
+# Run in directory containing Screen Recording files
+cd /path/to/videos
+bash /path/to/scriptoza/video/sort_video_sr.sh
+```
+
+### Output Structure
+
+```
+SR/
+├── 20241025/
+│   ├── Screen_Recording_20241025_150032.mp4
+│   └── Screen_Recording_20241025_151234.mp4
+└── 20241026/
+    └── Screen_Recording_20241026_090000.mp4
+```

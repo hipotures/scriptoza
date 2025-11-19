@@ -12,6 +12,12 @@
 !video/*.py
 !video/*.sh
 
+# Allow photo directory and its contents
+!photo/
+!photo/README.md
+!photo/*.py
+!photo/*.sh
+
 # Ignore Python cache
 __pycache__/
 *.pyc
