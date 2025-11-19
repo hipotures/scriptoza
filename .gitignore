@@ -6,8 +6,9 @@
 !README.md
 !*.sh
 
-# Allow video directory and its Python scripts
+# Allow video directory and its contents
 !video/
+!video/README.md
 !video/*.py
 !video/*.sh
 
