@@ -6,4 +6,4 @@ Collection of useful scripts organized by category. Each category has its own di
 
 ### [Video](video/)
 
-- **video_batch_compression.py** - Batch video compression using NVENC AV1 with interactive UI and dynamic thread control
+- **video_batch_compression.py** - Batch video compression using NVENC AV1 with interactive UI and dynamic thread control (`<`/`>` keys)

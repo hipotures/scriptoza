@@ -54,8 +54,8 @@ python video/video_batch_compression.py /path/to/videos --threads 4 --cq 45 --ro
 
 During compression, you can control the process using keyboard shortcuts:
 
-- **`,`** (comma) - Decrease thread count
-- **`.`** (period) - Increase thread count
+- **`<`** - Decrease thread count
+- **`>`** - Increase thread count
 - **`S`** - Graceful shutdown (finish current tasks and exit)
 - **Ctrl+C** - Immediate interrupt
 
