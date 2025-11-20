@@ -10,6 +10,7 @@ import select
 import subprocess
 import sys
 import threading
+import time
 import termios
 import tty
 from collections import deque
@@ -32,12 +33,12 @@ except ImportError:
 
 class ThreadController:
     """Dynamic thread control with condition variable"""
-    def __init__(self, initial_threads: int):
+    def __init__(self, initial_threads: int, max_threads_limit: int = 16):
         self.condition = threading.Condition()
-        self.max_threads = initial_threads
+        self.max_threads_limit = max_threads_limit
+        self.max_threads = min(initial_threads, max_threads_limit)
         self.active_threads = 0
         self.min_threads = 1
-        self.max_threads_limit = 16
         self.shutdown_requested = False
 
     def acquire(self):
@@ -88,6 +89,17 @@ class ThreadController:
             # Wake up all waiting threads so they can see shutdown flag
             self.condition.notify_all()
             return True
+
+    def clamp_max_threads(self, new_max: int) -> bool:
+        """Reduce allowed threads (used for backoff); returns True if changed"""
+        with self.condition:
+            new_max = max(self.min_threads, min(new_max, self.max_threads_limit))
+            if new_max < self.max_threads:
+                self.max_threads = new_max
+                self.max_threads_limit = min(self.max_threads_limit, new_max)
+                self.condition.notify_all()
+                return True
+            return False
 
     def is_shutdown_requested(self) -> bool:
         """Check if shutdown was requested"""
@@ -180,6 +192,9 @@ class VideoCompressor:
         self.stop_keyboard_thread = threading.Event()
         self.last_action = ""
         self.last_action_lock = threading.Lock()
+        self.max_nvenc_retries = 2
+        self.nvenc_retry_delay = 2  # seconds
+        self.nvenc_errors_seen = 0
 
         # Setup file logging only
         log_file = self.output_dir / "compression.log"
@@ -253,6 +268,21 @@ class VideoCompressor:
         with self.last_action_lock:
             return self.last_action
 
+    def is_nvenc_session_error(self, message: str) -> bool:
+        return "OpenEncodeSessionEx failed" in message or "Could not open encoder" in message
+
+    def handle_nvenc_session_error(self):
+        """Throttle threads when NVENC rejects new sessions"""
+        self.nvenc_errors_seen += 1
+        current = self.thread_controller.get_current()
+        new_limit = max(self.thread_controller.min_threads, max(1, current // 2))
+        if self.thread_controller.clamp_max_threads(new_limit):
+            self.set_last_action(f"NVENC backoff → {new_limit} threads")
+            self.logger.warning(
+                "NVENC rejected a session. Reducing max concurrent encodes to %d to avoid GPU session limits.",
+                new_limit
+            )
+
     def keyboard_listener(self):
         """Listen for keyboard input in separate thread"""
         # Save terminal settings
@@ -320,7 +350,6 @@ class VideoCompressor:
         self.stats.start_processing(filename, input_size)
 
         try:
-
             output_file = self.get_output_path(input_file)
             tmp_file = output_file.parent / f"{output_file.stem}.tmp"
             err_file = output_file.parent / f"{output_file.stem}.err"
@@ -328,81 +357,117 @@ class VideoCompressor:
             # Create output directory if needed
             output_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Build ffmpeg command
-            cmd = [
-                'ffmpeg',
-                '-vsync', '0',
-                '-hwaccel', 'cuda',
-                '-i', str(input_file),
-            ]
+            attempt = 0
 
-            # Add rotation filter if requested
-            if self.rotate_180:
-                cmd.extend(['-vf', 'hflip,vflip'])
+            while attempt <= self.max_nvenc_retries:
+                # Build ffmpeg command
+                cmd = [
+                    'ffmpeg',
+                    '-vsync', '0',
+                    '-hwaccel', 'cuda',
+                    '-i', str(input_file),
+                ]
 
-            cmd.extend([
-                '-c:v', 'av1_nvenc',
-                '-preset', 'p7',
-                '-cq', str(self.cq),
-                '-b:v', '0',
-                '-c:a', 'copy',
-                '-f', 'mp4',
-                str(tmp_file),
-                '-y',
-                '-hide_banner',
-                '-loglevel', 'error',
-                '-stats'
-            ])
+                # Add rotation filter if requested
+                if self.rotate_180:
+                    cmd.extend(['-vf', 'hflip,vflip'])
 
-            start_time = datetime.now()
+                cmd.extend([
+                    '-c:v', 'av1_nvenc',
+                    '-preset', 'p7',
+                    '-cq', str(self.cq),
+                    '-b:v', '0',
+                    '-c:a', 'copy',
+                    '-f', 'mp4',
+                    str(tmp_file),
+                    '-y',
+                    '-hide_banner',
+                    '-loglevel', 'error',
+                    '-stats'
+                ])
 
-            # Run compression
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=21600  # 6 hour timeout
-            )
+                start_time = datetime.now()
 
-            self.stats.stop_processing(filename)
+                # Run compression
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=21600  # 6 hour timeout
+                )
 
-            if result.returncode != 0:
+                if result.returncode == 0:
+                    # Success - rename tmp to final
+                    if err_file.exists():
+                        err_file.unlink()
+                    tmp_file.rename(output_file)
+                    self.stats.stop_processing(filename)
+
+                    # Calculate stats
+                    duration = (datetime.now() - start_time).total_seconds()
+                    output_size = output_file.stat().st_size
+                    compression_ratio = (1 - output_size / input_size) * 100
+
+                    self.logger.info(
+                        f"Success: {filename}: {self.format_size(input_size)} → "
+                        f"{self.format_size(output_size)} ({compression_ratio:.1f}%) in {duration:.0f}s"
+                    )
+
+                    return {
+                        'status': 'success',
+                        'input': input_file,
+                        'output': output_file,
+                        'input_size': input_size,
+                        'output_size': output_size,
+                        'compression_ratio': compression_ratio,
+                        'duration': duration
+                    }
+
                 # Compression failed
                 error_msg = result.stderr if result.stderr else "Unknown error"
-                err_file.write_text(error_msg)
+                is_nvenc_error = self.is_nvenc_session_error(error_msg)
 
-                # Clean up tmp file if exists
+                if is_nvenc_error and attempt < self.max_nvenc_retries:
+                    self.handle_nvenc_session_error()
+                    if tmp_file.exists():
+                        tmp_file.unlink()
+                    self.logger.warning(
+                        "Retrying %s after NVENC session error (%d/%d) following %ds backoff",
+                        filename,
+                        attempt + 1,
+                        self.max_nvenc_retries,
+                        self.nvenc_retry_delay
+                    )
+                    time.sleep(self.nvenc_retry_delay)
+                    attempt += 1
+                    continue
+
                 if tmp_file.exists():
                     tmp_file.unlink()
 
+                hint = ""
+                if is_nvenc_error:
+                    hint = (
+                        "\n\nHint: NVENC refused to open another session. "
+                        f"Lower concurrent threads (current cap: {self.thread_controller.get_current()}) "
+                        "and retry."
+                    )
+
+                err_file.write_text(error_msg + hint)
                 self.logger.error(f"Failed: {filename}: {error_msg}")
+                self.stats.stop_processing(filename)
                 return {
                     'status': 'error',
                     'input': input_file,
                     'error': error_msg
                 }
 
-            # Success - rename tmp to final
-            tmp_file.rename(output_file)
-
-            # Calculate stats
-            duration = (datetime.now() - start_time).total_seconds()
-            output_size = output_file.stat().st_size
-            compression_ratio = (1 - output_size / input_size) * 100
-
-            self.logger.info(
-                f"Success: {filename}: {self.format_size(input_size)} → "
-                f"{self.format_size(output_size)} ({compression_ratio:.1f}%) in {duration:.0f}s"
-            )
-
+            # If loop exits unexpectedly, treat as error
+            self.stats.stop_processing(filename)
             return {
-                'status': 'success',
+                'status': 'error',
                 'input': input_file,
-                'output': output_file,
-                'input_size': input_size,
-                'output_size': output_size,
-                'compression_ratio': compression_ratio,
-                'duration': duration
+                'error': 'Unknown error - retries exhausted'
             }
 
         except subprocess.TimeoutExpired:
@@ -474,7 +539,7 @@ class VideoCompressor:
             )
         else:
             status_lines.append(
-                f"Total: {total_files} files | Threads: {current_threads} (,/. to adjust, S to stop) | "
+                f"Total: {total_files} files | Threads: {current_threads} (</> to adjust, S to stop) | "
                 f"{self.format_size(stats['total_input_size'])} → {self.format_size(stats['total_output_size'])} "
                 f"({stats['avg_compression']:.1f}% avg) | "
                 f"{self.format_time(stats['elapsed'])} elapsed"
@@ -605,7 +670,7 @@ class VideoCompressor:
         self.console.print(f"\n[cyan]Video Batch Compression - NVENC AV1[/cyan]")
         self.console.print(f"Input: {self.input_dir}")
         self.console.print(f"Output: {self.output_dir}")
-        self.console.print(f"Threads: {self.thread_controller.get_current()} (use , and . keys to adjust, S to stop)")
+        self.console.print(f"Threads: {self.thread_controller.get_current()} (use < and > keys to adjust, S to stop)")
         self.console.print(f"Quality: CQ{self.cq}")
         self.console.print(f"Rotate 180°: {self.rotate_180}\n")
 

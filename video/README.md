@@ -10,6 +10,7 @@ Advanced batch video compression script utilizing NVENC AV1 (hardware encoding o
 - Dynamic thread control during runtime (`,` and `.` keys)
 - Optional 180° video rotation (`--rotate-180`)
 - Automatic skip of already compressed files (resume after interruption)
+- NVENC session guard that backs off threads and retries when encoder rejects new sessions
 - Interactive UI (rich) with panels:
   - Compression status with ETA based on throughput
   - Progress bar with active thread count
@@ -58,18 +59,20 @@ During compression, you can control the process using keyboard shortcuts:
 - **`>`** - Increase thread count
 - **`S`** - Graceful shutdown (finish current tasks and exit)
 - **Ctrl+C** - Immediate interrupt
+- NVENC backoff (automatic): when the encoder refuses a new session, the script halves the thread cap and retries twice with a short delay. Stay at or below the shown cap to avoid repeated `.err` files.
 
 ### Output
 
 - **Compressed files:** `<input_directory>_out/`
 - **Log file:** `<input_directory>_out/compression.log`
-- **Error files:** `*.err` (for failed compressions)
+- **Error files:** `*.err` (for failed compressions; NVENC issues are annotated with a hint to lower concurrency)
 
 ### Technical Features
 
 - Single-pass CQ (Constant Quality) encoding
 - Preserves directory structure
 - Thread-safe statistics tracking
+- Automatic retry/backoff on NVENC session errors (reduces concurrent threads and retries twice)
 - Condition variable for dynamic thread control
 - Auto-refresh UI every 0.2s
 - 6-hour timeout per file
