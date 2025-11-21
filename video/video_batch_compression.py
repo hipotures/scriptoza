@@ -180,12 +180,13 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
         self.cq = cq
         self.rotate_180 = rotate_180
+        self.use_cpu = use_cpu
         self.max_depth = 3
         self.stats = CompressionStats()
         self.console = Console()
@@ -361,32 +362,59 @@ class VideoCompressor:
 
             while attempt <= self.max_nvenc_retries:
                 # Build ffmpeg command
-                cmd = [
-                    'ffmpeg',
-                    '-vsync', '0',
-                    '-hwaccel', 'cuda',
-                    '-fflags', '+genpts+igndts',  # Generate timestamps and ignore input DTS
-                    '-avoid_negative_ts', 'make_zero',  # Fix negative timestamps
-                    '-i', str(input_file),
-                ]
+                if self.use_cpu:
+                    # CPU-based SVT-AV1 encoder
+                    cmd = [
+                        'ffmpeg',
+                        '-fflags', '+genpts+igndts',  # Generate timestamps and ignore input DTS
+                        '-avoid_negative_ts', 'make_zero',  # Fix negative timestamps
+                        '-i', str(input_file),
+                    ]
 
-                # Add rotation filter if requested
-                if self.rotate_180:
-                    cmd.extend(['-vf', 'hflip,vflip'])
+                    # Add rotation filter if requested
+                    if self.rotate_180:
+                        cmd.extend(['-vf', 'hflip,vflip'])
 
-                cmd.extend([
-                    '-c:v', 'av1_nvenc',
-                    '-preset', 'p7',
-                    '-cq', str(self.cq),
-                    '-b:v', '0',
-                    '-c:a', 'copy',
-                    '-f', 'mp4',
-                    str(tmp_file),
-                    '-y',
-                    '-hide_banner',
-                    '-loglevel', 'error',
-                    '-stats'
-                ])
+                    cmd.extend([
+                        '-c:v', 'libsvtav1',
+                        '-preset', '8',  # Preset 8 = fast encoding
+                        '-crf', str(self.cq),
+                        '-c:a', 'copy',
+                        '-f', 'mp4',
+                        str(tmp_file),
+                        '-y',
+                        '-hide_banner',
+                        '-loglevel', 'error',
+                        '-stats'
+                    ])
+                else:
+                    # GPU-based NVENC AV1 encoder
+                    cmd = [
+                        'ffmpeg',
+                        '-vsync', '0',
+                        '-hwaccel', 'cuda',
+                        '-fflags', '+genpts+igndts',  # Generate timestamps and ignore input DTS
+                        '-avoid_negative_ts', 'make_zero',  # Fix negative timestamps
+                        '-i', str(input_file),
+                    ]
+
+                    # Add rotation filter if requested
+                    if self.rotate_180:
+                        cmd.extend(['-vf', 'hflip,vflip'])
+
+                    cmd.extend([
+                        '-c:v', 'av1_nvenc',
+                        '-preset', 'p7',
+                        '-cq', str(self.cq),
+                        '-b:v', '0',
+                        '-c:a', 'copy',
+                        '-f', 'mp4',
+                        str(tmp_file),
+                        '-y',
+                        '-hide_banner',
+                        '-loglevel', 'error',
+                        '-stats'
+                    ])
 
                 start_time = datetime.now()
 
@@ -669,7 +697,8 @@ class VideoCompressor:
     def run(self):
         """Main execution method"""
         # Print initial info to console
-        self.console.print(f"\n[cyan]Video Batch Compression - NVENC AV1[/cyan]")
+        encoder_name = "SVT-AV1 (CPU)" if self.use_cpu else "NVENC AV1 (GPU)"
+        self.console.print(f"\n[cyan]Video Batch Compression - {encoder_name}[/cyan]")
         self.console.print(f"Input: {self.input_dir}")
         self.console.print(f"Output: {self.output_dir}")
         self.console.print(f"Threads: {self.thread_controller.get_current()} (use < and > keys to adjust, S to stop)")
@@ -704,13 +733,13 @@ class VideoCompressor:
         stop_refresh = threading.Event()
 
         def auto_refresh():
-            """Auto-refresh display every 0.2 seconds"""
+            """Auto-refresh display every 1 second"""
             while not stop_refresh.is_set():
                 try:
                     live.update(self.create_display(total_files, completed_count, files_to_process))
                 except:
                     pass
-                stop_refresh.wait(0.2)
+                stop_refresh.wait(1.0)
 
         # Start keyboard listener thread
         keyboard_thread = threading.Thread(target=self.keyboard_listener, daemon=True)
@@ -840,6 +869,12 @@ Output:
         help='Rotate video 180 degrees (equivalent to mpv --video-rotate=180)'
     )
 
+    parser.add_argument(
+        '--cpu',
+        action='store_true',
+        help='Use CPU encoder (SVT-AV1) instead of GPU (NVENC). Slower but more compatible.'
+    )
+
     args = parser.parse_args()
 
     # Validate input directory
@@ -856,7 +891,8 @@ Output:
         input_dir=args.input_dir,
         threads=args.threads,
         cq=args.cq,
-        rotate_180=args.rotate_180
+        rotate_180=args.rotate_180,
+        use_cpu=args.cpu
     )
 
     try:
