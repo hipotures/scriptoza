@@ -365,7 +365,7 @@ class VideoCompressor:
                     'ffmpeg',
                     '-vsync', '0',
                     '-hwaccel', 'cuda',
-                    '-fflags', '+genpts',  # Generate presentation timestamps
+                    '-fflags', '+genpts+igndts',  # Generate timestamps and ignore input DTS
                     '-avoid_negative_ts', 'make_zero',  # Fix negative timestamps
                     '-i', str(input_file),
                 ]
