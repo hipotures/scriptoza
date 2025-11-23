@@ -770,6 +770,7 @@ class VideoCompressor:
         completed_count = 0
         total_files = len(files_to_process)
         stop_refresh = threading.Event()
+        futures_lock = threading.Lock()
 
         def auto_refresh():
             """Auto-refresh display every 1 second"""
@@ -779,6 +780,59 @@ class VideoCompressor:
                 except:
                     pass
                 stop_refresh.wait(1.0)
+
+        def refresh_handler(executor, futures, files_to_process_list):
+            """Handle file list refresh in separate thread"""
+            nonlocal total_files
+
+            while not stop_refresh.is_set():
+                time.sleep(1.0)
+
+                # Check if refresh was requested
+                with self.refresh_lock:
+                    if not self.refresh_requested:
+                        continue
+                    self.refresh_requested = False
+
+                try:
+                    # Find new files
+                    new_input_files = self.find_input_files()
+                    new_completed_files = self.find_completed_files()
+
+                    # Get currently processing files (thread-safe)
+                    with self.processing_files_lock:
+                        processing = set(self.currently_processing_files)
+
+                    # Filter: new files = all files - completed - currently processing
+                    new_files = [
+                        f for f in new_input_files
+                        if f not in new_completed_files and f not in processing
+                    ]
+
+                    # Add only truly new files (not in original queue)
+                    with futures_lock:
+                        truly_new = [f for f in new_files if f not in files_to_process_list]
+
+                        if truly_new:
+                            # Add new files to queue and resort
+                            files_to_process_list.extend(truly_new)
+                            files_to_process_list.sort()
+                            total_files = len(files_to_process_list)
+
+                            # Submit new tasks
+                            for file in truly_new:
+                                future = executor.submit(self.compress_file, file)
+                                futures[future] = file
+
+                            self.set_last_action(f"Refreshed: +{len(truly_new)} new files")
+                            self.logger.info(f"Refresh: added {len(truly_new)} new files to queue")
+                        else:
+                            self.set_last_action("Refreshed: no new files")
+                            self.logger.info("Refresh: no new files found")
+
+                    live.update(self.create_display(total_files, completed_count, files_to_process_list))
+                except Exception as e:
+                    self.logger.error(f"Refresh error: {e}")
 
         # Start keyboard listener thread
         keyboard_thread = threading.Thread(target=self.keyboard_listener, daemon=True)
@@ -801,6 +855,14 @@ class VideoCompressor:
                         for file in files_to_process
                     }
 
+                    # Start refresh handler thread
+                    refresh_handler_thread = threading.Thread(
+                        target=refresh_handler,
+                        args=(executor, futures, files_to_process),
+                        daemon=True
+                    )
+                    refresh_handler_thread.start()
+
                     # Process results
                     for future in as_completed(futures):
                         try:
@@ -821,47 +883,6 @@ class VideoCompressor:
                             self.stats.add_error()
                             completed_count += 1
                             live.update(self.create_display(total_files, completed_count, files_to_process))
-
-                        # Check if refresh was requested
-                        with self.refresh_lock:
-                            if self.refresh_requested:
-                                self.refresh_requested = False
-
-                                # Find new files
-                                new_input_files = self.find_input_files()
-                                new_completed_files = self.find_completed_files()
-
-                                # Get currently processing files (thread-safe)
-                                with self.processing_files_lock:
-                                    processing = set(self.currently_processing_files)
-
-                                # Filter: new files = all files - completed - currently processing
-                                new_files = [
-                                    f for f in new_input_files
-                                    if f not in new_completed_files and f not in processing
-                                ]
-
-                                # Add only truly new files (not in original queue)
-                                truly_new = [f for f in new_files if f not in files_to_process]
-
-                                if truly_new:
-                                    # Add new files to queue and resort
-                                    files_to_process.extend(truly_new)
-                                    files_to_process.sort()
-                                    total_files = len(files_to_process)
-
-                                    # Submit new tasks
-                                    for file in truly_new:
-                                        future = executor.submit(self.compress_file, file)
-                                        futures[future] = file
-
-                                    self.set_last_action(f"Refreshed: +{len(truly_new)} new files")
-                                    self.logger.info(f"Refresh: added {len(truly_new)} new files to queue")
-                                else:
-                                    self.set_last_action("Refreshed: no new files")
-                                    self.logger.info("Refresh: no new files found")
-
-                                live.update(self.create_display(total_files, completed_count, files_to_process))
 
                 except KeyboardInterrupt:
                     self.console.print("\n[yellow]Ctrl+C detected - stopping new tasks...[/yellow]")
