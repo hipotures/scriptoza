@@ -192,6 +192,7 @@ class VideoCompressor:
         self.console = Console()
         self.stop_keyboard_thread = threading.Event()
         self.last_action = ""
+        self.last_action_time = None
         self.last_action_lock = threading.Lock()
         self.max_nvenc_retries = 2
         self.nvenc_retry_delay = 2  # seconds
@@ -266,13 +267,19 @@ class VideoCompressor:
             self.logger.info(f"Cleaned up {tmp_count} .tmp and {err_count} .err files")
 
     def set_last_action(self, action: str):
-        """Set last keyboard action for display"""
+        """Set last keyboard action for display with timestamp"""
         with self.last_action_lock:
             self.last_action = action
+            self.last_action_time = datetime.now()
 
     def get_last_action(self) -> str:
-        """Get last keyboard action"""
+        """Get last keyboard action (clears after 1 minute)"""
         with self.last_action_lock:
+            if self.last_action and self.last_action_time:
+                elapsed = (datetime.now() - self.last_action_time).total_seconds()
+                if elapsed > 60:  # Clear after 1 minute
+                    self.last_action = ""
+                    self.last_action_time = None
             return self.last_action
 
     def is_nvenc_session_error(self, message: str) -> bool:
@@ -577,7 +584,7 @@ class VideoCompressor:
 
         # Menu Panel
         menu_panel = Panel(
-            "< decrease | > increase | S stop | R refresh",
+            "[bright_red]<[/bright_red] decrease threads | [bright_red]>[/bright_red] increase threads | [bright_red]S[/bright_red] stop | [bright_red]R[/bright_red] refresh",
             title="MENU",
             border_style="white"
         )
@@ -596,7 +603,7 @@ class VideoCompressor:
             )
         else:
             status_lines.append(
-                f"Total: {total_files} files | Threads: {current_threads} (</> to adjust, S to stop) | "
+                f"Total: {total_files} files | Threads: {current_threads} | "
                 f"{self.format_size(stats['total_input_size'])} → {self.format_size(stats['total_output_size'])} "
                 f"({stats['avg_compression']:.1f}% avg) | "
                 f"{self.format_time(stats['elapsed'])} elapsed"
@@ -690,14 +697,18 @@ class VideoCompressor:
         next_table.add_column("File")
         next_table.add_column("Size", justify="right")
 
-        next_files = queue[completed_count:completed_count + 5]
-        for idx, file in enumerate(next_files, 1):
-            if file.exists():
-                next_table.add_row(
-                    f"{idx}.",
-                    file.name,
-                    self.format_size(file.stat().st_size)
-                )
+        # If shutdown requested, show empty queue
+        if is_shutdown:
+            next_files = []
+        else:
+            next_files = queue[completed_count:completed_count + 5]
+            for idx, file in enumerate(next_files, 1):
+                if file.exists():
+                    next_table.add_row(
+                        f"{idx}.",
+                        file.name,
+                        self.format_size(file.stat().st_size)
+                    )
 
         if next_files:
             queue_panel = Panel(
