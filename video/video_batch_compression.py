@@ -197,6 +197,12 @@ class VideoCompressor:
         self.nvenc_retry_delay = 2  # seconds
         self.nvenc_errors_seen = 0
 
+        # Refresh functionality
+        self.refresh_requested = False
+        self.refresh_lock = threading.Lock()
+        self.currently_processing_files: Set[Path] = set()
+        self.processing_files_lock = threading.Lock()
+
         # Setup file logging only
         log_file = self.output_dir / "compression.log"
         self.output_dir.mkdir(exist_ok=True)
@@ -314,6 +320,12 @@ class VideoCompressor:
                         if self.thread_controller.graceful_shutdown():
                             self.set_last_action("SHUTDOWN requested")
                             self.logger.info("Graceful shutdown requested - finishing current tasks...")
+                    # Refresh file list: R or r
+                    elif char in ('R', 'r'):
+                        with self.refresh_lock:
+                            self.refresh_requested = True
+                        self.set_last_action("REFRESH requested")
+                        self.logger.info("File list refresh requested")
         except Exception as e:
             self.logger.error(f"Keyboard listener error: {e}")
         finally:
@@ -349,6 +361,10 @@ class VideoCompressor:
 
         # Mark as processing immediately after acquiring slot
         self.stats.start_processing(filename, input_size)
+
+        # Add to currently processing files
+        with self.processing_files_lock:
+            self.currently_processing_files.add(input_file)
 
         try:
             output_file = self.get_output_path(input_file)
@@ -532,6 +548,10 @@ class VideoCompressor:
             # Always release thread slot
             self.thread_controller.release()
 
+            # Remove from currently processing files
+            with self.processing_files_lock:
+                self.currently_processing_files.discard(input_file)
+
     def format_size(self, size: int) -> str:
         """Format size in bytes to human readable"""
         for unit in ['B', 'KB', 'MB', 'GB']:
@@ -554,6 +574,13 @@ class VideoCompressor:
     def create_display(self, total_files: int, completed_count: int, queue: List[Path]) -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
+
+        # Menu Panel
+        menu_panel = Panel(
+            "< decrease | > increase | S stop | R refresh",
+            title="MENU",
+            border_style="white"
+        )
 
         # Status Panel
         status_lines = []
@@ -686,6 +713,7 @@ class VideoCompressor:
         summary_panel = Panel(summary, border_style="white")
 
         return Group(
+            menu_panel,
             status_panel,
             progress_panel,
             processing_panel,
@@ -782,6 +810,47 @@ class VideoCompressor:
                             self.stats.add_error()
                             completed_count += 1
                             live.update(self.create_display(total_files, completed_count, files_to_process))
+
+                        # Check if refresh was requested
+                        with self.refresh_lock:
+                            if self.refresh_requested:
+                                self.refresh_requested = False
+
+                                # Find new files
+                                new_input_files = self.find_input_files()
+                                new_completed_files = self.find_completed_files()
+
+                                # Get currently processing files (thread-safe)
+                                with self.processing_files_lock:
+                                    processing = set(self.currently_processing_files)
+
+                                # Filter: new files = all files - completed - currently processing
+                                new_files = [
+                                    f for f in new_input_files
+                                    if f not in new_completed_files and f not in processing
+                                ]
+
+                                # Add only truly new files (not in original queue)
+                                truly_new = [f for f in new_files if f not in files_to_process]
+
+                                if truly_new:
+                                    # Add new files to queue and resort
+                                    files_to_process.extend(truly_new)
+                                    files_to_process.sort()
+                                    total_files = len(files_to_process)
+
+                                    # Submit new tasks
+                                    for file in truly_new:
+                                        future = executor.submit(self.compress_file, file)
+                                        futures[future] = file
+
+                                    self.set_last_action(f"Refreshed: +{len(truly_new)} new files")
+                                    self.logger.info(f"Refresh: added {len(truly_new)} new files to queue")
+                                else:
+                                    self.set_last_action("Refreshed: no new files")
+                                    self.logger.info("Refresh: no new files found")
+
+                                live.update(self.create_display(total_files, completed_count, files_to_process))
 
                 except KeyboardInterrupt:
                     self.console.print("\n[yellow]Ctrl+C detected - stopping new tasks...[/yellow]")
