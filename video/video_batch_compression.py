@@ -396,24 +396,16 @@ class VideoCompressor:
                     '-i', str(input_file),
                 ]
 
-                # Build video filter: rotation + color space fix
-                vf_parts = []
-
-                # Fix invalid color space using scale_cuda (works with hwaccel)
-                vf_parts.append('scale_cuda=format=yuv420p')
-
-                # Add rotation if requested
+                # Add rotation filter if requested
                 if self.rotate_180:
-                    vf_parts.append('hwdownload,format=nv12,hflip,vflip,hwupload')
-
-                if vf_parts:
-                    cmd.extend(['-vf', ','.join(vf_parts)])
+                    cmd.extend(['-vf', 'hwdownload,format=nv12,hflip,vflip,hwupload'])
 
                 cmd.extend([
                     '-c:v', 'av1_nvenc',
                     '-preset', 'p7',
                     '-cq', str(self.cq),
                     '-b:v', '0',
+                    '-pix_fmt', 'yuv420p',  # Fix yuvj420p and invalid color space
                     '-c:a', 'copy',
                     '-f', 'mp4',
                     str(tmp_file),
