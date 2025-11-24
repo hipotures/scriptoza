@@ -54,7 +54,8 @@ copy_metadata = True # Copy EXIF (GPS, camera info)
 
 [autorotate]
 # Regex patterns for auto-rotation
-QVR_\d{8}_\d{6}\.mp4 = 180  # QVR files rotated 180°
+# NOTE: Use double backslash (\\d) for regex in INI files
+QVR_\\d{8}_\\d{6}\\.mp4 = 180  # QVR files rotated 180°
 ```
 
 **CLI arguments override config file settings.**

@@ -191,11 +191,12 @@ class CompressionStats:
         with self.lock:
             self.skipped_count += 1
 
-    def start_processing(self, filename: str, size: int):
+    def start_processing(self, filename: str, size: int, rotation_angle: int = 0):
         with self.lock:
             self.processing[filename] = {
                 'size': size,
-                'start_time': datetime.now()
+                'start_time': datetime.now(),
+                'rotation_angle': rotation_angle
             }
 
     def stop_processing(self, filename: str):
@@ -555,7 +556,7 @@ class VideoCompressor:
             }
 
         # Mark as processing immediately after acquiring slot
-        self.stats.start_processing(filename, input_size)
+        self.stats.start_processing(filename, input_size, rotation_angle)
 
         # Add to currently processing files
         with self.processing_files_lock:
@@ -826,9 +827,19 @@ class VideoCompressor:
         processing_table.add_column("Time", justify="right")
 
         # Spinner animation for currently processing files
-        spinner_frames = "◐◓◑◒"
+        # Different spinners based on rotation:
+        # - With auto-rotation (rotation_angle > 0): ◐◓◑◒ (rotating spinner)
+        # - Without rotation (rotation_angle == 0): ●○◉◎ (simple circles)
+        spinner_rotating = "◐◓◑◒"
+        spinner_simple = "●○◉◎"
+
         for idx, (filename, info) in enumerate(list(stats['processing'].items())):
             elapsed = (datetime.now() - info['start_time']).total_seconds()
+            rotation_angle = info.get('rotation_angle', 0)
+
+            # Choose spinner based on rotation
+            spinner_frames = spinner_rotating if rotation_angle > 0 else spinner_simple
+
             # Animate: each file gets different phase of spinner based on frame counter
             spinner_char = spinner_frames[(spinner_frame + idx) % len(spinner_frames)]
             processing_table.add_row(
