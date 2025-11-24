@@ -390,7 +390,6 @@ class VideoCompressor:
                     'ffmpeg',
                     '-vsync', '0',
                     '-hwaccel', 'cuda',
-                    '-hwaccel_output_format', 'cuda',  # Keep frames in GPU memory
                     '-fflags', '+genpts+igndts',  # Generate timestamps and ignore input DTS
                     '-avoid_negative_ts', 'make_zero',  # Fix negative timestamps
                     '-i', str(input_file),
@@ -398,14 +397,13 @@ class VideoCompressor:
 
                 # Add rotation filter if requested
                 if self.rotate_180:
-                    cmd.extend(['-vf', 'hwdownload,format=nv12,hflip,vflip,hwupload'])
+                    cmd.extend(['-vf', 'hflip,vflip'])
 
                 cmd.extend([
                     '-c:v', 'av1_nvenc',
                     '-preset', 'p7',
                     '-cq', str(self.cq),
                     '-b:v', '0',
-                    '-pix_fmt', 'yuv420p',  # Fix yuvj420p and invalid color space
                     '-c:a', 'copy',
                     '-f', 'mp4',
                     str(tmp_file),
