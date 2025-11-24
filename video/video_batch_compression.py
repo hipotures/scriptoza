@@ -240,12 +240,13 @@ class VideoCompressor:
         return completed
 
     def cleanup_temp_files(self):
-        """Remove all .tmp and .err files from output directory"""
+        """Remove all .tmp, .err, and *_colorfix.mp4 files from output directory"""
         if not self.output_dir.exists():
             return
 
         tmp_count = 0
         err_count = 0
+        colorfix_count = 0
 
         for tmp_file in self.output_dir.rglob("*.tmp"):
             tmp_file.unlink()
@@ -255,8 +256,108 @@ class VideoCompressor:
             err_file.unlink()
             err_count += 1
 
-        if tmp_count > 0 or err_count > 0:
-            self.logger.info(f"Cleaned up {tmp_count} .tmp and {err_count} .err files")
+        for colorfix_file in self.output_dir.rglob("*_colorfix.mp4"):
+            colorfix_file.unlink()
+            colorfix_count += 1
+
+        if tmp_count > 0 or err_count > 0 or colorfix_count > 0:
+            self.logger.info(f"Cleaned up {tmp_count} .tmp, {err_count} .err, and {colorfix_count} *_colorfix.mp4 files")
+
+    def check_and_fix_color_space(self, input_file: Path) -> tuple[Path, Optional[Path]]:
+        """
+        Check if video has reserved color space and fix it if needed.
+
+        Returns:
+            tuple: (file_to_compress, temp_file_path)
+                - file_to_compress: Path to use for compression (original or fixed)
+                - temp_file_path: Path to temporary fixed file (None if no fix needed)
+        """
+        try:
+            # Check color space using ffprobe
+            result = subprocess.run(
+                [
+                    'ffprobe',
+                    '-v', 'error',
+                    '-select_streams', 'v:0',
+                    '-show_entries', 'stream=color_space,codec_name',
+                    '-of', 'default=noprint_wrappers=1',
+                    str(input_file)
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if result.returncode != 0:
+                # Can't determine color space - proceed with original file
+                return (input_file, None)
+
+            # Parse output
+            output_lines = result.stdout.strip().split('\n')
+            color_space = None
+            codec_name = None
+
+            for line in output_lines:
+                if line.startswith('color_space='):
+                    color_space = line.split('=')[1]
+                elif line.startswith('codec_name='):
+                    codec_name = line.split('=')[1]
+
+            # If color space is "reserved", fix it
+            if color_space == 'reserved':
+                self.logger.info(f"Detected reserved color space in {input_file.name}, applying fix...")
+
+                # Create temporary fixed file in output directory
+                output_file = self.get_output_path(input_file)
+                temp_fixed = output_file.parent / f"{output_file.stem}_colorfix.mp4"
+                temp_fixed.parent.mkdir(parents=True, exist_ok=True)
+
+                # Choose appropriate bitstream filter based on codec
+                if codec_name == 'hevc':
+                    bsf = 'hevc_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1'
+                elif codec_name == 'h264':
+                    bsf = 'h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1'
+                else:
+                    # Unsupported codec for metadata fix
+                    self.logger.warning(f"Cannot fix color space for codec {codec_name}, proceeding with original file")
+                    return (input_file, None)
+
+                # Fix color space metadata using bitstream filter
+                fix_result = subprocess.run(
+                    [
+                        'ffmpeg',
+                        '-i', str(input_file),
+                        '-c', 'copy',
+                        '-bsf:v', bsf,
+                        str(temp_fixed),
+                        '-y',
+                        '-hide_banner',
+                        '-loglevel', 'error'
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 minute timeout for remux
+                )
+
+                if fix_result.returncode == 0 and temp_fixed.exists():
+                    self.logger.info(f"Successfully fixed color space for {input_file.name}")
+                    return (temp_fixed, temp_fixed)
+                else:
+                    # Fix failed - cleanup and use original
+                    if temp_fixed.exists():
+                        temp_fixed.unlink()
+                    self.logger.warning(f"Failed to fix color space for {input_file.name}, proceeding with original")
+                    return (input_file, None)
+
+            # Color space is OK - use original file
+            return (input_file, None)
+
+        except subprocess.TimeoutExpired:
+            self.logger.error(f"Timeout while checking/fixing color space for {input_file.name}")
+            return (input_file, None)
+        except Exception as e:
+            self.logger.error(f"Error checking color space for {input_file.name}: {e}")
+            return (input_file, None)
 
     def set_last_action(self, action: str):
         """Set last keyboard action for display with timestamp"""
@@ -335,8 +436,14 @@ class VideoCompressor:
                 'error': f'Failed to read file: {str(e)}'
             }
 
+        # Check and fix color space if needed (before acquiring thread slot)
+        file_to_compress, temp_fixed_file = self.check_and_fix_color_space(input_file)
+
         # Acquire thread slot (returns False if shutdown requested)
         if not self.thread_controller.acquire():
+            # Cleanup temp file if created
+            if temp_fixed_file and temp_fixed_file.exists():
+                temp_fixed_file.unlink()
             return {
                 'status': 'skipped',
                 'input': input_file,
@@ -365,7 +472,7 @@ class VideoCompressor:
                         'ffmpeg',
                         '-fflags', '+genpts+igndts',  # Generate timestamps and ignore input DTS
                         '-avoid_negative_ts', 'make_zero',  # Fix negative timestamps
-                        '-i', str(input_file),
+                        '-i', str(file_to_compress),
                     ]
 
                     # Add rotation filter if requested
@@ -392,7 +499,7 @@ class VideoCompressor:
                     '-hwaccel', 'cuda',
                     '-fflags', '+genpts+igndts',  # Generate timestamps and ignore input DTS
                     '-avoid_negative_ts', 'make_zero',  # Fix negative timestamps
-                    '-i', str(input_file),
+                    '-i', str(file_to_compress),
                 ]
 
                 # Add rotation filter if requested
@@ -499,6 +606,13 @@ class VideoCompressor:
             # Remove from currently processing files
             with self.processing_files_lock:
                 self.currently_processing_files.discard(input_file)
+
+            # Cleanup temporary color-fixed file if it was created
+            if temp_fixed_file and temp_fixed_file.exists():
+                try:
+                    temp_fixed_file.unlink()
+                except Exception as e:
+                    self.logger.warning(f"Failed to cleanup temp file {temp_fixed_file}: {e}")
 
     def format_size(self, size: int) -> str:
         """Format size in bytes to human readable"""
