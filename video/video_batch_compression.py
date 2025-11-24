@@ -578,7 +578,7 @@ class VideoCompressor:
             minutes = int((seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
 
-    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None) -> Group:
+    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None) -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
 
@@ -704,13 +704,14 @@ class VideoCompressor:
         if is_shutdown:
             next_files = []
         else:
-            # Calculate remaining files = all files - completed - currently processing
-            if completed_files_set is not None:
+            # Calculate waiting files = submitted but not yet processing or completed
+            if completed_files_set is not None and submitted_files_set is not None:
                 with self.processing_files_lock:
                     processing = set(self.currently_processing_files)
-                remaining = [f for f in queue if f not in completed_files_set and f not in processing]
-                remaining.sort()  # Sort alphabetically
-                next_files = remaining[:5]
+                # Waiting = submitted - completed - currently processing
+                waiting = [f for f in submitted_files_set if f not in completed_files_set and f not in processing]
+                waiting.sort()  # Sort alphabetically
+                next_files = waiting[:5]
             else:
                 # Fallback to old behavior
                 next_files = queue[completed_count:completed_count + 5]
@@ -801,7 +802,13 @@ Already compressed: {len(completed_files)}"""
                 try:
                     with completed_files_lock:
                         completed_set_copy = set(completed_files_set)
-                    live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy))
+                    # Try to get submitted files from futures (may not exist yet at startup)
+                    try:
+                        with futures_lock:
+                            submitted_set_copy = set(futures.values())
+                    except NameError:
+                        submitted_set_copy = set()
+                    live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, submitted_set_copy))
                 except:
                     pass
                 stop_refresh.wait(1.0)
@@ -857,7 +864,9 @@ Already compressed: {len(completed_files)}"""
 
                     with completed_files_lock:
                         completed_set_copy = set(completed_files_set)
-                    live.update(self.create_display(total_files, completed_count, files_to_process_list, completed_set_copy))
+                    with futures_lock:
+                        submitted_set_copy = set(futures.values())
+                    live.update(self.create_display(total_files, completed_count, files_to_process_list, completed_set_copy, submitted_set_copy))
                 except Exception as e:
                     self.logger.error(f"Refresh error: {e}")
 
@@ -866,7 +875,7 @@ Already compressed: {len(completed_files)}"""
         keyboard_thread.start()
 
         try:
-            with Live(self.create_display(total_files, completed_count, files_to_process, set()),
+            with Live(self.create_display(total_files, completed_count, files_to_process, set(), set()),
                       refresh_per_second=10, console=self.console) as live:
 
                 # Start auto-refresh thread
@@ -939,7 +948,9 @@ Already compressed: {len(completed_files)}"""
 
                         with completed_files_lock:
                             completed_set_copy = set(completed_files_set)
-                        live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy))
+                        with futures_lock:
+                            submitted_set_copy = set(futures.values())
+                        live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, submitted_set_copy))
 
                 except KeyboardInterrupt:
                     self.console.print("\n[yellow]Ctrl+C detected - stopping new tasks...[/yellow]")
