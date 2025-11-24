@@ -180,13 +180,14 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
         self.cq = cq
         self.rotate_180 = rotate_180
         self.use_cpu = use_cpu
+        self.prefetch_factor = prefetch_factor
         self.max_depth = 3
         self.stats = CompressionStats()
         self.console = Console()
@@ -578,7 +579,7 @@ class VideoCompressor:
             minutes = int((seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
 
-    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None) -> Group:
+    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None) -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
 
@@ -644,10 +645,13 @@ class VideoCompressor:
         processing_table.add_column("Size", justify="right")
         processing_table.add_column("Time", justify="right")
 
-        for filename, info in list(stats['processing'].items()):
+        # Spinner animation for currently processing files
+        spinner_frames = "◐◓◑◒"
+        for idx, (filename, info) in enumerate(list(stats['processing'].items())):
             elapsed = (datetime.now() - info['start_time']).total_seconds()
+            spinner_char = spinner_frames[idx % len(spinner_frames)]
             processing_table.add_row(
-                "⏳",
+                spinner_char,
                 filename,
                 self.format_size(info['size']),
                 self.format_time(elapsed)
@@ -696,7 +700,7 @@ class VideoCompressor:
 
         # Next in Queue Panel
         next_table = Table(show_header=False, box=None, padding=(0, 1))
-        next_table.add_column("No.", width=3, style="dim")
+        next_table.add_column("", width=3, style="dim")
         next_table.add_column("File")
         next_table.add_column("Size", justify="right")
 
@@ -704,22 +708,28 @@ class VideoCompressor:
         if is_shutdown:
             next_files = []
         else:
-            # Calculate waiting files = submitted but not yet processing or completed
-            if completed_files_set is not None and submitted_files_set is not None:
+            # Submit-on-demand: show files waiting to be processed
+            # Priority 1: Files in in_flight but not yet processing (submitted, waiting for slot)
+            # Priority 2: Files in pending_files (not yet submitted)
+            if in_flight_files is not None and pending_files_list is not None:
                 with self.processing_files_lock:
                     processing = set(self.currently_processing_files)
-                # Waiting = submitted - completed - currently processing
-                waiting = [f for f in submitted_files_set if f not in completed_files_set and f not in processing]
-                waiting.sort()  # Sort alphabetically
-                next_files = waiting[:5]
+
+                # Files submitted but waiting for thread slot (sorted for consistent display)
+                waiting_in_flight = sorted([f for f in in_flight_files if f not in processing])
+
+                # Combine: waiting in_flight + pending, take first 5
+                next_files = (waiting_in_flight + pending_files_list)[:5]
+            elif pending_files_list is not None:
+                next_files = pending_files_list[:5]
             else:
-                # Fallback to old behavior
+                # Fallback to old behavior (shouldn't happen with submit-on-demand)
                 next_files = queue[completed_count:completed_count + 5]
 
-            for idx, file in enumerate(next_files, 1):
+            for file in next_files:
                 if file.exists():
                     next_table.add_row(
-                        f"{idx}.",
+                        "⏳",
                         file.name,
                         self.format_size(file.stat().st_size)
                     )
@@ -779,6 +789,7 @@ Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}
 Input: {self.input_dir}
 Output: {self.output_dir}
 Threads: {self.thread_controller.get_current()}
+Prefetch factor: {self.prefetch_factor}× (max_inflight = {self.prefetch_factor * self.thread_controller.get_current()})
 Quality: CQ{self.cq}
 Rotate 180°: {self.rotate_180}
 
@@ -796,24 +807,40 @@ Already compressed: {len(completed_files)}"""
         completed_files_set: Set[Path] = set()
         completed_files_lock = threading.Lock()
 
+        # Submit-on-demand architecture
+        pending_files: Deque[Path] = deque(sorted(files_to_process))  # Unsubmitted files
+        in_flight: Dict = {}  # Future -> Path, submitted but not completed
+        queue_lock = threading.Lock()  # Protects pending_files and in_flight
+
+        def top_up_queue(executor):
+            """Submit tasks from pending_files to executor up to max_inflight limit"""
+            max_inflight = self.prefetch_factor * self.thread_controller.get_current()
+
+            with queue_lock:
+                while (
+                    len(in_flight) < max_inflight
+                    and pending_files
+                    and not self.thread_controller.is_shutdown_requested()
+                ):
+                    file = pending_files.popleft()
+                    future = executor.submit(self.compress_file, file)
+                    in_flight[future] = file
+
         def auto_refresh():
             """Auto-refresh display every 1 second"""
             while not stop_refresh.is_set():
                 try:
                     with completed_files_lock:
                         completed_set_copy = set(completed_files_set)
-                    # Try to get submitted files from futures (may not exist yet at startup)
-                    try:
-                        with futures_lock:
-                            submitted_set_copy = set(futures.values())
-                    except NameError:
-                        submitted_set_copy = set()
-                    live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, submitted_set_copy))
+                    with queue_lock:
+                        pending_files_copy = list(pending_files)
+                        in_flight_files_copy = list(in_flight.values())
+                    live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, None, pending_files_copy, in_flight_files_copy))
                 except:
                     pass
                 stop_refresh.wait(1.0)
 
-        def refresh_handler(executor, futures, files_to_process_list):
+        def refresh_handler(executor, files_to_process_list):
             """Handle file list refresh in separate thread"""
             nonlocal total_files
 
@@ -826,6 +853,10 @@ Already compressed: {len(completed_files)}"""
                         continue
                     self.refresh_requested = False
 
+                # Don't add files if shutdown requested
+                if self.thread_controller.is_shutdown_requested():
+                    continue
+
                 try:
                     # Find new files
                     new_input_files = self.find_input_files()
@@ -835,38 +866,50 @@ Already compressed: {len(completed_files)}"""
                     with self.processing_files_lock:
                         processing = set(self.currently_processing_files)
 
-                    # Filter: new files = all files - completed - currently processing
-                    new_files = [
-                        f for f in new_input_files
-                        if f not in new_completed_files and f not in processing
-                    ]
+                    # Get completed files (thread-safe)
+                    with completed_files_lock:
+                        completed = set(completed_files_set)
 
-                    # Add only truly new files (not in original queue)
-                    with futures_lock:
-                        truly_new = [f for f in new_files if f not in files_to_process_list]
+                    # Get known files from all sources
+                    with queue_lock:
+                        known = (
+                            processing
+                            | completed
+                            | set(pending_files)
+                            | set(in_flight.values())
+                        )
 
-                        if truly_new:
-                            # Add new files to queue and resort
-                            files_to_process_list.extend(truly_new)
-                            files_to_process_list.sort()
+                        # Filter: candidates = new files not in any known set
+                        candidates = [
+                            f for f in new_input_files
+                            if f not in new_completed_files and f not in known
+                        ]
+
+                        if candidates:
+                            # Sort new files alphabetically (optional)
+                            candidates.sort()
+
+                            # Add to end of pending queue (FIFO)
+                            pending_files.extend(candidates)
+                            files_to_process_list.extend(candidates)
                             total_files = len(files_to_process_list)
 
-                            # Submit new tasks
-                            for file in truly_new:
-                                future = executor.submit(self.compress_file, file)
-                                futures[future] = file
-
-                            self.set_last_action(f"Refreshed: +{len(truly_new)} new files")
-                            self.logger.info(f"Refresh: added {len(truly_new)} new files to queue")
+                            self.set_last_action(f"Refreshed: +{len(candidates)} new files")
+                            self.logger.info(f"Refresh: added {len(candidates)} new files to queue")
                         else:
                             self.set_last_action("Refreshed: no new files")
                             self.logger.info("Refresh: no new files found")
 
+                    # Trigger top-up to submit new files if there's capacity
+                    top_up_queue(executor)
+
+                    # Update display
                     with completed_files_lock:
                         completed_set_copy = set(completed_files_set)
-                    with futures_lock:
-                        submitted_set_copy = set(futures.values())
-                    live.update(self.create_display(total_files, completed_count, files_to_process_list, completed_set_copy, submitted_set_copy))
+                    with queue_lock:
+                        pending_files_copy = list(pending_files)
+                        in_flight_files_copy = list(in_flight.values())
+                    live.update(self.create_display(total_files, completed_count, files_to_process_list, completed_set_copy, None, pending_files_copy, in_flight_files_copy))
                 except Exception as e:
                     self.logger.error(f"Refresh error: {e}")
 
@@ -875,7 +918,7 @@ Already compressed: {len(completed_files)}"""
         keyboard_thread.start()
 
         try:
-            with Live(self.create_display(total_files, completed_count, files_to_process, set(), set()),
+            with Live(self.create_display(total_files, completed_count, files_to_process, set(), None, list(pending_files), []),
                       refresh_per_second=10, console=self.console) as live:
 
                 # Start auto-refresh thread
@@ -885,34 +928,55 @@ Already compressed: {len(completed_files)}"""
                 # Use max 16 workers pool, actual limit controlled by semaphore
                 executor = ThreadPoolExecutor(max_workers=16)
                 try:
-                    # Submit all tasks
-                    futures = {
-                        executor.submit(self.compress_file, file): file
-                        for file in files_to_process
-                    }
+                    # Submit-on-demand: submit initial batch up to max_inflight
+                    top_up_queue(executor)
 
                     # Start refresh handler thread
                     refresh_handler_thread = threading.Thread(
                         target=refresh_handler,
-                        args=(executor, futures, files_to_process),
+                        args=(executor, files_to_process),
                         daemon=True
                     )
                     refresh_handler_thread.start()
 
-                    # Process results - use wait() to support dynamic future addition
-                    while futures:
-                        with futures_lock:
-                            if not futures:
-                                break
-                            current_futures = set(futures.keys())
+                    # Process results - submit-on-demand: only process in_flight futures
+                    while True:
+                        is_shutdown = self.thread_controller.is_shutdown_requested()
 
-                        # Wait for at least one future to complete
-                        done, _ = wait(current_futures, return_when=FIRST_COMPLETED)
+                        with queue_lock:
+                            # Normal operation: end when both queues empty
+                            # Shutdown: end when in_flight empty (ignore pending_files)
+                            if is_shutdown:
+                                if not in_flight:
+                                    break
+                            else:
+                                if not in_flight and not pending_files:
+                                    break
+
+                            current_futures = set(in_flight.keys())
+                            has_pending = len(pending_files) > 0
+
+                        # If no futures in flight but pending files remain, top-up and continue
+                        if not current_futures:
+                            if has_pending and not is_shutdown:
+                                top_up_queue(executor)
+                                continue
+                            else:
+                                break
+
+                        # Wait for at least one future to complete (with timeout to react to thread changes)
+                        done, _ = wait(current_futures, timeout=1.0, return_when=FIRST_COMPLETED)
+
+                        # If timeout (no completions), check if we need to top-up queue
+                        # (e.g., user increased threads via '>' key)
+                        if not done:
+                            top_up_queue(executor)
+                            continue
 
                         for future in done:
                             # Get the file path for this future
-                            with futures_lock:
-                                completed_file = futures.get(future)
+                            with queue_lock:
+                                completed_file = in_flight.get(future)
 
                             try:
                                 result = future.result()
@@ -941,16 +1005,20 @@ Already compressed: {len(completed_files)}"""
                                     with completed_files_lock:
                                         completed_files_set.add(completed_file)
 
-                            # Remove processed future
-                            with futures_lock:
-                                if future in futures:
-                                    del futures[future]
+                            # Remove processed future from in_flight
+                            with queue_lock:
+                                if future in in_flight:
+                                    del in_flight[future]
+
+                            # Submit-on-demand: replenish queue after completion
+                            top_up_queue(executor)
 
                         with completed_files_lock:
                             completed_set_copy = set(completed_files_set)
-                        with futures_lock:
-                            submitted_set_copy = set(futures.values())
-                        live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, submitted_set_copy))
+                        with queue_lock:
+                            pending_files_copy = list(pending_files)
+                            in_flight_files_copy = list(in_flight.values())
+                        live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, None, pending_files_copy, in_flight_files_copy))
 
                 except KeyboardInterrupt:
                     self.console.print("\n[yellow]Ctrl+C detected - stopping new tasks...[/yellow]")
@@ -959,10 +1027,11 @@ Already compressed: {len(completed_files)}"""
                     # Stop accepting new tasks
                     self.thread_controller.graceful_shutdown()
 
-                    # Cancel all pending futures
-                    for future in futures:
-                        if not future.done():
-                            future.cancel()
+                    # Cancel all in-flight futures
+                    with queue_lock:
+                        for future in list(in_flight.keys()):
+                            if not future.done():
+                                future.cancel()
 
                     # Wait for currently running tasks (max 30 seconds)
                     self.console.print("[yellow]Waiting for active tasks to finish (max 30s)...[/yellow]")
@@ -1053,6 +1122,14 @@ Output:
         help='Use CPU encoder (SVT-AV1) instead of GPU (NVENC). Slower but more compatible.'
     )
 
+    parser.add_argument(
+        '--prefetch-factor',
+        type=int,
+        default=1,
+        choices=[1, 2, 3, 4, 5],
+        help='Submit-on-demand prefetch multiplier: max_inflight = factor × threads (default: 1 for strict FIFO)'
+    )
+
     args = parser.parse_args()
 
     # Validate input directory
@@ -1070,7 +1147,8 @@ Output:
         threads=args.threads,
         cq=args.cq,
         rotate_180=args.rotate_180,
-        use_cpu=args.cpu
+        use_cpu=args.cpu,
+        prefetch_factor=args.prefetch_factor
     )
 
     try:
