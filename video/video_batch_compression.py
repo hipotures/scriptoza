@@ -640,6 +640,7 @@ class VideoCompressor:
 
         # Currently Processing Panel
         processing_table = Table(show_header=False, box=None, padding=(0, 1))
+        processing_table.add_column("Status", width=3, style="yellow")
         processing_table.add_column("File", style="yellow")
         processing_table.add_column("Size", justify="right")
         processing_table.add_column("Time", justify="right")
@@ -647,7 +648,8 @@ class VideoCompressor:
         for filename, info in list(stats['processing'].items()):
             elapsed = (datetime.now() - info['start_time']).total_seconds()
             processing_table.add_row(
-                f"⏳ {filename}",
+                "⏳",
+                filename,
                 self.format_size(info['size']),
                 self.format_time(elapsed)
             )
@@ -663,6 +665,7 @@ class VideoCompressor:
 
         # Last Completed Panel
         completed_table = Table(show_header=False, box=None, padding=(0, 1))
+        completed_table.add_column("Status", width=3, style="green")
         completed_table.add_column("File", style="green", no_wrap=False)
         completed_table.add_column("Input", justify="right", style="cyan")
         completed_table.add_column("→", justify="center", style="dim")
@@ -674,7 +677,8 @@ class VideoCompressor:
         completed_list = list(reversed(list(stats['completed'])))
         for item in completed_list[:5]:
             completed_table.add_row(
-                f"✓ {item['input'].name}",
+                "✓",
+                item['input'].name,
                 self.format_size(item['input_size']),
                 "→",
                 self.format_size(item['output_size']),
@@ -693,7 +697,7 @@ class VideoCompressor:
 
         # Next in Queue Panel
         next_table = Table(show_header=False, box=None, padding=(0, 1))
-        next_table.add_column("No.", style="dim")
+        next_table.add_column("No.", width=3, style="dim")
         next_table.add_column("File")
         next_table.add_column("Size", justify="right")
 
