@@ -390,23 +390,30 @@ class VideoCompressor:
                     'ffmpeg',
                     '-vsync', '0',
                     '-hwaccel', 'cuda',
+                    '-hwaccel_output_format', 'cuda',  # Keep frames in GPU memory
                     '-fflags', '+genpts+igndts',  # Generate timestamps and ignore input DTS
                     '-avoid_negative_ts', 'make_zero',  # Fix negative timestamps
                     '-i', str(input_file),
                 ]
 
-                # Add rotation filter if requested
+                # Build video filter: rotation + color space fix
+                vf_parts = []
+
+                # Fix invalid color space using scale_cuda (works with hwaccel)
+                vf_parts.append('scale_cuda=format=yuv420p')
+
+                # Add rotation if requested
                 if self.rotate_180:
-                    cmd.extend(['-vf', 'hflip,vflip'])
+                    vf_parts.append('hwdownload,format=nv12,hflip,vflip,hwupload')
+
+                if vf_parts:
+                    cmd.extend(['-vf', ','.join(vf_parts)])
 
                 cmd.extend([
                     '-c:v', 'av1_nvenc',
                     '-preset', 'p7',
                     '-cq', str(self.cq),
                     '-b:v', '0',
-                    '-colorspace', '1',  # Fix color space metadata
-                    '-color_trc', '1',
-                    '-color_primaries', '1',
                     '-c:a', 'copy',
                     '-f', 'mp4',
                     str(tmp_file),
