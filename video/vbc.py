@@ -5,7 +5,9 @@ Compresses all .mp4 files in input directory to AV1 with specified quality
 """
 
 import argparse
+import configparser
 import logging
+import re
 import select
 import subprocess
 import sys
@@ -29,6 +31,60 @@ try:
 except ImportError:
     print("Error: rich not installed. Install with: pip install rich")
     sys.exit(1)
+
+
+def load_config() -> Dict:
+    """
+    Load configuration from conf/vbc.conf
+    Returns dict with default values if config file doesn't exist or can't be read
+    """
+    defaults = {
+        'threads': 4,
+        'cq': 45,
+        'prefetch_factor': 1,
+        'gpu': True,
+        'copy_metadata': True,
+        'autorotate_patterns': {}
+    }
+
+    config_file = Path(__file__).parent.parent / 'conf' / 'vbc.conf'
+
+    if not config_file.exists():
+        return defaults
+
+    try:
+        config = configparser.ConfigParser()
+        config.read(config_file)
+
+        # Load [general] section
+        if config.has_section('general'):
+            if config.has_option('general', 'threads'):
+                defaults['threads'] = config.getint('general', 'threads')
+            if config.has_option('general', 'cq'):
+                defaults['cq'] = config.getint('general', 'cq')
+            if config.has_option('general', 'prefetch_factor'):
+                defaults['prefetch_factor'] = config.getint('general', 'prefetch_factor')
+            if config.has_option('general', 'gpu'):
+                defaults['gpu'] = config.getboolean('general', 'gpu')
+            if config.has_option('general', 'copy_metadata'):
+                defaults['copy_metadata'] = config.getboolean('general', 'copy_metadata')
+
+        # Load [autorotate] section
+        if config.has_section('autorotate'):
+            autorotate = {}
+            for pattern, angle_str in config.items('autorotate'):
+                try:
+                    angle = int(angle_str)
+                    if angle in [0, 90, 180, 270]:
+                        autorotate[pattern] = angle
+                except (ValueError, re.error):
+                    pass
+            defaults['autorotate_patterns'] = autorotate
+
+        return defaults
+    except Exception as e:
+        print(f"Warning: Failed to read config file {config_file}: {e}")
+        return defaults
 
 
 class ThreadController:
@@ -170,7 +226,7 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, autorotate_patterns: Dict[str, int] = None):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
@@ -178,6 +234,8 @@ class VideoCompressor:
         self.rotate_180 = rotate_180
         self.use_cpu = use_cpu
         self.prefetch_factor = prefetch_factor
+        self.copy_metadata = copy_metadata
+        self.autorotate_patterns = autorotate_patterns or {}
         self.max_depth = 3
         self.stats = CompressionStats()
         self.console = Console()
@@ -262,6 +320,27 @@ class VideoCompressor:
 
         if tmp_count > 0 or err_count > 0 or colorfix_count > 0:
             self.logger.info(f"Cleaned up {tmp_count} .tmp, {err_count} .err, and {colorfix_count} *_colorfix.mp4 files")
+
+    def get_auto_rotation(self, input_file: Path) -> int:
+        """
+        Check if file matches auto-rotation patterns from config.
+        Returns rotation angle (0, 90, 180, 270) or 0 if no match.
+        """
+        if not self.autorotate_patterns:
+            return 0
+
+        filename = input_file.name
+
+        for pattern, angle in self.autorotate_patterns.items():
+            try:
+                if re.match(pattern, filename):
+                    self.logger.info(f"Auto-rotation matched: {filename} → {angle}° (pattern: {pattern})")
+                    return angle
+            except re.error as e:
+                self.logger.warning(f"Invalid regex pattern in config: {pattern} - {e}")
+                continue
+
+        return 0
 
     def check_and_fix_color_space(self, input_file: Path) -> tuple[str, Path, Optional[Path]]:
         """
@@ -457,6 +536,13 @@ class VideoCompressor:
                 'error': 'File is corrupted (ffprobe failed)'
             }
 
+        # Determine rotation angle
+        # CLI flag --rotate-180 takes priority, otherwise check auto-rotation config
+        if self.rotate_180:
+            rotation_angle = 180
+        else:
+            rotation_angle = self.get_auto_rotation(input_file)
+
         # Acquire thread slot (returns False if shutdown requested)
         if not self.thread_controller.acquire():
             # Cleanup temp file if created
@@ -493,15 +579,26 @@ class VideoCompressor:
                         '-i', str(file_to_compress),
                     ]
 
-                    # Add rotation filter if requested
-                    if self.rotate_180:
+                    # Add rotation filter if needed
+                    if rotation_angle == 180:
                         cmd.extend(['-vf', 'hflip,vflip'])
+                    elif rotation_angle == 90:
+                        cmd.extend(['-vf', 'transpose=1'])
+                    elif rotation_angle == 270:
+                        cmd.extend(['-vf', 'transpose=2'])
 
                     cmd.extend([
                         '-c:v', 'libsvtav1',
                         '-preset', '8',  # Preset 8 = fast encoding
                         '-crf', str(self.cq),
                         '-c:a', 'copy',
+                    ])
+
+                    # Copy EXIF metadata if enabled
+                    if self.copy_metadata:
+                        cmd.extend(['-map_metadata', '0'])
+
+                    cmd.extend([
                         '-f', 'mp4',
                         str(tmp_file),
                         '-y',
@@ -520,9 +617,13 @@ class VideoCompressor:
                     '-i', str(file_to_compress),
                 ]
 
-                # Add rotation filter if requested
-                if self.rotate_180:
+                # Add rotation filter if needed
+                if rotation_angle == 180:
                     cmd.extend(['-vf', 'hflip,vflip'])
+                elif rotation_angle == 90:
+                    cmd.extend(['-vf', 'transpose=1'])
+                elif rotation_angle == 270:
+                    cmd.extend(['-vf', 'transpose=2'])
 
                 cmd.extend([
                     '-c:v', 'av1_nvenc',
@@ -530,6 +631,13 @@ class VideoCompressor:
                     '-cq', str(self.cq),
                     '-b:v', '0',
                     '-c:a', 'copy',
+                ])
+
+                # Copy EXIF metadata if enabled
+                if self.copy_metadata:
+                    cmd.extend(['-map_metadata', '0'])
+
+                cmd.extend([
                     '-f', 'mp4',
                     str(tmp_file),
                     '-y',
@@ -1158,13 +1266,21 @@ Already compressed: {len(completed_files)}"""
 
 
 def main():
+    # Load configuration from conf/vbc.conf
+    config = load_config()
+
     parser = argparse.ArgumentParser(
-        description='Batch compress videos using NVENC AV1',
+        description='VBC - Video Batch Compression using AV1',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
-  python compress_batch.py /path/to/videos --threads 4 --cq 45
-  python compress_batch.py /path/to/videos --threads 4 --cq 45 --rotate-180
+  python vbc.py /path/to/videos --threads 4 --cq 45
+  python vbc.py /path/to/videos --rotate-180 --no-metadata
+
+Configuration:
+  - Default values are loaded from conf/vbc.conf
+  - CLI arguments override config file settings
+  - Auto-rotation patterns defined in config file
 
 Output:
   - Compressed files: /path/to/videos_out/
@@ -1182,35 +1298,41 @@ Output:
     parser.add_argument(
         '--threads',
         type=int,
-        default=4,
-        help='Number of parallel compression threads (default: 4)'
+        default=config['threads'],
+        help=f'Number of parallel compression threads (default: {config["threads"]} from config)'
     )
 
     parser.add_argument(
         '--cq',
         type=int,
-        default=45,
-        help='AV1 constant quality value (default: 45, lower=better quality)'
+        default=config['cq'],
+        help=f'AV1 constant quality value (default: {config["cq"]} from config, lower=better quality)'
     )
 
     parser.add_argument(
         '--rotate-180',
         action='store_true',
-        help='Rotate video 180 degrees (equivalent to mpv --video-rotate=180)'
+        help='Rotate all videos 180 degrees (overrides auto-rotation from config)'
     )
 
     parser.add_argument(
         '--cpu',
         action='store_true',
-        help='Use CPU encoder (SVT-AV1) instead of GPU (NVENC). Slower but more compatible.'
+        help=f'Use CPU encoder (SVT-AV1) instead of GPU (NVENC). Default: {"CPU" if not config["gpu"] else "GPU"} from config'
     )
 
     parser.add_argument(
         '--prefetch-factor',
         type=int,
-        default=1,
+        default=config['prefetch_factor'],
         choices=[1, 2, 3, 4, 5],
-        help='Submit-on-demand prefetch multiplier: max_inflight = factor × threads (default: 1 for strict FIFO)'
+        help=f'Submit-on-demand prefetch multiplier (default: {config["prefetch_factor"]} from config)'
+    )
+
+    parser.add_argument(
+        '--no-metadata',
+        action='store_true',
+        help=f'Do not copy EXIF metadata (GPS, camera info). Default: {"copy" if config["copy_metadata"] else "do not copy"} from config'
     )
 
     args = parser.parse_args()
@@ -1224,14 +1346,22 @@ Output:
         print(f"Error: Input path is not a directory: {args.input_dir}")
         sys.exit(1)
 
+    # Determine encoder: --cpu flag overrides config, otherwise use config['gpu']
+    use_cpu = args.cpu if args.cpu else (not config['gpu'])
+
+    # Determine metadata copying: --no-metadata flag overrides config
+    copy_metadata = not args.no_metadata if args.no_metadata else config['copy_metadata']
+
     # Run compression
     compressor = VideoCompressor(
         input_dir=args.input_dir,
         threads=args.threads,
         cq=args.cq,
         rotate_180=args.rotate_180,
-        use_cpu=args.cpu,
-        prefetch_factor=args.prefetch_factor
+        use_cpu=use_cpu,
+        prefetch_factor=args.prefetch_factor,
+        copy_metadata=copy_metadata,
+        autorotate_patterns=config['autorotate_patterns']
     )
 
     try:

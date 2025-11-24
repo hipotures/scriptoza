@@ -6,6 +6,10 @@
 !README.md
 !*.sh
 
+# Allow conf directory and config files
+!conf/
+!conf/*.conf
+
 # Allow video directory and its contents
 !video/
 !video/README.md

@@ -1,32 +1,37 @@
 # Video Tools
 
-## video_batch_compression.py
+## vbc.py (Video Batch Compression)
 
-Advanced batch video compression script utilizing NVENC AV1 (hardware encoding on NVIDIA GPU).
+Advanced batch video compression script with configuration file, auto-rotation, and EXIF preservation. Supports both GPU (NVENC AV1) and CPU (SVT-AV1) encoding.
 
 ### Features
 
-- Batch compression of MP4 files to AV1 format using GPU acceleration
-- Dynamic thread control during runtime (`,` and `.` keys)
-- Optional 180° video rotation (`--rotate-180`)
+- **Configuration file support** - `conf/vbc.conf` with default settings (threads, quality, GPU/CPU, metadata copying)
+- **Auto-rotation** - Regex-based automatic video rotation (e.g., QVR files rotated 180° automatically)
+- **EXIF preservation** - GPS coordinates, camera info, and timestamps preserved by default (`-map_metadata`)
+- **Automatic color space fix** - Detects and fixes FFmpeg 7.x "reserved color space" errors (bug #11020)
+- **Corrupted file detection** - Early detection and skip of corrupted files (moov atom missing)
+- Batch compression of MP4 files to AV1 format using GPU or CPU
+- Dynamic thread control during runtime (`,`/`.` keys to decrease/increase)
+- Manual rotation override (`--rotate-180`)
 - Automatic skip of already compressed files (resume after interruption)
-- NVENC session guard that backs off threads and retries when encoder rejects new sessions
 - Interactive UI (rich) with panels:
   - Compression status with ETA based on throughput
   - Progress bar with active thread count
-  - Currently processing files list
+  - Currently processing files list with animated spinner
   - Recently completed files (5 most recent)
   - Next files in queue (5 upcoming)
 - Graceful shutdown (key `S`) - completes current tasks without starting new ones
 - Detailed file logging
 - Error handling with `.err` file output
-- Automatic cleanup of temporary `.tmp` files on restart
+- Automatic cleanup of temporary `.tmp`, `.err`, and `*_colorfix.mp4` files on restart
 
 ### Requirements
 
 - Python 3.7+
-- NVIDIA GPU with NVENC AV1 support
-- ffmpeg with av1_nvenc support
+- ffmpeg with AV1 support:
+  - GPU mode: NVIDIA GPU with NVENC AV1 support + `av1_nvenc`
+  - CPU mode: `libsvtav1` encoder
 - rich (`pip install rich`)
 
 ### Installation
@@ -35,48 +40,77 @@ Advanced batch video compression script utilizing NVENC AV1 (hardware encoding o
 pip install rich
 ```
 
+### Configuration File
+
+Default settings are stored in `conf/vbc.conf`:
+
+```ini
+[general]
+threads = 4          # Parallel compression threads
+cq = 45              # Quality (lower = better, larger file)
+prefetch_factor = 1  # Queue prefetch multiplier
+gpu = True           # True = NVENC GPU, False = SVT-AV1 CPU
+copy_metadata = True # Copy EXIF (GPS, camera info)
+
+[autorotate]
+# Regex patterns for auto-rotation
+QVR_\d{8}_\d{6}\.mp4 = 180  # QVR files rotated 180°
+```
+
+**CLI arguments override config file settings.**
+
 ### Usage
 
 ```bash
-python video/video_batch_compression.py <input_directory> [options]
+python video/vbc.py <input_directory> [options]
 
 # Examples:
-python video/video_batch_compression.py /path/to/videos --threads 4 --cq 45
-python video/video_batch_compression.py /path/to/videos --threads 4 --cq 45 --rotate-180
+python video/vbc.py /path/to/videos  # Uses config defaults
+python video/vbc.py /path/to/videos --threads 4 --cq 45
+python video/vbc.py /path/to/videos --rotate-180 --no-metadata  # Override auto-rotation, strip EXIF
+python video/vbc.py /path/to/videos --cpu  # Use CPU encoder instead of GPU
 ```
 
 #### Options
 
-- `--threads N` - Number of parallel compression threads (default: 4)
-- `--cq N` - Constant quality value for AV1 (default: 45, lower=better quality)
-- `--rotate-180` - Rotate video 180 degrees (for upside-down phone recordings)
+- `--threads N` - Number of parallel compression threads (default: from config)
+- `--cq N` - Constant quality value for AV1 (default: from config, lower=better quality)
+- `--rotate-180` - Rotate ALL videos 180° (overrides auto-rotation from config)
+- `--cpu` - Use CPU encoder (SVT-AV1) instead of GPU (NVENC)
+- `--prefetch-factor N` - Queue prefetch multiplier 1-5 (default: from config)
+- `--no-metadata` - Do not copy EXIF metadata (strips GPS, camera info)
 
 ### Runtime Controls
 
 During compression, you can control the process using keyboard shortcuts:
 
-- **`<`** - Decrease thread count
-- **`>`** - Increase thread count
+- **`<` or `,`** - Decrease thread count
+- **`>` or `.`** - Increase thread count (max 8)
+- **`R`** - Refresh file list (add newly discovered files to queue)
 - **`S`** - Graceful shutdown (finish current tasks and exit)
 - **Ctrl+C** - Immediate interrupt
-- NVENC backoff (automatic): when the encoder refuses a new session, the script halves the thread cap and retries twice with a short delay. Stay at or below the shown cap to avoid repeated `.err` files.
 
 ### Output
 
 - **Compressed files:** `<input_directory>_out/`
 - **Log file:** `<input_directory>_out/compression.log`
-- **Error files:** `*.err` (for failed compressions; NVENC issues are annotated with a hint to lower concurrency)
+- **Error files:** `*.err` (for failed compressions or corrupted input files)
 
 ### Technical Features
 
+- **Submit-on-demand architecture** - Files submitted in batches (prefetch_factor × threads) for predictable FIFO processing
+- **Auto color space fix** - Automatically detects and fixes FFmpeg 7.x "reserved color space" using `hevc_metadata`/`h264_metadata` bitstream filters
+- **Early corruption detection** - Runs `ffprobe` before compression to skip corrupted files (moov atom missing)
+- **EXIF preservation** - Uses `-map_metadata 0` to preserve GPS, camera info, timestamps
+- **Regex-based auto-rotation** - Matches filenames against patterns in config for automatic rotation
 - Single-pass CQ (Constant Quality) encoding
 - Preserves directory structure
-- Thread-safe statistics tracking
-- Automatic retry/backoff on NVENC session errors (reduces concurrent threads and retries twice)
-- Condition variable for dynamic thread control
-- Auto-refresh UI every 0.2s
+- Thread-safe statistics tracking with condition variables
+- Submit-on-demand queue management with dynamic thread scaling
+- Auto-refresh UI every 1 second with animated spinner
 - 6-hour timeout per file
 - Maximum scan depth: 3 directory levels
+- Hard limit: 8 concurrent compression threads
 
 ### Performance
 
