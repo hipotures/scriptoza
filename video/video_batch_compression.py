@@ -578,7 +578,7 @@ class VideoCompressor:
             minutes = int((seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
 
-    def create_display(self, total_files: int, completed_count: int, queue: List[Path]) -> Group:
+    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None) -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
 
@@ -701,7 +701,17 @@ class VideoCompressor:
         if is_shutdown:
             next_files = []
         else:
-            next_files = queue[completed_count:completed_count + 5]
+            # Calculate remaining files = all files - completed - currently processing
+            if completed_files_set is not None:
+                with self.processing_files_lock:
+                    processing = set(self.currently_processing_files)
+                remaining = [f for f in queue if f not in completed_files_set and f not in processing]
+                remaining.sort()  # Sort alphabetically
+                next_files = remaining[:5]
+            else:
+                # Fallback to old behavior
+                next_files = queue[completed_count:completed_count + 5]
+
             for idx, file in enumerate(next_files, 1):
                 if file.exists():
                     next_table.add_row(
@@ -738,19 +748,6 @@ class VideoCompressor:
         # Save start time
         start_time = datetime.now()
 
-        # Print initial info to console
-        encoder_name = "SVT-AV1 (CPU)" if self.use_cpu else "NVENC AV1 (GPU)"
-
-        start_info = f"""[cyan]Video Batch Compression - {encoder_name}[/cyan]
-Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}
-Input: {self.input_dir}
-Output: {self.output_dir}
-Threads: {self.thread_controller.get_current()}
-Quality: CQ{self.cq}
-Rotate 180°: {self.rotate_180}"""
-
-        self.console.print(Panel(start_info, title="CONFIGURATION", border_style="cyan"))
-
         # Step 1: Cleanup old temp files
         self.cleanup_temp_files()
 
@@ -770,20 +767,38 @@ Rotate 180°: {self.rotate_180}"""
             self.console.print("[green]All files already compressed![/green]")
             return
 
-        self.console.print(f"Files to compress: {len(files_to_process)}")
-        self.console.print(f"Already compressed: {len(completed_files)}\n")
+        # Print initial info to console with file counts
+        encoder_name = "SVT-AV1 (CPU)" if self.use_cpu else "NVENC AV1 (GPU)"
+
+        start_info = f"""[cyan]Video Batch Compression - {encoder_name}[/cyan]
+Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}
+Input: {self.input_dir}
+Output: {self.output_dir}
+Threads: {self.thread_controller.get_current()}
+Quality: CQ{self.cq}
+Rotate 180°: {self.rotate_180}
+
+Files to compress: {len(files_to_process)}
+Already compressed: {len(completed_files)}"""
+
+        self.console.print(Panel(start_info, title="CONFIGURATION", border_style="cyan"))
+        self.console.print()  # Empty line before MENU
 
         # Step 5: Compress files in parallel with live display
         completed_count = 0
         total_files = len(files_to_process)
         stop_refresh = threading.Event()
         futures_lock = threading.Lock()
+        completed_files_set: Set[Path] = set()
+        completed_files_lock = threading.Lock()
 
         def auto_refresh():
             """Auto-refresh display every 1 second"""
             while not stop_refresh.is_set():
                 try:
-                    live.update(self.create_display(total_files, completed_count, files_to_process))
+                    with completed_files_lock:
+                        completed_set_copy = set(completed_files_set)
+                    live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy))
                 except:
                     pass
                 stop_refresh.wait(1.0)
@@ -837,7 +852,9 @@ Rotate 180°: {self.rotate_180}"""
                             self.set_last_action("Refreshed: no new files")
                             self.logger.info("Refresh: no new files found")
 
-                    live.update(self.create_display(total_files, completed_count, files_to_process_list))
+                    with completed_files_lock:
+                        completed_set_copy = set(completed_files_set)
+                    live.update(self.create_display(total_files, completed_count, files_to_process_list, completed_set_copy))
                 except Exception as e:
                     self.logger.error(f"Refresh error: {e}")
 
@@ -846,7 +863,7 @@ Rotate 180°: {self.rotate_180}"""
         keyboard_thread.start()
 
         try:
-            with Live(self.create_display(total_files, completed_count, files_to_process),
+            with Live(self.create_display(total_files, completed_count, files_to_process, set()),
                       refresh_per_second=10, console=self.console) as live:
 
                 # Start auto-refresh thread
@@ -881,6 +898,10 @@ Rotate 180°: {self.rotate_180}"""
                         done, _ = wait(current_futures, return_when=FIRST_COMPLETED)
 
                         for future in done:
+                            # Get the file path for this future
+                            with futures_lock:
+                                completed_file = futures.get(future)
+
                             try:
                                 result = future.result()
 
@@ -893,17 +914,29 @@ Rotate 180°: {self.rotate_180}"""
 
                                 completed_count += 1
 
+                                # Add to completed files set
+                                if completed_file:
+                                    with completed_files_lock:
+                                        completed_files_set.add(completed_file)
+
                             except Exception as e:
                                 self.logger.error(f"Unexpected error in main loop: {e}")
                                 self.stats.add_error()
                                 completed_count += 1
+
+                                # Add to completed files set even on error
+                                if completed_file:
+                                    with completed_files_lock:
+                                        completed_files_set.add(completed_file)
 
                             # Remove processed future
                             with futures_lock:
                                 if future in futures:
                                     del futures[future]
 
-                        live.update(self.create_display(total_files, completed_count, files_to_process))
+                        with completed_files_lock:
+                            completed_set_copy = set(completed_files_set)
+                        live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy))
 
                 except KeyboardInterrupt:
                     self.console.print("\n[yellow]Ctrl+C detected - stopping new tasks...[/yellow]")
