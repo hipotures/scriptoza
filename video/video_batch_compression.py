@@ -392,7 +392,6 @@ class VideoCompressor:
                     '-hwaccel', 'cuda',
                     '-fflags', '+genpts+igndts',  # Generate timestamps and ignore input DTS
                     '-avoid_negative_ts', 'make_zero',  # Fix negative timestamps
-                    '-bsf:v', 'h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1',  # Fix invalid color space
                     '-i', str(input_file),
                 ]
 
