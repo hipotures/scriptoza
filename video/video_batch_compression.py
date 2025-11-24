@@ -626,12 +626,11 @@ class VideoCompressor:
 
         # Progress Bar with thread info
         active_threads = self.thread_controller.get_active()
-        max_threads = current_threads
         last_action = self.get_last_action()
 
         progress_text = (
             f"Progress: {completed_count}/{total_files} ({completed_count*100//total_files if total_files > 0 else 0}%) | "
-            f"Active threads: {active_threads}/{max_threads}"
+            f"Active threads: {active_threads}"
         )
         if last_action:
             progress_text += f" | {last_action}"
