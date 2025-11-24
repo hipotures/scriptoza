@@ -53,7 +53,7 @@ def load_config() -> Dict:
         return defaults
 
     try:
-        config = configparser.ConfigParser()
+        config = configparser.RawConfigParser()
         config.read(config_file)
 
         # Load [general] section
@@ -334,7 +334,8 @@ class VideoCompressor:
 
         for pattern, angle in self.autorotate_patterns.items():
             try:
-                if re.match(pattern, filename):
+                # Case-insensitive match (ConfigParser lowercases option names)
+                if re.match(pattern, filename, re.IGNORECASE):
                     self.logger.info(f"Auto-rotation matched: {filename} → {angle}° (pattern: {pattern})")
                     return angle
             except re.error as e:
