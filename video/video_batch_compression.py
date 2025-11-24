@@ -263,12 +263,13 @@ class VideoCompressor:
         if tmp_count > 0 or err_count > 0 or colorfix_count > 0:
             self.logger.info(f"Cleaned up {tmp_count} .tmp, {err_count} .err, and {colorfix_count} *_colorfix.mp4 files")
 
-    def check_and_fix_color_space(self, input_file: Path) -> tuple[Path, Optional[Path]]:
+    def check_and_fix_color_space(self, input_file: Path) -> tuple[str, Path, Optional[Path]]:
         """
         Check if video has reserved color space and fix it if needed.
 
         Returns:
-            tuple: (file_to_compress, temp_file_path)
+            tuple: (status, file_to_compress, temp_file_path)
+                - status: "ok" | "fixed" | "corrupted"
                 - file_to_compress: Path to use for compression (original or fixed)
                 - temp_file_path: Path to temporary fixed file (None if no fix needed)
         """
@@ -289,8 +290,10 @@ class VideoCompressor:
             )
 
             if result.returncode != 0:
-                # Can't determine color space - proceed with original file
-                return (input_file, None)
+                # ffprobe failed - file is corrupted
+                error_msg = result.stderr.strip() if result.stderr else "ffprobe failed"
+                self.logger.error(f"Corrupted file detected (ffprobe failed): {input_file.name} - {error_msg}")
+                return ("corrupted", input_file, None)
 
             # Parse output
             output_lines = result.stdout.strip().split('\n')
@@ -341,23 +344,23 @@ class VideoCompressor:
 
                 if fix_result.returncode == 0 and temp_fixed.exists():
                     self.logger.info(f"Successfully fixed color space for {input_file.name}")
-                    return (temp_fixed, temp_fixed)
+                    return ("fixed", temp_fixed, temp_fixed)
                 else:
                     # Fix failed - cleanup and use original
                     if temp_fixed.exists():
                         temp_fixed.unlink()
                     self.logger.warning(f"Failed to fix color space for {input_file.name}, proceeding with original")
-                    return (input_file, None)
+                    return ("ok", input_file, None)
 
             # Color space is OK - use original file
-            return (input_file, None)
+            return ("ok", input_file, None)
 
         except subprocess.TimeoutExpired:
             self.logger.error(f"Timeout while checking/fixing color space for {input_file.name}")
-            return (input_file, None)
+            return ("ok", input_file, None)
         except Exception as e:
             self.logger.error(f"Error checking color space for {input_file.name}: {e}")
-            return (input_file, None)
+            return ("ok", input_file, None)
 
     def set_last_action(self, action: str):
         """Set last keyboard action for display with timestamp"""
@@ -437,7 +440,22 @@ class VideoCompressor:
             }
 
         # Check and fix color space if needed (before acquiring thread slot)
-        file_to_compress, temp_fixed_file = self.check_and_fix_color_space(input_file)
+        validity_status, file_to_compress, temp_fixed_file = self.check_and_fix_color_space(input_file)
+
+        # Skip corrupted files immediately without trying to compress
+        if validity_status == "corrupted":
+            err_file = self.get_output_path(input_file).parent / f"{input_file.stem}.err"
+            try:
+                err_file.parent.mkdir(parents=True, exist_ok=True)
+                err_file.write_text("File is corrupted (ffprobe failed to read). Skipped.")
+            except:
+                pass
+            self.logger.error(f"Skipped corrupted file: {filename}")
+            return {
+                'status': 'error',
+                'input': input_file,
+                'error': 'File is corrupted (ffprobe failed)'
+            }
 
         # Acquire thread slot (returns False if shutdown requested)
         if not self.thread_controller.acquire():
