@@ -14,7 +14,7 @@ import time
 import termios
 import tty
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Set, Dict, Optional, Deque
@@ -735,14 +735,21 @@ class VideoCompressor:
 
     def run(self):
         """Main execution method"""
+        # Save start time
+        start_time = datetime.now()
+
         # Print initial info to console
         encoder_name = "SVT-AV1 (CPU)" if self.use_cpu else "NVENC AV1 (GPU)"
-        self.console.print(f"\n[cyan]Video Batch Compression - {encoder_name}[/cyan]")
-        self.console.print(f"Input: {self.input_dir}")
-        self.console.print(f"Output: {self.output_dir}")
-        self.console.print(f"Threads: {self.thread_controller.get_current()} (use < and > keys to adjust, S to stop)")
-        self.console.print(f"Quality: CQ{self.cq}")
-        self.console.print(f"Rotate 180°: {self.rotate_180}\n")
+
+        start_info = f"""[cyan]Video Batch Compression - {encoder_name}[/cyan]
+Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}
+Input: {self.input_dir}
+Output: {self.output_dir}
+Threads: {self.thread_controller.get_current()}
+Quality: CQ{self.cq}
+Rotate 180°: {self.rotate_180}"""
+
+        self.console.print(Panel(start_info, title="CONFIGURATION", border_style="cyan"))
 
         # Step 1: Cleanup old temp files
         self.cleanup_temp_files()
@@ -863,26 +870,40 @@ class VideoCompressor:
                     )
                     refresh_handler_thread.start()
 
-                    # Process results
-                    for future in as_completed(futures):
-                        try:
-                            result = future.result()
+                    # Process results - use wait() to support dynamic future addition
+                    while futures:
+                        with futures_lock:
+                            if not futures:
+                                break
+                            current_futures = set(futures.keys())
 
-                            if result['status'] == 'success':
-                                self.stats.add_success(result)
-                            elif result['status'] == 'skipped':
-                                self.stats.add_skipped()
-                            else:
+                        # Wait for at least one future to complete
+                        done, _ = wait(current_futures, return_when=FIRST_COMPLETED)
+
+                        for future in done:
+                            try:
+                                result = future.result()
+
+                                if result['status'] == 'success':
+                                    self.stats.add_success(result)
+                                elif result['status'] == 'skipped':
+                                    self.stats.add_skipped()
+                                else:
+                                    self.stats.add_error()
+
+                                completed_count += 1
+
+                            except Exception as e:
+                                self.logger.error(f"Unexpected error in main loop: {e}")
                                 self.stats.add_error()
+                                completed_count += 1
 
-                            completed_count += 1
-                            live.update(self.create_display(total_files, completed_count, files_to_process))
+                            # Remove processed future
+                            with futures_lock:
+                                if future in futures:
+                                    del futures[future]
 
-                        except Exception as e:
-                            self.logger.error(f"Unexpected error in main loop: {e}")
-                            self.stats.add_error()
-                            completed_count += 1
-                            live.update(self.create_display(total_files, completed_count, files_to_process))
+                        live.update(self.create_display(total_files, completed_count, files_to_process))
 
                 except KeyboardInterrupt:
                     self.console.print("\n[yellow]Ctrl+C detected - stopping new tasks...[/yellow]")
@@ -910,22 +931,29 @@ class VideoCompressor:
             self.stop_keyboard_thread.set()
 
         # Final summary
+        end_time = datetime.now()
         stats = self.stats.get_stats()
-        self.console.print("\n[cyan]" + "="*60 + "[/cyan]")
-        self.console.print("[cyan]COMPRESSION SUMMARY[/cyan]")
-        self.console.print("[cyan]" + "="*60 + "[/cyan]")
-        self.console.print(f"Total files processed: {total_files}")
-        self.console.print(f"[green]Successful: {stats['success']}[/green]")
-        self.console.print(f"[yellow]Skipped: {stats['skipped']}[/yellow]")
-        self.console.print(f"[red]Failed: {stats['error']}[/red]")
+
+        summary_lines = [
+            f"Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"End: {end_time.strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            f"Total files processed: {total_files}",
+            f"[green]Successful: {stats['success']}[/green]",
+            f"[yellow]Skipped: {stats['skipped']}[/yellow]",
+            f"[red]Failed: {stats['error']}[/red]",
+        ]
 
         if stats['success'] > 0:
-            self.console.print(f"Total input size: {self.format_size(stats['total_input_size'])}")
-            self.console.print(f"Total output size: {self.format_size(stats['total_output_size'])}")
-            self.console.print(f"Overall compression: {stats['avg_compression']:.1f}%")
-            self.console.print(f"Total time: {self.format_time(stats['elapsed'])}")
+            summary_lines.extend([
+                "",
+                f"Total input size: {self.format_size(stats['total_input_size'])}",
+                f"Total output size: {self.format_size(stats['total_output_size'])}",
+                f"Overall compression: {stats['avg_compression']:.1f}%",
+                f"Total time: {self.format_time(stats['elapsed'])}"
+            ])
 
-        self.console.print("[cyan]" + "="*60 + "[/cyan]\n")
+        self.console.print(Panel("\n".join(summary_lines), title="COMPRESSION SUMMARY", border_style="cyan"))
 
 
 def main():
