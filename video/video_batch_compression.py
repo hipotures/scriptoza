@@ -33,7 +33,7 @@ except ImportError:
 
 class ThreadController:
     """Dynamic thread control with condition variable"""
-    def __init__(self, initial_threads: int, max_threads_limit: int = 16):
+    def __init__(self, initial_threads: int, max_threads_limit: int = 8):
         self.condition = threading.Condition()
         self.max_threads_limit = max_threads_limit
         self.max_threads = min(initial_threads, max_threads_limit)
@@ -90,16 +90,6 @@ class ThreadController:
             self.condition.notify_all()
             return True
 
-    def clamp_max_threads(self, new_max: int) -> bool:
-        """Reduce allowed threads (used for backoff); returns True if changed"""
-        with self.condition:
-            new_max = max(self.min_threads, min(new_max, self.max_threads_limit))
-            if new_max < self.max_threads:
-                self.max_threads = new_max
-                self.max_threads_limit = min(self.max_threads_limit, new_max)
-                self.condition.notify_all()
-                return True
-            return False
 
     def is_shutdown_requested(self) -> bool:
         """Check if shutdown was requested"""
@@ -195,15 +185,16 @@ class VideoCompressor:
         self.last_action = ""
         self.last_action_time = None
         self.last_action_lock = threading.Lock()
-        self.max_nvenc_retries = 2
-        self.nvenc_retry_delay = 2  # seconds
-        self.nvenc_errors_seen = 0
 
         # Refresh functionality
         self.refresh_requested = False
         self.refresh_lock = threading.Lock()
         self.currently_processing_files: Set[Path] = set()
         self.processing_files_lock = threading.Lock()
+
+        # Spinner animation frame counter
+        self.spinner_frame = 0
+        self.spinner_lock = threading.Lock()
 
         # Setup file logging only
         log_file = self.output_dir / "compression.log"
@@ -282,21 +273,6 @@ class VideoCompressor:
                     self.last_action = ""
                     self.last_action_time = None
             return self.last_action
-
-    def is_nvenc_session_error(self, message: str) -> bool:
-        return "OpenEncodeSessionEx failed" in message or "Could not open encoder" in message
-
-    def handle_nvenc_session_error(self):
-        """Throttle threads when NVENC rejects new sessions"""
-        self.nvenc_errors_seen += 1
-        current = self.thread_controller.get_current()
-        new_limit = max(self.thread_controller.min_threads, max(1, current // 2))
-        if self.thread_controller.clamp_max_threads(new_limit):
-            self.set_last_action(f"NVENC backoff → {new_limit} threads")
-            self.logger.warning(
-                "NVENC rejected a session. Reducing max concurrent encodes to %d to avoid GPU session limits.",
-                new_limit
-            )
 
     def keyboard_listener(self):
         """Listen for keyboard input in separate thread"""
@@ -382,11 +358,8 @@ class VideoCompressor:
             # Create output directory if needed
             output_file.parent.mkdir(parents=True, exist_ok=True)
 
-            attempt = 0
-
-            while attempt <= self.max_nvenc_retries:
-                # Build ffmpeg command
-                if self.use_cpu:
+            # Build ffmpeg command
+            if self.use_cpu:
                     # CPU-based SVT-AV1 encoder
                     cmd = [
                         'ffmpeg',
@@ -411,117 +384,88 @@ class VideoCompressor:
                         '-loglevel', 'error',
                         '-stats'
                     ])
-                else:
-                    # GPU-based NVENC AV1 encoder
-                    cmd = [
-                        'ffmpeg',
-                        '-vsync', '0',
-                        '-hwaccel', 'cuda',
-                        '-fflags', '+genpts+igndts',  # Generate timestamps and ignore input DTS
-                        '-avoid_negative_ts', 'make_zero',  # Fix negative timestamps
-                        '-i', str(input_file),
-                    ]
+            else:
+                # GPU-based NVENC AV1 encoder
+                cmd = [
+                    'ffmpeg',
+                    '-vsync', '0',
+                    '-hwaccel', 'cuda',
+                    '-fflags', '+genpts+igndts',  # Generate timestamps and ignore input DTS
+                    '-avoid_negative_ts', 'make_zero',  # Fix negative timestamps
+                    '-bsf:v', 'h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1',  # Fix invalid color space
+                    '-i', str(input_file),
+                ]
 
-                    # Add rotation filter if requested
-                    if self.rotate_180:
-                        cmd.extend(['-vf', 'hflip,vflip'])
+                # Add rotation filter if requested
+                if self.rotate_180:
+                    cmd.extend(['-vf', 'hflip,vflip'])
 
-                    cmd.extend([
-                        '-c:v', 'av1_nvenc',
-                        '-preset', 'p7',
-                        '-cq', str(self.cq),
-                        '-b:v', '0',
-                        '-c:a', 'copy',
-                        '-f', 'mp4',
-                        str(tmp_file),
-                        '-y',
-                        '-hide_banner',
-                        '-loglevel', 'error',
-                        '-stats'
-                    ])
+                cmd.extend([
+                    '-c:v', 'av1_nvenc',
+                    '-preset', 'p7',
+                    '-cq', str(self.cq),
+                    '-b:v', '0',
+                    '-colorspace', '1',  # Fix color space metadata
+                    '-color_trc', '1',
+                    '-color_primaries', '1',
+                    '-c:a', 'copy',
+                    '-f', 'mp4',
+                    str(tmp_file),
+                    '-y',
+                    '-hide_banner',
+                    '-loglevel', 'error',
+                    '-stats'
+                ])
 
-                start_time = datetime.now()
+            start_time = datetime.now()
 
-                # Run compression
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=21600  # 6 hour timeout
+            # Run compression
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=21600  # 6 hour timeout
+            )
+
+            if result.returncode == 0:
+                # Success - rename tmp to final
+                if err_file.exists():
+                    err_file.unlink()
+                tmp_file.rename(output_file)
+                self.stats.stop_processing(filename)
+
+                # Calculate stats
+                duration = (datetime.now() - start_time).total_seconds()
+                output_size = output_file.stat().st_size
+                compression_ratio = (1 - output_size / input_size) * 100
+
+                self.logger.info(
+                    f"Success: {filename}: {self.format_size(input_size)} → "
+                    f"{self.format_size(output_size)} ({compression_ratio:.1f}%) in {duration:.0f}s"
                 )
 
-                if result.returncode == 0:
-                    # Success - rename tmp to final
-                    if err_file.exists():
-                        err_file.unlink()
-                    tmp_file.rename(output_file)
-                    self.stats.stop_processing(filename)
-
-                    # Calculate stats
-                    duration = (datetime.now() - start_time).total_seconds()
-                    output_size = output_file.stat().st_size
-                    compression_ratio = (1 - output_size / input_size) * 100
-
-                    self.logger.info(
-                        f"Success: {filename}: {self.format_size(input_size)} → "
-                        f"{self.format_size(output_size)} ({compression_ratio:.1f}%) in {duration:.0f}s"
-                    )
-
-                    return {
-                        'status': 'success',
-                        'input': input_file,
-                        'output': output_file,
-                        'input_size': input_size,
-                        'output_size': output_size,
-                        'compression_ratio': compression_ratio,
-                        'duration': duration
-                    }
-
-                # Compression failed
-                error_msg = result.stderr if result.stderr else "Unknown error"
-                is_nvenc_error = self.is_nvenc_session_error(error_msg)
-
-                if is_nvenc_error and attempt < self.max_nvenc_retries:
-                    self.handle_nvenc_session_error()
-                    if tmp_file.exists():
-                        tmp_file.unlink()
-                    self.logger.warning(
-                        "Retrying %s after NVENC session error (%d/%d) following %ds backoff",
-                        filename,
-                        attempt + 1,
-                        self.max_nvenc_retries,
-                        self.nvenc_retry_delay
-                    )
-                    time.sleep(self.nvenc_retry_delay)
-                    attempt += 1
-                    continue
-
-                if tmp_file.exists():
-                    tmp_file.unlink()
-
-                hint = ""
-                if is_nvenc_error:
-                    hint = (
-                        "\n\nHint: NVENC refused to open another session. "
-                        f"Lower concurrent threads (current cap: {self.thread_controller.get_current()}) "
-                        "and retry."
-                    )
-
-                err_file.write_text(error_msg + hint)
-                self.logger.error(f"Failed: {filename}: {error_msg}")
-                self.stats.stop_processing(filename)
                 return {
-                    'status': 'error',
+                    'status': 'success',
                     'input': input_file,
-                    'error': error_msg
+                    'output': output_file,
+                    'input_size': input_size,
+                    'output_size': output_size,
+                    'compression_ratio': compression_ratio,
+                    'duration': duration
                 }
 
-            # If loop exits unexpectedly, treat as error
+            # Compression failed
+            if tmp_file.exists():
+                tmp_file.unlink()
+
+            error_msg = result.stderr if result.stderr else "Unknown error"
+            err_file.write_text(error_msg)
+            self.logger.error(f"Failed: {filename}: {error_msg}")
             self.stats.stop_processing(filename)
             return {
                 'status': 'error',
                 'input': input_file,
-                'error': 'Unknown error - retries exhausted'
+                'error': error_msg
             }
 
         except subprocess.TimeoutExpired:
@@ -579,7 +523,7 @@ class VideoCompressor:
             minutes = int((seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
 
-    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None) -> Group:
+    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0) -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
 
@@ -649,7 +593,8 @@ class VideoCompressor:
         spinner_frames = "◐◓◑◒"
         for idx, (filename, info) in enumerate(list(stats['processing'].items())):
             elapsed = (datetime.now() - info['start_time']).total_seconds()
-            spinner_char = spinner_frames[idx % len(spinner_frames)]
+            # Animate: each file gets different phase of spinner based on frame counter
+            spinner_char = spinner_frames[(spinner_frame + idx) % len(spinner_frames)]
             processing_table.add_row(
                 spinner_char,
                 filename,
@@ -830,12 +775,18 @@ Already compressed: {len(completed_files)}"""
             """Auto-refresh display every 1 second"""
             while not stop_refresh.is_set():
                 try:
+                    # Increment spinner animation frame
+                    with self.spinner_lock:
+                        self.spinner_frame = (self.spinner_frame + 1) % 4
+
                     with completed_files_lock:
                         completed_set_copy = set(completed_files_set)
                     with queue_lock:
                         pending_files_copy = list(pending_files)
                         in_flight_files_copy = list(in_flight.values())
-                    live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, None, pending_files_copy, in_flight_files_copy))
+                    with self.spinner_lock:
+                        frame = self.spinner_frame
+                    live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, None, pending_files_copy, in_flight_files_copy, frame))
                 except:
                     pass
                 stop_refresh.wait(1.0)
@@ -909,7 +860,9 @@ Already compressed: {len(completed_files)}"""
                     with queue_lock:
                         pending_files_copy = list(pending_files)
                         in_flight_files_copy = list(in_flight.values())
-                    live.update(self.create_display(total_files, completed_count, files_to_process_list, completed_set_copy, None, pending_files_copy, in_flight_files_copy))
+                    with self.spinner_lock:
+                        frame = self.spinner_frame
+                    live.update(self.create_display(total_files, completed_count, files_to_process_list, completed_set_copy, None, pending_files_copy, in_flight_files_copy, frame))
                 except Exception as e:
                     self.logger.error(f"Refresh error: {e}")
 
@@ -918,15 +871,15 @@ Already compressed: {len(completed_files)}"""
         keyboard_thread.start()
 
         try:
-            with Live(self.create_display(total_files, completed_count, files_to_process, set(), None, list(pending_files), []),
+            with Live(self.create_display(total_files, completed_count, files_to_process, set(), None, list(pending_files), [], 0),
                       refresh_per_second=10, console=self.console) as live:
 
                 # Start auto-refresh thread
                 refresh_thread = threading.Thread(target=auto_refresh, daemon=True)
                 refresh_thread.start()
 
-                # Use max 16 workers pool, actual limit controlled by semaphore
-                executor = ThreadPoolExecutor(max_workers=16)
+                # Use max 8 workers pool (GPU NVENC session limit)
+                executor = ThreadPoolExecutor(max_workers=8)
                 try:
                     # Submit-on-demand: submit initial batch up to max_inflight
                     top_up_queue(executor)
@@ -1018,7 +971,9 @@ Already compressed: {len(completed_files)}"""
                         with queue_lock:
                             pending_files_copy = list(pending_files)
                             in_flight_files_copy = list(in_flight.values())
-                        live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, None, pending_files_copy, in_flight_files_copy))
+                        with self.spinner_lock:
+                            frame = self.spinner_frame
+                        live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, None, pending_files_copy, in_flight_files_copy, frame))
 
                 except KeyboardInterrupt:
                     self.console.print("\n[yellow]Ctrl+C detected - stopping new tasks...[/yellow]")
