@@ -981,12 +981,14 @@ Already compressed: {len(completed_files)}"""
         ]
 
         if stats['success'] > 0:
+            throughput_mb = stats['throughput'] / (1024 * 1024)  # Convert bytes/s to MB/s
             summary_lines.extend([
                 "",
                 f"Total input size: {self.format_size(stats['total_input_size'])}",
                 f"Total output size: {self.format_size(stats['total_output_size'])}",
                 f"Overall compression: {stats['avg_compression']:.1f}%",
-                f"Total time: {self.format_time(stats['elapsed'])}"
+                f"Total time: {self.format_time(stats['elapsed'])}",
+                f"Average throughput: {throughput_mb:.1f} MB/s"
             ])
 
         self.console.print(Panel("\n".join(summary_lines), title="COMPRESSION SUMMARY", border_style="cyan"))
