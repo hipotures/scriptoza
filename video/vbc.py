@@ -191,12 +191,13 @@ class CompressionStats:
         with self.lock:
             self.skipped_count += 1
 
-    def start_processing(self, filename: str, size: int, rotation_angle: int = 0):
+    def start_processing(self, filename: str, size: int, rotation_angle: int = 0, metadata: Optional[Dict] = None):
         with self.lock:
             self.processing[filename] = {
                 'size': size,
                 'start_time': datetime.now(),
-                'rotation_angle': rotation_angle
+                'rotation_angle': rotation_angle,
+                'metadata': metadata or {}
             }
 
     def stop_processing(self, filename: str):
@@ -344,24 +345,26 @@ class VideoCompressor:
 
         return 0
 
-    def check_and_fix_color_space(self, input_file: Path) -> tuple[str, Path, Optional[Path]]:
+    def check_and_fix_color_space(self, input_file: Path) -> tuple[str, Path, Optional[Path], Optional[Dict]]:
         """
         Check if video has reserved color space and fix it if needed.
+        Also extracts video metadata (resolution, FPS).
 
         Returns:
-            tuple: (status, file_to_compress, temp_file_path)
+            tuple: (status, file_to_compress, temp_file_path, metadata)
                 - status: "ok" | "fixed" | "corrupted"
                 - file_to_compress: Path to use for compression (original or fixed)
                 - temp_file_path: Path to temporary fixed file (None if no fix needed)
+                - metadata: Dict with width, height, megapixels, fps
         """
         try:
-            # Check color space using ffprobe
+            # Check color space and extract metadata using ffprobe
             result = subprocess.run(
                 [
                     'ffprobe',
                     '-v', 'error',
                     '-select_streams', 'v:0',
-                    '-show_entries', 'stream=color_space,codec_name',
+                    '-show_entries', 'stream=color_space,codec_name,width,height,r_frame_rate',
                     '-of', 'default=noprint_wrappers=1',
                     str(input_file)
                 ],
@@ -374,18 +377,53 @@ class VideoCompressor:
                 # ffprobe failed - file is corrupted
                 error_msg = result.stderr.strip() if result.stderr else "ffprobe failed"
                 self.logger.error(f"Corrupted file detected (ffprobe failed): {input_file.name} - {error_msg}")
-                return ("corrupted", input_file, None)
+                return ("corrupted", input_file, None, None)
 
             # Parse output
             output_lines = result.stdout.strip().split('\n')
             color_space = None
             codec_name = None
+            width = None
+            height = None
+            fps_str = None
 
             for line in output_lines:
                 if line.startswith('color_space='):
                     color_space = line.split('=')[1]
                 elif line.startswith('codec_name='):
                     codec_name = line.split('=')[1]
+                elif line.startswith('width='):
+                    try:
+                        width = int(line.split('=')[1])
+                    except ValueError:
+                        pass
+                elif line.startswith('height='):
+                    try:
+                        height = int(line.split('=')[1])
+                    except ValueError:
+                        pass
+                elif line.startswith('r_frame_rate='):
+                    fps_str = line.split('=')[1]
+
+            # Calculate metadata
+            metadata = {}
+            if width and height:
+                metadata['width'] = width
+                metadata['height'] = height
+                total_pixels = width * height
+                metadata['megapixels'] = round(total_pixels / 1_000_000)
+
+            # Calculate FPS (handle fraction like "30000/1001" → 29.97)
+            if fps_str:
+                try:
+                    if '/' in fps_str:
+                        num, den = fps_str.split('/')
+                        if int(den) > 0:  # Avoid division by zero
+                            metadata['fps'] = round(float(num) / float(den))
+                    else:
+                        metadata['fps'] = round(float(fps_str))
+                except (ValueError, ZeroDivisionError):
+                    pass
 
             # If color space is "reserved", fix it
             if color_space == 'reserved':
@@ -404,7 +442,7 @@ class VideoCompressor:
                 else:
                     # Unsupported codec for metadata fix
                     self.logger.warning(f"Cannot fix color space for codec {codec_name}, proceeding with original file")
-                    return (input_file, None)
+                    return ("ok", input_file, None, metadata)
 
                 # Fix color space metadata using bitstream filter
                 fix_result = subprocess.run(
@@ -425,23 +463,23 @@ class VideoCompressor:
 
                 if fix_result.returncode == 0 and temp_fixed.exists():
                     self.logger.info(f"Successfully fixed color space for {input_file.name}")
-                    return ("fixed", temp_fixed, temp_fixed)
+                    return ("fixed", temp_fixed, temp_fixed, metadata)
                 else:
                     # Fix failed - cleanup and use original
                     if temp_fixed.exists():
                         temp_fixed.unlink()
                     self.logger.warning(f"Failed to fix color space for {input_file.name}, proceeding with original")
-                    return ("ok", input_file, None)
+                    return ("ok", input_file, None, metadata)
 
             # Color space is OK - use original file
-            return ("ok", input_file, None)
+            return ("ok", input_file, None, metadata)
 
         except subprocess.TimeoutExpired:
             self.logger.error(f"Timeout while checking/fixing color space for {input_file.name}")
-            return ("ok", input_file, None)
+            return ("ok", input_file, None, {})
         except Exception as e:
             self.logger.error(f"Error checking color space for {input_file.name}: {e}")
-            return ("ok", input_file, None)
+            return ("ok", input_file, None, {})
 
     def set_last_action(self, action: str):
         """Set last keyboard action for display with timestamp"""
@@ -521,7 +559,7 @@ class VideoCompressor:
             }
 
         # Check and fix color space if needed (before acquiring thread slot)
-        validity_status, file_to_compress, temp_fixed_file = self.check_and_fix_color_space(input_file)
+        validity_status, file_to_compress, temp_fixed_file, metadata = self.check_and_fix_color_space(input_file)
 
         # Skip corrupted files immediately without trying to compress
         if validity_status == "corrupted":
@@ -557,7 +595,7 @@ class VideoCompressor:
             }
 
         # Mark as processing immediately after acquiring slot
-        self.stats.start_processing(filename, input_size, rotation_angle)
+        self.stats.start_processing(filename, input_size, rotation_angle, metadata)
 
         # Add to currently processing files
         with self.processing_files_lock:
@@ -670,8 +708,11 @@ class VideoCompressor:
                 output_size = output_file.stat().st_size
                 compression_ratio = (1 - output_size / input_size) * 100
 
+                # Log with resolution and FPS (classic format)
+                resolution_str = f"{metadata.get('width', '?')}x{metadata.get('height', '?')}" if metadata else "?"
+                fps_str = f"{metadata.get('fps', '?')}fps" if metadata else "?"
                 self.logger.info(
-                    f"Success: {filename}: {self.format_size(input_size)} → "
+                    f"Success: {filename} {resolution_str} {fps_str}: {self.format_size(input_size)} → "
                     f"{self.format_size(output_size)} ({compression_ratio:.1f}%) in {duration:.0f}s"
                 )
 
@@ -682,7 +723,8 @@ class VideoCompressor:
                     'input_size': input_size,
                     'output_size': output_size,
                     'compression_ratio': compression_ratio,
-                    'duration': duration
+                    'duration': duration,
+                    'metadata': metadata
                 }
 
             # Compression failed
@@ -761,6 +803,18 @@ class VideoCompressor:
             minutes = int((seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
 
+    def format_resolution(self, metadata: Dict) -> str:
+        """Format resolution as megapixels (e.g., '8M')"""
+        if metadata and 'megapixels' in metadata:
+            return f"{metadata['megapixels']}M"
+        return ""
+
+    def format_fps(self, metadata: Dict) -> str:
+        """Format FPS as integer (e.g., '60fps')"""
+        if metadata and 'fps' in metadata:
+            return f"{metadata['fps']}fps"
+        return ""
+
     def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0) -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
@@ -824,6 +878,8 @@ class VideoCompressor:
         processing_table = Table(show_header=False, box=None, padding=(0, 1))
         processing_table.add_column("Status", width=3, style="yellow")
         processing_table.add_column("File", style="yellow")
+        processing_table.add_column("Res", width=4, justify="right", style="cyan")
+        processing_table.add_column("FPS", width=6, justify="right", style="cyan")
         processing_table.add_column("Size", justify="right")
         processing_table.add_column("Time", justify="right")
 
@@ -837,6 +893,7 @@ class VideoCompressor:
         for idx, (filename, info) in enumerate(list(stats['processing'].items())):
             elapsed = (datetime.now() - info['start_time']).total_seconds()
             rotation_angle = info.get('rotation_angle', 0)
+            metadata = info.get('metadata', {})
 
             # Choose spinner based on rotation
             spinner_frames = spinner_rotating if rotation_angle > 0 else spinner_simple
@@ -846,6 +903,8 @@ class VideoCompressor:
             processing_table.add_row(
                 spinner_char,
                 filename,
+                self.format_resolution(metadata),
+                self.format_fps(metadata),
                 self.format_size(info['size']),
                 self.format_time(elapsed)
             )
@@ -853,7 +912,7 @@ class VideoCompressor:
         if stats['processing']:
             processing_panel = Panel(
                 processing_table,
-                title=f"CURRENTLY PROCESSING ({len(stats['processing'])} files)",
+                title="CURRENTLY PROCESSING",
                 border_style="yellow"
             )
         else:
@@ -863,6 +922,8 @@ class VideoCompressor:
         completed_table = Table(show_header=False, box=None, padding=(0, 1))
         completed_table.add_column("Status", width=3, style="green")
         completed_table.add_column("File", style="green", no_wrap=False)
+        completed_table.add_column("Res", width=4, justify="right", style="cyan")
+        completed_table.add_column("FPS", width=6, justify="right", style="cyan")
         completed_table.add_column("Input", justify="right", style="cyan")
         completed_table.add_column("→", justify="center", style="dim")
         completed_table.add_column("Output", justify="right", style="cyan")
@@ -872,9 +933,12 @@ class VideoCompressor:
         # Show last 5 completed in reverse order (newest first)
         completed_list = list(reversed(list(stats['completed'])))
         for item in completed_list[:5]:
+            metadata = item.get('metadata', {})
             completed_table.add_row(
                 "✓",
                 item['input'].name,
+                self.format_resolution(metadata),
+                self.format_fps(metadata),
                 self.format_size(item['input_size']),
                 "→",
                 self.format_size(item['output_size']),
@@ -885,7 +949,7 @@ class VideoCompressor:
         if stats['completed']:
             completed_panel = Panel(
                 completed_table,
-                title="LAST COMPLETED (5 files)",
+                title="LAST COMPLETED",
                 border_style="green"
             )
         else:
@@ -895,6 +959,8 @@ class VideoCompressor:
         next_table = Table(show_header=False, box=None, padding=(0, 1))
         next_table.add_column("", width=3, style="dim")
         next_table.add_column("File")
+        next_table.add_column("Res", width=4, justify="right", style="cyan")
+        next_table.add_column("FPS", width=6, justify="right", style="cyan")
         next_table.add_column("Size", justify="right")
 
         # If shutdown requested, show empty queue
@@ -921,16 +987,59 @@ class VideoCompressor:
 
             for file in next_files:
                 if file.exists():
+                    # Quick metadata extraction for queue display
+                    try:
+                        result = subprocess.run([
+                            'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                            '-show_entries', 'stream=width,height,r_frame_rate',
+                            '-of', 'default=noprint_wrappers=1',
+                            str(file)
+                        ], capture_output=True, text=True, timeout=5)
+
+                        metadata = {}
+                        if result.returncode == 0:
+                            for line in result.stdout.strip().split('\n'):
+                                if line.startswith('width='):
+                                    try:
+                                        width = int(line.split('=')[1])
+                                        metadata['width'] = width
+                                    except ValueError:
+                                        pass
+                                elif line.startswith('height='):
+                                    try:
+                                        height = int(line.split('=')[1])
+                                        metadata['height'] = height
+                                    except ValueError:
+                                        pass
+                                elif line.startswith('r_frame_rate='):
+                                    fps_str = line.split('=')[1]
+                                    try:
+                                        if '/' in fps_str:
+                                            num, den = fps_str.split('/')
+                                            if int(den) > 0:
+                                                metadata['fps'] = round(float(num) / float(den))
+                                        else:
+                                            metadata['fps'] = round(float(fps_str))
+                                    except (ValueError, ZeroDivisionError):
+                                        pass
+
+                            if 'width' in metadata and 'height' in metadata:
+                                metadata['megapixels'] = round(metadata['width'] * metadata['height'] / 1_000_000)
+                    except:
+                        metadata = {}
+
                     next_table.add_row(
                         "⏳",
                         file.name,
+                        self.format_resolution(metadata),
+                        self.format_fps(metadata),
                         self.format_size(file.stat().st_size)
                     )
 
         if next_files:
             queue_panel = Panel(
                 next_table,
-                title="NEXT IN QUEUE (5 files)",
+                title="NEXT IN QUEUE",
                 border_style="blue"
             )
         else:
