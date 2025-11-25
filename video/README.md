@@ -28,7 +28,8 @@ Advanced batch video compression script with configuration file, auto-rotation, 
 
 ### Requirements
 
-- Python 3.7+
+- Python 3.9+
+- Linux/macOS terminal (uses termios/tty; Windows not supported)
 - ffmpeg with AV1 support:
   - GPU mode: NVIDIA GPU with NVENC AV1 support + `av1_nvenc`
   - CPU mode: `libsvtav1` encoder
@@ -80,6 +81,7 @@ python video/vbc.py /path/to/videos --cpu  # Use CPU encoder instead of GPU
 - `--cpu` - Use CPU encoder (SVT-AV1) instead of GPU (NVENC)
 - `--prefetch-factor N` - Queue prefetch multiplier 1-5 (default: from config)
 - `--no-metadata` - Do not copy EXIF metadata (strips GPS, camera info)
+- `--config PATH` - Load settings from a specific config file (default: `conf/vbc.conf` next to repo)
 
 ### Runtime Controls
 

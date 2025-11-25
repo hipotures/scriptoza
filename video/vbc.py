@@ -15,6 +15,7 @@ import threading
 import time
 import termios
 import tty
+import shutil
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from datetime import datetime, timedelta
@@ -33,9 +34,9 @@ except ImportError:
     sys.exit(1)
 
 
-def load_config() -> Dict:
+def load_config(config_path: Optional[Path] = None) -> Dict:
     """
-    Load configuration from conf/vbc.conf
+    Load configuration from conf/vbc.conf or a provided path.
     Returns dict with default values if config file doesn't exist or can't be read
     """
     defaults = {
@@ -47,9 +48,11 @@ def load_config() -> Dict:
         'autorotate_patterns': {}
     }
 
-    config_file = Path(__file__).parent.parent / 'conf' / 'vbc.conf'
+    config_file = Path(config_path) if config_path else Path(__file__).resolve().parent.parent / 'conf' / 'vbc.conf'
 
     if not config_file.exists():
+        if config_path:
+            print(f"Warning: Config file not found at {config_file}, using defaults.")
         return defaults
 
     try:
@@ -251,10 +254,15 @@ class VideoCompressor:
         self.refresh_lock = threading.Lock()
         self.currently_processing_files: Set[Path] = set()
         self.processing_files_lock = threading.Lock()
+        self.ui_lock = threading.Lock()
 
         # Spinner animation frame counter
         self.spinner_frame = 0
         self.spinner_lock = threading.Lock()
+
+        # Cache for queue metadata to avoid repeated ffprobe calls during UI refresh
+        self.queue_metadata_cache: Dict[Path, Dict] = {}
+        self.queue_metadata_lock = threading.Lock()
 
         # Setup file logging only
         log_file = self.output_dir / "compression.log"
@@ -344,6 +352,69 @@ class VideoCompressor:
                 continue
 
         return 0
+
+    def get_queue_metadata(self, file: Path) -> Dict:
+        """
+        Return cached metadata for queue display; run ffprobe once per file and cache result.
+        """
+        if not file.exists():
+            with self.queue_metadata_lock:
+                self.queue_metadata_cache.pop(file, None)
+            return {}
+
+        with self.queue_metadata_lock:
+            cached = self.queue_metadata_cache.get(file)
+        if cached is not None:
+            return cached
+
+        metadata: Dict = {}
+        try:
+            result = subprocess.run([
+                'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                '-show_entries', 'stream=width,height,avg_frame_rate',
+                '-of', 'default=noprint_wrappers=1',
+                str(file)
+            ], capture_output=True, text=True, timeout=5)
+
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    if line.startswith('width='):
+                        try:
+                            width = int(line.split('=')[1])
+                            metadata['width'] = width
+                        except ValueError:
+                            pass
+                    elif line.startswith('height='):
+                        try:
+                            height = int(line.split('=')[1])
+                            metadata['height'] = height
+                        except ValueError:
+                            pass
+                    elif line.startswith('avg_frame_rate='):
+                        fps_str = line.split('=')[1]
+                        try:
+                            if '/' in fps_str:
+                                num, den = fps_str.split('/')
+                                if int(den) > 0:
+                                    fps = round(float(num) / float(den))
+                                    if fps <= 240:
+                                        metadata['fps'] = fps
+                            else:
+                                fps = round(float(fps_str))
+                                if fps <= 240:
+                                    metadata['fps'] = fps
+                        except (ValueError, ZeroDivisionError):
+                            pass
+
+                if 'width' in metadata and 'height' in metadata:
+                    metadata['megapixels'] = round(metadata['width'] * metadata['height'] / 1_000_000)
+        except Exception as e:
+            self.logger.debug(f"Queue metadata probe failed for {file.name}: {e}")
+
+        with self.queue_metadata_lock:
+            self.queue_metadata_cache[file] = metadata
+
+        return metadata
 
     def check_and_fix_color_space(self, input_file: Path) -> tuple[str, Path, Optional[Path], Optional[Dict]]:
         """
@@ -697,7 +768,8 @@ class VideoCompressor:
             # Run compression
             result = subprocess.run(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 text=True,
                 timeout=21600  # 6 hour timeout
             )
@@ -782,6 +854,10 @@ class VideoCompressor:
             # Remove from currently processing files
             with self.processing_files_lock:
                 self.currently_processing_files.discard(input_file)
+
+            # Drop queue metadata cache entry after processing to keep cache bounded
+            with self.queue_metadata_lock:
+                self.queue_metadata_cache.pop(input_file, None)
 
             # Cleanup temporary color-fixed file if it was created
             if temp_fixed_file and temp_fixed_file.exists():
@@ -993,51 +1069,7 @@ class VideoCompressor:
 
             for file in next_files:
                 if file.exists():
-                    # Quick metadata extraction for queue display
-                    try:
-                        result = subprocess.run([
-                            'ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                            '-show_entries', 'stream=width,height,avg_frame_rate',
-                            '-of', 'default=noprint_wrappers=1',
-                            str(file)
-                        ], capture_output=True, text=True, timeout=5)
-
-                        metadata = {}
-                        if result.returncode == 0:
-                            for line in result.stdout.strip().split('\n'):
-                                if line.startswith('width='):
-                                    try:
-                                        width = int(line.split('=')[1])
-                                        metadata['width'] = width
-                                    except ValueError:
-                                        pass
-                                elif line.startswith('height='):
-                                    try:
-                                        height = int(line.split('=')[1])
-                                        metadata['height'] = height
-                                    except ValueError:
-                                        pass
-                                elif line.startswith('avg_frame_rate='):
-                                    fps_str = line.split('=')[1]
-                                    try:
-                                        if '/' in fps_str:
-                                            num, den = fps_str.split('/')
-                                            if int(den) > 0:
-                                                fps = round(float(num) / float(den))
-                                                # Only store if reasonable (< 240 fps) - higher values are likely timebase errors
-                                                if fps <= 240:
-                                                    metadata['fps'] = fps
-                                        else:
-                                            fps = round(float(fps_str))
-                                            if fps <= 240:
-                                                metadata['fps'] = fps
-                                    except (ValueError, ZeroDivisionError):
-                                        pass
-
-                            if 'width' in metadata and 'height' in metadata:
-                                metadata['megapixels'] = round(metadata['width'] * metadata['height'] / 1_000_000)
-                    except:
-                        metadata = {}
+                    metadata = self.get_queue_metadata(file)
 
                     next_table.add_row(
                         "»",
@@ -1125,6 +1157,21 @@ Already compressed: {len(completed_files)}"""
         in_flight: Dict = {}  # Future -> Path, submitted but not completed
         queue_lock = threading.Lock()  # Protects pending_files and in_flight
 
+        def safe_live_update(live_obj, completed_files_snapshot, pending_files_snapshot, in_flight_snapshot, spinner_frame):
+            """Render display and update Live with UI lock to avoid concurrent updates."""
+            display = self.create_display(
+                total_files,
+                completed_count,
+                files_to_process,
+                completed_files_snapshot,
+                None,
+                pending_files_snapshot,
+                in_flight_snapshot,
+                spinner_frame
+            )
+            with self.ui_lock:
+                live_obj.update(display)
+
         def top_up_queue(executor):
             """Submit tasks from pending_files to executor up to max_inflight limit"""
             max_inflight = self.prefetch_factor * self.thread_controller.get_current()
@@ -1154,7 +1201,7 @@ Already compressed: {len(completed_files)}"""
                         in_flight_files_copy = list(in_flight.values())
                     with self.spinner_lock:
                         frame = self.spinner_frame
-                    live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, None, pending_files_copy, in_flight_files_copy, frame))
+                    safe_live_update(live, completed_set_copy, pending_files_copy, in_flight_files_copy, frame)
                 except:
                     pass
                 stop_refresh.wait(1.0)
@@ -1259,7 +1306,7 @@ Already compressed: {len(completed_files)}"""
                         in_flight_files_copy = list(in_flight.values())
                     with self.spinner_lock:
                         frame = self.spinner_frame
-                    live.update(self.create_display(total_files, completed_count, files_to_process_list, completed_set_copy, None, pending_files_copy, in_flight_files_copy, frame))
+                    safe_live_update(live, completed_set_copy, pending_files_copy, in_flight_files_copy, frame)
                 except Exception as e:
                     self.logger.error(f"Refresh error: {e}")
 
@@ -1370,7 +1417,7 @@ Already compressed: {len(completed_files)}"""
                             in_flight_files_copy = list(in_flight.values())
                         with self.spinner_lock:
                             frame = self.spinner_frame
-                        live.update(self.create_display(total_files, completed_count, files_to_process, completed_set_copy, None, pending_files_copy, in_flight_files_copy, frame))
+                        safe_live_update(live, completed_set_copy, pending_files_copy, in_flight_files_copy, frame)
 
                 except KeyboardInterrupt:
                     self.console.print("\n[yellow]Ctrl+C detected - stopping new tasks...[/yellow]")
@@ -1427,12 +1474,22 @@ Already compressed: {len(completed_files)}"""
 
 
 def main():
-    # Load configuration from conf/vbc.conf
-    config = load_config()
+    # Parse --config early to allow overriding defaults from custom config file
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument(
+        '--config',
+        type=Path,
+        help='Path to configuration file (default: conf/vbc.conf next to this script)'
+    )
+    pre_args, _ = pre_parser.parse_known_args()
+
+    # Load configuration from conf/vbc.conf or user-provided path
+    config = load_config(pre_args.config)
 
     parser = argparse.ArgumentParser(
         description='VBC - Video Batch Compression using AV1',
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[pre_parser],
         epilog="""
 Example:
   python vbc.py /path/to/videos --threads 4 --cq 45
@@ -1440,6 +1497,7 @@ Example:
 
 Configuration:
   - Default values are loaded from conf/vbc.conf
+  - You can override config path with --config /path/to/vbc.conf
   - CLI arguments override config file settings
   - Auto-rotation patterns defined in config file
 
@@ -1506,6 +1564,12 @@ Output:
     if not args.input_dir.is_dir():
         print(f"Error: Input path is not a directory: {args.input_dir}")
         sys.exit(1)
+
+    # Verify required binaries are available before starting
+    for binary in ("ffmpeg", "ffprobe"):
+        if not shutil.which(binary):
+            print(f"Error: {binary} not found in PATH. Please install ffmpeg with {binary} available.")
+            sys.exit(1)
 
     # Determine encoder: --cpu flag overrides config, otherwise use config['gpu']
     use_cpu = args.cpu if args.cpu else (not config['gpu'])
