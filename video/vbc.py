@@ -419,9 +419,14 @@ class VideoCompressor:
                     if '/' in fps_str:
                         num, den = fps_str.split('/')
                         if int(den) > 0:  # Avoid division by zero
-                            metadata['fps'] = round(float(num) / float(den))
+                            fps = round(float(num) / float(den))
+                            # Only store if reasonable (< 240 fps) - higher values are likely timebase errors
+                            if fps <= 240:
+                                metadata['fps'] = fps
                     else:
-                        metadata['fps'] = round(float(fps_str))
+                        fps = round(float(fps_str))
+                        if fps <= 240:
+                            metadata['fps'] = fps
                 except (ValueError, ZeroDivisionError):
                     pass
 
@@ -833,7 +838,7 @@ class VideoCompressor:
 
         if is_shutdown:
             status_lines.append(
-                f"Total: {total_files} files | SHUTDOWN REQUESTED - finishing current tasks | "
+                f"Total: {total_files} files | SHUTDOWN - finishing tasks | "
                 f"{self.format_size(stats['total_input_size'])} → {self.format_size(stats['total_output_size'])} "
                 f"({stats['avg_compression']:.1f}% avg) | "
                 f"{self.format_time(stats['elapsed'])} elapsed"
@@ -876,9 +881,9 @@ class VideoCompressor:
 
         # Currently Processing Panel
         processing_table = Table(show_header=False, box=None, padding=(0, 1))
-        processing_table.add_column("Status", width=3, style="yellow")
+        processing_table.add_column("Status", width=1, style="yellow")
         processing_table.add_column("File", style="yellow")
-        processing_table.add_column("Res", width=4, justify="right", style="cyan")
+        processing_table.add_column("Res", width=3, justify="right", style="cyan")
         processing_table.add_column("FPS", width=6, justify="right", style="cyan")
         processing_table.add_column("Size", justify="right")
         processing_table.add_column("Time", justify="right")
@@ -920,9 +925,9 @@ class VideoCompressor:
 
         # Last Completed Panel
         completed_table = Table(show_header=False, box=None, padding=(0, 1))
-        completed_table.add_column("Status", width=3, style="green")
+        completed_table.add_column("Status", width=1, style="green")
         completed_table.add_column("File", style="green", no_wrap=False)
-        completed_table.add_column("Res", width=4, justify="right", style="cyan")
+        completed_table.add_column("Res", width=3, justify="right", style="cyan")
         completed_table.add_column("FPS", width=6, justify="right", style="cyan")
         completed_table.add_column("Input", justify="right", style="cyan")
         completed_table.add_column("→", justify="center", style="dim")
@@ -957,9 +962,9 @@ class VideoCompressor:
 
         # Next in Queue Panel
         next_table = Table(show_header=False, box=None, padding=(0, 1))
-        next_table.add_column("", width=3, style="dim")
+        next_table.add_column("", width=1, style="dim")
         next_table.add_column("File")
-        next_table.add_column("Res", width=4, justify="right", style="cyan")
+        next_table.add_column("Res", width=3, justify="right", style="cyan")
         next_table.add_column("FPS", width=6, justify="right", style="cyan")
         next_table.add_column("Size", justify="right")
 
@@ -1017,9 +1022,14 @@ class VideoCompressor:
                                         if '/' in fps_str:
                                             num, den = fps_str.split('/')
                                             if int(den) > 0:
-                                                metadata['fps'] = round(float(num) / float(den))
+                                                fps = round(float(num) / float(den))
+                                                # Only store if reasonable (< 240 fps) - higher values are likely timebase errors
+                                                if fps <= 240:
+                                                    metadata['fps'] = fps
                                         else:
-                                            metadata['fps'] = round(float(fps_str))
+                                            fps = round(float(fps_str))
+                                            if fps <= 240:
+                                                metadata['fps'] = fps
                                     except (ValueError, ZeroDivisionError):
                                         pass
 
@@ -1029,7 +1039,7 @@ class VideoCompressor:
                         metadata = {}
 
                     next_table.add_row(
-                        "⏳",
+                        "»",
                         file.name,
                         self.format_resolution(metadata),
                         self.format_fps(metadata),
