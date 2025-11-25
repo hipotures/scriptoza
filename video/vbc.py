@@ -364,7 +364,8 @@ class VideoCompressor:
                     'ffprobe',
                     '-v', 'error',
                     '-select_streams', 'v:0',
-                    '-show_entries', 'stream=color_space,codec_name,width,height,r_frame_rate',
+                    # Use avg_frame_rate; r_frame_rate is often the container timebase (e.g., 120) not real FPS
+                    '-show_entries', 'stream=color_space,codec_name,width,height,avg_frame_rate',
                     '-of', 'default=noprint_wrappers=1',
                     str(input_file)
                 ],
@@ -402,7 +403,7 @@ class VideoCompressor:
                         height = int(line.split('=')[1])
                     except ValueError:
                         pass
-                elif line.startswith('r_frame_rate='):
+                elif line.startswith('avg_frame_rate='):
                     fps_str = line.split('=')[1]
 
             # Calculate metadata
@@ -996,7 +997,7 @@ class VideoCompressor:
                     try:
                         result = subprocess.run([
                             'ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                            '-show_entries', 'stream=width,height,r_frame_rate',
+                            '-show_entries', 'stream=width,height,avg_frame_rate',
                             '-of', 'default=noprint_wrappers=1',
                             str(file)
                         ], capture_output=True, text=True, timeout=5)
@@ -1016,7 +1017,7 @@ class VideoCompressor:
                                         metadata['height'] = height
                                     except ValueError:
                                         pass
-                                elif line.startswith('r_frame_rate='):
+                                elif line.startswith('avg_frame_rate='):
                                     fps_str = line.split('=')[1]
                                     try:
                                         if '/' in fps_str:
