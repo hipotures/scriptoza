@@ -1078,26 +1078,55 @@ Already compressed: {len(completed_files)}"""
                             | set(in_flight.values())
                         )
 
-                        # Filter: candidates = new files not in any known set
-                        candidates = [
+                        # Find files to ADD: new files not in any known set
+                        candidates_add = [
                             f for f in new_input_files
                             if f not in new_completed_files and f not in known
                         ]
 
-                        if candidates:
-                            # Sort new files alphabetically (optional)
-                            candidates.sort()
+                        # Find files to REMOVE: files in pending_files that no longer exist in source
+                        new_input_files_set = set(new_input_files)
+                        candidates_remove = [
+                            f for f in list(pending_files)
+                            if f not in new_input_files_set
+                        ]
 
-                            # Add to end of pending queue (FIFO)
-                            pending_files.extend(candidates)
-                            files_to_process_list.extend(candidates)
-                            total_files = len(files_to_process_list)
+                        added = 0
+                        removed = 0
 
-                            self.set_last_action(f"Refreshed: +{len(candidates)} new files")
-                            self.logger.info(f"Refresh: added {len(candidates)} new files to queue")
+                        # Add new files
+                        if candidates_add:
+                            candidates_add.sort()
+                            pending_files.extend(candidates_add)
+                            files_to_process_list.extend(candidates_add)
+                            added = len(candidates_add)
+                            self.logger.info(f"Refresh: added {added} new files to queue")
+
+                        # Remove deleted files
+                        if candidates_remove:
+                            for file in candidates_remove:
+                                try:
+                                    pending_files.remove(file)
+                                    if file in files_to_process_list:
+                                        files_to_process_list.remove(file)
+                                except ValueError:
+                                    pass
+                            removed = len(candidates_remove)
+                            self.logger.info(f"Refresh: removed {removed} deleted files from queue")
+
+                        # Update total count
+                        total_files = len(files_to_process_list)
+
+                        # Set status message
+                        if added > 0 and removed > 0:
+                            self.set_last_action(f"Refreshed: +{added} new, -{removed} deleted")
+                        elif added > 0:
+                            self.set_last_action(f"Refreshed: +{added} new files")
+                        elif removed > 0:
+                            self.set_last_action(f"Refreshed: -{removed} deleted files")
                         else:
-                            self.set_last_action("Refreshed: no new files")
-                            self.logger.info("Refresh: no new files found")
+                            self.set_last_action("Refreshed: no changes")
+                            self.logger.info("Refresh: no changes detected")
 
                     # Trigger top-up to submit new files if there's capacity
                     top_up_queue(executor)
