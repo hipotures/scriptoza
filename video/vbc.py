@@ -798,15 +798,15 @@ class VideoCompressor:
         return f"{size:.1f}TB"
 
     def format_time(self, seconds: float) -> str:
-        """Format seconds to human readable time"""
+        """Format seconds to human readable time with leading zeros"""
         if seconds < 60:
-            return f"{int(seconds)}s"
+            return f"{int(seconds):02d}s"
         elif seconds < 3600:
-            return f"{int(seconds // 60)}m {int(seconds % 60)}s"
+            return f"{int(seconds // 60):02d}m {int(seconds % 60):02d}s"
         else:
             hours = int(seconds // 3600)
             minutes = int((seconds % 3600) // 60)
-            return f"{hours}h {minutes}m"
+            return f"{hours:02d}h {minutes:02d}m"
 
     def format_resolution(self, metadata: Dict) -> str:
         """Format resolution as megapixels (e.g., '8M')"""
