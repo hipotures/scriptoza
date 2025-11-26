@@ -1171,6 +1171,7 @@ class VideoCompressor:
         # Print initial info to console with file counts
         encoder_name = "SVT-AV1 (CPU)" if self.use_cpu else "NVENC AV1 (GPU)"
 
+        ext_list = ', '.join([f'.{ext}' for ext in self.extensions])
         start_info = f"""[cyan]Video Batch Compression - {encoder_name}[/cyan]
 Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}
 Input: {self.input_dir}
@@ -1178,6 +1179,7 @@ Output: {self.output_dir}
 Threads: {self.thread_controller.get_current()}
 Prefetch factor: {self.prefetch_factor}× (max_inflight = {self.prefetch_factor * self.thread_controller.get_current()})
 Quality: CQ{self.cq}
+Extensions: {ext_list} → .mp4
 Rotate 180°: {self.rotate_180}
 
 Files to compress: {len(files_to_process)}
