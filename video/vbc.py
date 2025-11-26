@@ -302,49 +302,26 @@ class VideoCompressor:
         return sorted(all_files)
 
     def get_output_path(self, input_file: Path) -> Path:
-        """Get corresponding output path with .mp4 extension, handling collisions"""
+        """Get corresponding output path with .mp4 extension"""
         relative = input_file.relative_to(self.input_dir)
-        base_output = self.output_dir / relative.with_suffix('.mp4')
-
-        # If output exists and input has different extension, add suffix
-        if base_output.exists():
-            original_ext = input_file.suffix[1:]  # Remove leading dot
-            if original_ext != 'mp4':  # Only add suffix if not already .mp4
-                stem = relative.stem
-                new_name = f"{stem}_{original_ext}.mp4"
-                return self.output_dir / relative.parent / new_name
-
-        return base_output
+        return self.output_dir / relative.with_suffix('.mp4')
 
     def find_completed_files(self) -> Set[Path]:
-        """Find input files that have been compressed (handles both regular and suffixed outputs)"""
+        """Find input files that have been compressed"""
         completed = set()
         if not self.output_dir.exists():
             return completed
 
         for mp4_file in self.output_dir.rglob("*.mp4"):
             relative = mp4_file.relative_to(self.output_dir)
-            stem = relative.stem  # e.g., "video" or "video_flv"
+            stem = relative.stem
 
-            # Check if stem has extension suffix pattern (ends with _{ext})
-            matched = False
+            # Check all configured extensions for matching input file
             for ext in self.extensions:
-                if stem.endswith(f'_{ext}'):
-                    # Suffixed case: video_flv.mp4 → input video.flv
-                    original_stem = stem[:-len(f'_{ext}')]
-                    input_path = self.input_dir / relative.parent / f"{original_stem}.{ext}"
-                    if input_path.exists():
-                        completed.add(input_path)
-                        matched = True
-                        break
-
-            if not matched:
-                # Regular case: video.mp4 → check all extensions
-                for ext in self.extensions:
-                    input_path = self.input_dir / relative.parent / f"{stem}.{ext}"
-                    if input_path.exists():
-                        completed.add(input_path)
-                        break
+                input_path = self.input_dir / relative.parent / f"{stem}.{ext}"
+                if input_path.exists():
+                    completed.add(input_path)
+                    break
 
         return completed
 
@@ -674,6 +651,17 @@ class VideoCompressor:
                 'status': 'error',
                 'input': input_file,
                 'error': f'Failed to read file: {str(e)}'
+            }
+
+        # Check for output collision BEFORE processing
+        output_path = self.get_output_path(input_file)
+        if output_path.exists():
+            # Log collision for later grep
+            self.logger.warning(f"COLLISION: Output exists, skipping input={input_file} output={output_path}")
+            return {
+                'status': 'skipped',
+                'input': input_file,
+                'error': f'Output file already exists: {output_path.name}'
             }
 
         # Check and fix color space if needed (before acquiring thread slot)
@@ -1513,6 +1501,36 @@ Already compressed: {len(completed_files)}"""
                 f"Total time: {self.format_time(stats['elapsed'])}",
                 f"Average throughput: {throughput_mb:.1f} MB/s"
             ])
+
+        # Check for collisions in log file
+        log_file = self.output_dir / "compression.log"
+        if log_file.exists():
+            try:
+                collision_lines = []
+                with open(log_file, 'r') as f:
+                    for line in f:
+                        if 'COLLISION:' in line:
+                            collision_lines.append(line.strip())
+
+                if collision_lines:
+                    summary_lines.extend([
+                        "",
+                        f"[red]⚠ Found {len(collision_lines)} filename collision(s):[/red]",
+                        "[dim]Files skipped because output .mp4 already exists:[/dim]"
+                    ])
+                    for line in collision_lines:
+                        # Extract input/output paths from log line
+                        # Format: "COLLISION: Output exists, skipping input=/path/to/file.flv output=/path/to/file.mp4"
+                        if 'input=' in line and 'output=' in line:
+                            try:
+                                input_part = line.split('input=')[1].split(' output=')[0]
+                                output_part = line.split('output=')[1]
+                                summary_lines.append(f"  [yellow]→ {input_part}[/yellow]")
+                                summary_lines.append(f"    [dim]conflicts with: {output_part}[/dim]")
+                            except:
+                                summary_lines.append(f"  [dim]{line}[/dim]")
+            except Exception as e:
+                self.logger.error(f"Failed to read collision info from log: {e}")
 
         self.console.print(Panel("\n".join(summary_lines), title="COMPRESSION SUMMARY", border_style="cyan"))
 
