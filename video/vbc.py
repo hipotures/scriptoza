@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Batch video compression script using NVENC AV1 with rich UI
-Compresses all .mp4 files in input directory to AV1 with specified quality
+Compresses video files (configurable extensions) to AV1/MP4 with specified quality
 """
 
 import argparse
@@ -45,6 +45,7 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
         'prefetch_factor': 1,
         'gpu': True,
         'copy_metadata': True,
+        'extensions': ['mp4'],
         'autorotate_patterns': {}
     }
 
@@ -71,6 +72,12 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
                 defaults['gpu'] = config.getboolean('general', 'gpu')
             if config.has_option('general', 'copy_metadata'):
                 defaults['copy_metadata'] = config.getboolean('general', 'copy_metadata')
+            if config.has_option('general', 'extensions'):
+                ext_str = config.get('general', 'extensions')
+                # Split by comma, strip whitespace, filter empty
+                extensions = [ext.strip() for ext in ext_str.split(',') if ext.strip()]
+                if extensions:
+                    defaults['extensions'] = extensions
 
         # Load [autorotate] section
         if config.has_section('autorotate'):
@@ -231,7 +238,7 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, autorotate_patterns: Dict[str, int] = None):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
@@ -240,6 +247,7 @@ class VideoCompressor:
         self.use_cpu = use_cpu
         self.prefetch_factor = prefetch_factor
         self.copy_metadata = copy_metadata
+        self.extensions = extensions or ['mp4']
         self.autorotate_patterns = autorotate_patterns or {}
         self.max_depth = 3
         self.stats = CompressionStats()
@@ -284,27 +292,60 @@ class VideoCompressor:
             return 999
 
     def find_input_files(self) -> List[Path]:
-        """Find all .mp4 files in input directory (max 3 levels deep)"""
+        """Find all video files with configured extensions in input directory (max 3 levels deep)"""
         all_files = []
-        for mp4_file in self.input_dir.rglob("*.mp4"):
-            depth = self.get_depth(mp4_file)
-            if depth <= self.max_depth:
-                all_files.append(mp4_file)
+        for ext in self.extensions:
+            for video_file in self.input_dir.rglob(f"*.{ext}"):
+                depth = self.get_depth(video_file)
+                if depth <= self.max_depth:
+                    all_files.append(video_file)
         return sorted(all_files)
 
     def get_output_path(self, input_file: Path) -> Path:
-        """Get corresponding output path maintaining directory structure"""
+        """Get corresponding output path with .mp4 extension, handling collisions"""
         relative = input_file.relative_to(self.input_dir)
-        return self.output_dir / relative
+        base_output = self.output_dir / relative.with_suffix('.mp4')
+
+        # If output exists and input has different extension, add suffix
+        if base_output.exists():
+            original_ext = input_file.suffix[1:]  # Remove leading dot
+            if original_ext != 'mp4':  # Only add suffix if not already .mp4
+                stem = relative.stem
+                new_name = f"{stem}_{original_ext}.mp4"
+                return self.output_dir / relative.parent / new_name
+
+        return base_output
 
     def find_completed_files(self) -> Set[Path]:
-        """Find all already compressed files in output directory"""
+        """Find input files that have been compressed (handles both regular and suffixed outputs)"""
         completed = set()
-        if self.output_dir.exists():
-            for mp4_file in self.output_dir.rglob("*.mp4"):
-                relative = mp4_file.relative_to(self.output_dir)
-                input_path = self.input_dir / relative
-                completed.add(input_path)
+        if not self.output_dir.exists():
+            return completed
+
+        for mp4_file in self.output_dir.rglob("*.mp4"):
+            relative = mp4_file.relative_to(self.output_dir)
+            stem = relative.stem  # e.g., "video" or "video_flv"
+
+            # Check if stem has extension suffix pattern (ends with _{ext})
+            matched = False
+            for ext in self.extensions:
+                if stem.endswith(f'_{ext}'):
+                    # Suffixed case: video_flv.mp4 → input video.flv
+                    original_stem = stem[:-len(f'_{ext}')]
+                    input_path = self.input_dir / relative.parent / f"{original_stem}.{ext}"
+                    if input_path.exists():
+                        completed.add(input_path)
+                        matched = True
+                        break
+
+            if not matched:
+                # Regular case: video.mp4 → check all extensions
+                for ext in self.extensions:
+                    input_path = self.input_dir / relative.parent / f"{stem}.{ext}"
+                    if input_path.exists():
+                        completed.add(input_path)
+                        break
+
         return completed
 
     def cleanup_temp_files(self):
@@ -1113,7 +1154,8 @@ class VideoCompressor:
         # Step 2: Find all input files
         input_files = self.find_input_files()
         if not input_files:
-            self.console.print("[yellow]No .mp4 files found![/yellow]")
+            ext_list = ', '.join([f'.{ext}' for ext in self.extensions])
+            self.console.print(f"[yellow]No video files found! (looking for: {ext_list})[/yellow]")
             return
 
         # Step 3: Find already completed files
@@ -1511,7 +1553,7 @@ Output:
     parser.add_argument(
         'input_dir',
         type=Path,
-        help='Input directory containing .mp4 files'
+        help='Input directory containing video files (extensions configured in vbc.conf)'
     )
 
     parser.add_argument(
@@ -1586,6 +1628,7 @@ Output:
         use_cpu=use_cpu,
         prefetch_factor=args.prefetch_factor,
         copy_metadata=copy_metadata,
+        extensions=config['extensions'],
         autorotate_patterns=config['autorotate_patterns']
     )
 
