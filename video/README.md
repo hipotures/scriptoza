@@ -11,6 +11,8 @@ Advanced batch video compression script with configuration file, auto-rotation, 
 - **EXIF preservation** - GPS coordinates, camera info, and timestamps preserved by default (`-map_metadata`)
 - **Automatic color space fix** - Detects and fixes FFmpeg 7.x "reserved color space" errors (bug #11020)
 - **Corrupted file detection** - Early detection and skip of corrupted files (moov atom missing)
+- **Minimum size filter** - Skip files smaller than configurable threshold (default 1 MiB, `--min-size`, set 0 to include empty files)
+- **Error marker skip** - Skip files that already have `.err` markers in output (retry only when `--clean-errors` is set)
 - Batch compression of MP4 files to AV1 format using GPU or CPU
 - Dynamic thread control during runtime (`,`/`.` keys to decrease/increase)
 - Manual rotation override (`--rotate-180`)
@@ -81,6 +83,8 @@ python video/vbc.py /path/to/videos --cpu  # Use CPU encoder instead of GPU
 - `--cpu` - Use CPU encoder (SVT-AV1) instead of GPU (NVENC)
 - `--prefetch-factor N` - Queue prefetch multiplier 1-5 (default: from config)
 - `--no-metadata` - Do not copy EXIF metadata (strips GPS, camera info)
+- `--min-size BYTES` - Minimum input size to process (default: 1048576 = 1 MiB; set 0 to include empty files)
+- `--clean-errors` - Remove existing `.err` markers and retry those files (default: keep `.err` and skip marked files)
 - `--config PATH` - Load settings from a specific config file (default: `conf/vbc.conf` next to repo)
 
 ### Runtime Controls
@@ -125,6 +129,39 @@ Typical compression achieves **85-95% space savings** at CQ45, depending on the 
 Average processing speed depends on GPU, but typically:
 - ~10-15MB/s throughput on modern NVIDIA GPUs
 - ~30-60 seconds per GB of video content
+
+---
+
+## move_err_files.py
+
+Helper script that relocates source MP4 files for which the compressor created `.err` markers.
+
+### Features
+
+- Derives output directory by appending `_out` to the input directory path
+- Finds all `.err` files in the output tree and moves their source `.mp4` counterparts to a safe location
+- Preserves relative directory structure under the destination (default: `/tmp/err`)
+- Moves `.err` files alongside their source videos after a successful move
+- Prompts for confirmation when more than 20 `.err` files are detected; otherwise runs without prompts
+
+### Requirements
+
+- Python 3.9+
+
+### Usage
+
+```bash
+# Move all errored videos and .err markers to /tmp/err
+python video/move_err_files.py /run/media/xai/.../QVR
+
+# Custom destination
+python video/move_err_files.py /run/media/xai/.../QVR --dest /path/to/quarantine
+```
+
+### Output
+
+- Moved `.mp4` and `.err` files appear under the destination, keeping their original subdirectory structure.
+- Summary printed with counts of moved files and any missing sources.
 
 ---
 
