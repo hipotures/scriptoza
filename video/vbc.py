@@ -46,6 +46,8 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
         'gpu': True,
         'copy_metadata': True,
         'extensions': ['mp4'],
+        'min_size_bytes': 1024 * 1024,  # 1 MiB
+        'clean_errors': False,
         'autorotate_patterns': {}
     }
 
@@ -78,6 +80,10 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
                 extensions = [ext.strip() for ext in ext_str.split(',') if ext.strip()]
                 if extensions:
                     defaults['extensions'] = extensions
+            if config.has_option('general', 'min_size_bytes'):
+                defaults['min_size_bytes'] = max(0, config.getint('general', 'min_size_bytes'))
+            if config.has_option('general', 'clean_errors'):
+                defaults['clean_errors'] = config.getboolean('general', 'clean_errors')
 
         # Load [autorotate] section
         if config.has_section('autorotate'):
@@ -238,7 +244,7 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
@@ -249,6 +255,8 @@ class VideoCompressor:
         self.copy_metadata = copy_metadata
         self.extensions = extensions or ['mp4']
         self.autorotate_patterns = autorotate_patterns or {}
+        self.min_size_bytes = max(0, int(min_size_bytes))
+        self.clean_errors = clean_errors
         self.max_depth = 3
         self.stats = CompressionStats()
         self.console = Console()
@@ -256,6 +264,12 @@ class VideoCompressor:
         self.last_action = ""
         self.last_action_time = None
         self.last_action_lock = threading.Lock()
+
+        # Precomputed counters for UI
+        self.files_to_compress_count = 0
+        self.already_compressed_count = 0
+        self.ignored_small_count = 0
+        self.ignored_err_count = 0
 
         # Refresh functionality
         self.refresh_requested = False
@@ -291,15 +305,33 @@ class VideoCompressor:
         except ValueError:
             return 999
 
-    def find_input_files(self) -> List[Path]:
+    def find_input_files(self) -> tuple[List[Path], int]:
         """Find all video files with configured extensions in input directory (max 3 levels deep)"""
         all_files = []
+        ignored_small = 0
         for ext in self.extensions:
             for video_file in self.input_dir.rglob(f"*.{ext}"):
                 depth = self.get_depth(video_file)
                 if depth <= self.max_depth:
+                    try:
+                        if video_file.stat().st_size < self.min_size_bytes:
+                            ignored_small += 1
+                            continue
+                    except OSError:
+                        # If file disappears or unreadable, skip counting it as ignored
+                        continue
                     all_files.append(video_file)
-        return sorted(all_files)
+        return sorted(all_files), ignored_small
+
+    def find_error_marked_inputs(self, input_files: List[Path]) -> Set[Path]:
+        """Return set of input files that have existing .err markers in output_dir."""
+        err_marked: Set[Path] = set()
+        for input_file in input_files:
+            output_path = self.get_output_path(input_file)
+            err_file = output_path.parent / f"{output_path.stem}.err"
+            if err_file.exists():
+                err_marked.add(input_file)
+        return err_marked
 
     def get_output_path(self, input_file: Path) -> Path:
         """Get corresponding output path with .mp4 extension"""
@@ -326,21 +358,22 @@ class VideoCompressor:
         return completed
 
     def cleanup_temp_files(self):
-        """Remove all .tmp, .err, and *_colorfix.mp4 files from output directory"""
+        """Remove temporary files from output directory. .err files removed only if clean_errors is True."""
         if not self.output_dir.exists():
             return
 
         tmp_count = 0
-        err_count = 0
         colorfix_count = 0
+        err_count = 0
 
         for tmp_file in self.output_dir.rglob("*.tmp"):
             tmp_file.unlink()
             tmp_count += 1
 
-        for err_file in self.output_dir.rglob("*.err"):
-            err_file.unlink()
-            err_count += 1
+        if self.clean_errors:
+            for err_file in self.output_dir.rglob("*.err"):
+                err_file.unlink()
+                err_count += 1
 
         for colorfix_file in self.output_dir.rglob("*_colorfix.mp4"):
             colorfix_file.unlink()
@@ -926,7 +959,7 @@ class VideoCompressor:
             return f"{metadata['fps']}fps"
         return ""
 
-    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0) -> Group:
+    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0, already_compressed_count: int = 0, ignored_small_count: int = 0, ignored_err_count: int = 0) -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
 
@@ -937,8 +970,11 @@ class VideoCompressor:
             border_style="white"
         )
 
-        # Status Panel
-        status_lines = []
+        # Compression Status Panel (dynamic + counters)
+        status_lines = [
+            f"Files to compress: {total_files} | Already compressed: {already_compressed_count}",
+            f"Ignored (size < {self.format_size(self.min_size_bytes)}): {ignored_small_count} | Ignored (err markers): {ignored_err_count}"
+        ]
         current_threads = self.thread_controller.get_current()
         is_shutdown = self.thread_controller.is_shutdown_requested()
 
@@ -1140,20 +1176,34 @@ class VideoCompressor:
         self.cleanup_temp_files()
 
         # Step 2: Find all input files
-        input_files = self.find_input_files()
+        input_files, ignored_small = self.find_input_files()
+        self.ignored_small_count = ignored_small
+        err_marked = set() if self.clean_errors else self.find_error_marked_inputs(input_files)
+        self.ignored_err_count = len(err_marked)
         if not input_files:
             ext_list = ', '.join([f'.{ext}' for ext in self.extensions])
-            self.console.print(f"[yellow]No video files found! (looking for: {ext_list})[/yellow]")
+            if ignored_small > 0:
+                self.console.print(f"[yellow]No video files >= {self.format_size(self.min_size_bytes)} found! (ignored {ignored_small} below threshold, looking for: {ext_list})[/yellow]")
+            else:
+                self.console.print(f"[yellow]No video files found! (looking for: {ext_list})[/yellow]")
             return
 
         # Step 3: Find already completed files
         completed_files = self.find_completed_files()
+        self.already_compressed_count = len(completed_files)
 
         # Step 4: Filter out completed files
-        files_to_process = [f for f in input_files if f not in completed_files]
+        files_to_process = [f for f in input_files if f not in completed_files and f not in err_marked]
+        self.files_to_compress_count = len(files_to_process)
 
         if not files_to_process:
-            self.console.print("[green]All files already compressed![/green]")
+            parts = []
+            if ignored_small > 0:
+                parts.append(f"ignored {ignored_small} below {self.format_size(self.min_size_bytes)}")
+            if err_marked:
+                parts.append(f"skipped {len(err_marked)} with existing .err (use --clean-errors to retry)")
+            suffix = f" ({'; '.join(parts)})" if parts else ""
+            self.console.print(f"[green]All files already compressed![/green]{suffix}")
             return
 
         # Print initial info to console with file counts
@@ -1169,9 +1219,7 @@ Prefetch factor: {self.prefetch_factor}× (max_inflight = {self.prefetch_factor 
 Quality: CQ{self.cq}
 Extensions: {ext_list} → .mp4
 Rotate 180°: {self.rotate_180}
-
-Files to compress: {len(files_to_process)}
-Already compressed: {len(completed_files)}"""
+Min size: {self.format_size(self.min_size_bytes)} (0 = include empty files)"""
 
         self.console.print(Panel(start_info, title="CONFIGURATION", border_style="cyan"))
         self.console.print()  # Empty line before MENU
@@ -1199,7 +1247,10 @@ Already compressed: {len(completed_files)}"""
                 None,
                 pending_files_snapshot,
                 in_flight_snapshot,
-                spinner_frame
+                spinner_frame,
+                self.already_compressed_count,
+                self.ignored_small_count,
+                self.ignored_err_count
             )
             with self.ui_lock:
                 live_obj.update(display)
@@ -1257,8 +1308,12 @@ Already compressed: {len(completed_files)}"""
 
                 try:
                     # Find new files
-                    new_input_files = self.find_input_files()
+                    new_input_files, new_ignored_small = self.find_input_files()
+                    self.ignored_small_count = new_ignored_small
+                    new_err_marked = set() if self.clean_errors else self.find_error_marked_inputs(new_input_files)
+                    self.ignored_err_count = len(new_err_marked)
                     new_completed_files = self.find_completed_files()
+                    self.already_compressed_count = len(new_completed_files)
 
                     # Get currently processing files (thread-safe)
                     with self.processing_files_lock:
@@ -1280,14 +1335,14 @@ Already compressed: {len(completed_files)}"""
                         # Find files to ADD: new files not in any known set
                         candidates_add = [
                             f for f in new_input_files
-                            if f not in new_completed_files and f not in known
+                            if f not in new_completed_files and f not in known and f not in new_err_marked
                         ]
 
                         # Find files to REMOVE: files in pending_files that no longer exist in source
                         new_input_files_set = set(new_input_files)
                         candidates_remove = [
                             f for f in list(pending_files)
-                            if f not in new_input_files_set
+                            if f not in new_input_files_set or f in new_err_marked
                         ]
 
                         added = 0
@@ -1347,7 +1402,7 @@ Already compressed: {len(completed_files)}"""
         keyboard_thread.start()
 
         try:
-            with Live(self.create_display(total_files, completed_count, files_to_process, set(), None, list(pending_files), [], 0),
+            with Live(self.create_display(total_files, completed_count, files_to_process, set(), None, list(pending_files), [], 0, self.already_compressed_count, self.ignored_small_count, self.ignored_err_count),
                       refresh_per_second=10, console=self.console) as live:
 
                 # Start auto-refresh thread
@@ -1616,6 +1671,20 @@ Output:
         help=f'Do not copy EXIF metadata (GPS, camera info). Default: {"copy" if config["copy_metadata"] else "do not copy"} from config'
     )
 
+    parser.add_argument(
+        '--min-size',
+        type=int,
+        default=config['min_size_bytes'],
+        help='Minimum input file size in bytes to process (default: 1048576 = 1MiB; set 0 to include empty files)'
+    )
+
+    parser.add_argument(
+        '--clean-errors',
+        action='store_true',
+        default=config['clean_errors'],
+        help='Remove existing .err files in output directory and retry those inputs (default: keep .err and skip those files)'
+    )
+
     args = parser.parse_args()
 
     # Validate input directory
@@ -1625,6 +1694,10 @@ Output:
 
     if not args.input_dir.is_dir():
         print(f"Error: Input path is not a directory: {args.input_dir}")
+        sys.exit(1)
+
+    if args.min_size < 0:
+        print("Error: --min-size cannot be negative")
         sys.exit(1)
 
     # Verify required binaries are available before starting
@@ -1649,7 +1722,9 @@ Output:
         prefetch_factor=args.prefetch_factor,
         copy_metadata=copy_metadata,
         extensions=config['extensions'],
-        autorotate_patterns=config['autorotate_patterns']
+        autorotate_patterns=config['autorotate_patterns'],
+        min_size_bytes=args.min_size,
+        clean_errors=args.clean_errors
     )
 
     try:
