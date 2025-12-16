@@ -1117,6 +1117,7 @@ class VideoCompressor:
         next_table.add_column("Res", width=3, justify="right", style="cyan")
         next_table.add_column("FPS", width=6, justify="right", style="cyan")
         next_table.add_column("Size", justify="right")
+        next_table.add_column("Codec", width=5, justify="center", no_wrap=True, overflow="ellipsis")
         next_table.add_column("", width=2, justify="center", style="magenta")
 
         # If shutdown requested, show empty queue
@@ -1144,7 +1145,9 @@ class VideoCompressor:
             for file in next_files:
                 if file.exists():
                     metadata = self.get_queue_metadata(file)
-                    warn_icon = "📦" if metadata.get('codec') == 'av1' else ""
+                    codec_raw = metadata.get('codec')
+                    codec = codec_raw.lower() if codec_raw else ""
+                    warn_icon = "📦" if codec == 'av1' else ""
 
                     next_table.add_row(
                         "»",
@@ -1152,6 +1155,7 @@ class VideoCompressor:
                         self.format_resolution(metadata),
                         self.format_fps(metadata),
                         self.format_size(file.stat().st_size),
+                        codec,
                         warn_icon
                     )
 
