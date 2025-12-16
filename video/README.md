@@ -13,6 +13,7 @@ Advanced batch video compression script with configuration file, auto-rotation, 
 - **Corrupted file detection** - Early detection and skip of corrupted files (moov atom missing)
 - **Minimum size filter** - Skip files smaller than configurable threshold (default 1 MiB, `--min-size`, set 0 to include empty files)
 - **Error marker skip** - Skip files that already have `.err` markers in output (retry only when `--clean-errors` is set)
+- **AV1 codec skip** - Optionally skip files already using AV1 codec (`--skip-av1`) to avoid recompressing
 - Batch compression of MP4 files to AV1 format using GPU or CPU
 - Dynamic thread control during runtime (`,`/`.` keys to decrease/increase)
 - Manual rotation override (`--rotate-180`)
@@ -54,6 +55,7 @@ cq = 45              # Quality (lower = better, larger file)
 prefetch_factor = 1  # Queue prefetch multiplier
 gpu = True           # True = NVENC GPU, False = SVT-AV1 CPU
 copy_metadata = True # Copy EXIF (GPS, camera info)
+skip_av1 = False     # Skip files already using AV1 codec
 
 [autorotate]
 # Regex patterns for auto-rotation
@@ -85,6 +87,7 @@ python video/vbc.py /path/to/videos --cpu  # Use CPU encoder instead of GPU
 - `--no-metadata` - Do not copy EXIF metadata (strips GPS, camera info)
 - `--min-size BYTES` - Minimum input size to process (default: 1048576 = 1 MiB; set 0 to include empty files)
 - `--clean-errors` - Remove existing `.err` markers and retry those files (default: keep `.err` and skip marked files)
+- `--skip-av1` - Skip files already using AV1 codec (default: compress AV1 files)
 - `--config PATH` - Load settings from a specific config file (default: `conf/vbc.conf` next to repo)
 
 ### Runtime Controls
@@ -108,6 +111,7 @@ During compression, you can control the process using keyboard shortcuts:
 - **Submit-on-demand architecture** - Files submitted in batches (prefetch_factor × threads) for predictable FIFO processing
 - **Auto color space fix** - Automatically detects and fixes FFmpeg 7.x "reserved color space" using `hevc_metadata`/`h264_metadata` bitstream filters
 - **Early corruption detection** - Runs `ffprobe` before compression to skip corrupted files (moov atom missing)
+- **Cached metadata extraction** - Single `ffprobe` call per file with results cached for codec detection, resolution, and FPS display
 - **EXIF preservation** - Uses `-map_metadata 0` to preserve GPS, camera info, timestamps
 - **Regex-based auto-rotation** - Matches filenames against patterns in config for automatic rotation
 - Single-pass CQ (Constant Quality) encoding

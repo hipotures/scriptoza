@@ -48,6 +48,7 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
         'extensions': ['mp4'],
         'min_size_bytes': 1024 * 1024,  # 1 MiB
         'clean_errors': False,
+        'skip_av1': False,
         'autorotate_patterns': {}
     }
 
@@ -84,6 +85,8 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
                 defaults['min_size_bytes'] = max(0, config.getint('general', 'min_size_bytes'))
             if config.has_option('general', 'clean_errors'):
                 defaults['clean_errors'] = config.getboolean('general', 'clean_errors')
+            if config.has_option('general', 'skip_av1'):
+                defaults['skip_av1'] = config.getboolean('general', 'skip_av1')
 
         # Load [autorotate] section
         if config.has_section('autorotate'):
@@ -244,7 +247,7 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
@@ -257,6 +260,7 @@ class VideoCompressor:
         self.autorotate_patterns = autorotate_patterns or {}
         self.min_size_bytes = max(0, int(min_size_bytes))
         self.clean_errors = clean_errors
+        self.skip_av1 = skip_av1
         self.max_depth = 3
         self.stats = CompressionStats()
         self.console = Console()
@@ -270,6 +274,7 @@ class VideoCompressor:
         self.already_compressed_count = 0
         self.ignored_small_count = 0
         self.ignored_err_count = 0
+        self.ignored_av1_count = 0
 
         # Refresh functionality
         self.refresh_requested = False
@@ -963,7 +968,7 @@ class VideoCompressor:
             return f"{metadata['fps']}fps"
         return ""
 
-    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0, already_compressed_count: int = 0, ignored_small_count: int = 0, ignored_err_count: int = 0) -> Group:
+    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0, already_compressed_count: int = 0, ignored_small_count: int = 0, ignored_err_count: int = 0, ignored_av1_count: int = 0) -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
 
@@ -977,7 +982,7 @@ class VideoCompressor:
         # Compression Status Panel (dynamic + counters)
         status_lines = [
             f"Files to compress: {total_files} | Already compressed: {already_compressed_count}",
-            f"Ignored (size < {self.format_size(self.min_size_bytes)}): {ignored_small_count} | Ignored (err markers): {ignored_err_count}"
+            f"Ignored (size < {self.format_size(self.min_size_bytes)}): {ignored_small_count} | Ignored (err markers): {ignored_err_count} | Ignored (av1 codec): {ignored_av1_count}"
         ]
         current_threads = self.thread_controller.get_current()
         is_shutdown = self.thread_controller.is_shutdown_requested()
@@ -1207,8 +1212,20 @@ class VideoCompressor:
         completed_files = self.find_completed_files()
         self.already_compressed_count = len(completed_files)
 
-        # Step 4: Filter out completed files
-        files_to_process = [f for f in input_files if f not in completed_files and f not in err_marked]
+        # Step 3.5: Filter out AV1 files if skip_av1 is enabled
+        av1_files = set()
+        if self.skip_av1:
+            for f in input_files:
+                if f not in completed_files and f not in err_marked:
+                    metadata = self.get_queue_metadata(f)
+                    if metadata.get('codec') == 'av1':
+                        av1_files.add(f)
+            self.ignored_av1_count = len(av1_files)
+        else:
+            self.ignored_av1_count = 0
+
+        # Step 4: Filter out completed files and AV1 files
+        files_to_process = [f for f in input_files if f not in completed_files and f not in err_marked and f not in av1_files]
         self.files_to_compress_count = len(files_to_process)
 
         if not files_to_process:
@@ -1217,6 +1234,8 @@ class VideoCompressor:
                 parts.append(f"ignored {ignored_small} below {self.format_size(self.min_size_bytes)}")
             if err_marked:
                 parts.append(f"skipped {len(err_marked)} with existing .err (use --clean-errors to retry)")
+            if av1_files:
+                parts.append(f"skipped {len(av1_files)} with AV1 codec")
             suffix = f" ({'; '.join(parts)})" if parts else ""
             self.console.print(f"[green]All files already compressed![/green]{suffix}")
             return
@@ -1265,7 +1284,8 @@ Min size: {self.format_size(self.min_size_bytes)} (0 = include empty files)"""
                 spinner_frame,
                 self.already_compressed_count,
                 self.ignored_small_count,
-                self.ignored_err_count
+                self.ignored_err_count,
+                self.ignored_av1_count
             )
             with self.ui_lock:
                 live_obj.update(display)
@@ -1417,7 +1437,7 @@ Min size: {self.format_size(self.min_size_bytes)} (0 = include empty files)"""
         keyboard_thread.start()
 
         try:
-            with Live(self.create_display(total_files, completed_count, files_to_process, set(), None, list(pending_files), [], 0, self.already_compressed_count, self.ignored_small_count, self.ignored_err_count),
+            with Live(self.create_display(total_files, completed_count, files_to_process, set(), None, list(pending_files), [], 0, self.already_compressed_count, self.ignored_small_count, self.ignored_err_count, self.ignored_av1_count),
                       refresh_per_second=10, console=self.console) as live:
 
                 # Start auto-refresh thread
@@ -1700,6 +1720,13 @@ Output:
         help='Remove existing .err files in output directory and retry those inputs (default: keep .err and skip those files)'
     )
 
+    parser.add_argument(
+        '--skip-av1',
+        action='store_true',
+        default=config['skip_av1'],
+        help=f'Skip files that already use AV1 codec (default: {"skip" if config["skip_av1"] else "compress"} from config)'
+    )
+
     args = parser.parse_args()
 
     # Validate input directory
@@ -1739,7 +1766,8 @@ Output:
         extensions=config['extensions'],
         autorotate_patterns=config['autorotate_patterns'],
         min_size_bytes=args.min_size,
-        clean_errors=args.clean_errors
+        clean_errors=args.clean_errors,
+        skip_av1=args.skip_av1
     )
 
     try:
