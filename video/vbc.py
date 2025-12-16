@@ -422,14 +422,18 @@ class VideoCompressor:
         try:
             result = subprocess.run([
                 'ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                '-show_entries', 'stream=width,height,avg_frame_rate',
+                '-show_entries', 'stream=width,height,avg_frame_rate,codec_name',
                 '-of', 'default=noprint_wrappers=1',
                 str(file)
             ], capture_output=True, text=True, timeout=5)
 
             if result.returncode == 0:
                 for line in result.stdout.strip().split('\n'):
-                    if line.startswith('width='):
+                    if line.startswith('codec_name='):
+                        codec = line.split('=')[1].strip().lower()
+                        if codec:
+                            metadata['codec'] = codec
+                    elif line.startswith('width='):
                         try:
                             width = int(line.split('=')[1])
                             metadata['width'] = width
@@ -1076,11 +1080,14 @@ class VideoCompressor:
         completed_table.add_column("Output", justify="right", style="cyan")
         completed_table.add_column("Saved", justify="right", style="green")
         completed_table.add_column("Time", justify="right", style="yellow")
+        completed_table.add_column("", width=2, justify="center", style="magenta")
 
         # Show last 5 completed in reverse order (newest first)
         completed_list = list(reversed(list(stats['completed'])))
         for item in completed_list[:5]:
             metadata = item.get('metadata', {})
+            compression_ratio = item.get('compression_ratio', 100)
+            warn_icon = "📦" if compression_ratio < 50 else ""
             completed_table.add_row(
                 "✓",
                 item['input'].name,
@@ -1089,8 +1096,9 @@ class VideoCompressor:
                 self.format_size(item['input_size']),
                 "→",
                 self.format_size(item['output_size']),
-                f"{item['compression_ratio']:.1f}%",
-                self.format_time(item['duration'])
+                f"{compression_ratio:.1f}%",
+                self.format_time(item['duration']),
+                warn_icon
             )
 
         if stats['completed']:
@@ -1109,6 +1117,7 @@ class VideoCompressor:
         next_table.add_column("Res", width=3, justify="right", style="cyan")
         next_table.add_column("FPS", width=6, justify="right", style="cyan")
         next_table.add_column("Size", justify="right")
+        next_table.add_column("", width=2, justify="center", style="magenta")
 
         # If shutdown requested, show empty queue
         if is_shutdown:
@@ -1135,13 +1144,15 @@ class VideoCompressor:
             for file in next_files:
                 if file.exists():
                     metadata = self.get_queue_metadata(file)
+                    warn_icon = "📦" if metadata.get('codec') == 'av1' else ""
 
                     next_table.add_row(
                         "»",
                         file.name,
                         self.format_resolution(metadata),
                         self.format_fps(metadata),
-                        self.format_size(file.stat().st_size)
+                        self.format_size(file.stat().st_size),
+                        warn_icon
                     )
 
         if next_files:
