@@ -997,7 +997,7 @@ class VideoCompressor:
         # Compression Status Panel (dynamic + counters)
         status_lines = [
             f"Files to compress: {total_files} | Already compressed: {already_compressed_count}",
-            f"Ignored (size < {self.format_size(self.min_size_bytes)}): {ignored_small_count} | Ignored (err markers): {ignored_err_count} | Ignored (av1 codec): {ignored_av1_count}"
+            f"Ignored: size: {ignored_small_count} | err: {ignored_err_count} | av1: {ignored_av1_count}"
         ]
         current_threads = self.thread_controller.get_current()
         is_shutdown = self.thread_controller.is_shutdown_requested()
@@ -1268,7 +1268,11 @@ Prefetch factor: {self.prefetch_factor}× (max_inflight = {self.prefetch_factor 
 Quality: CQ{self.cq}
 Extensions: {ext_list} → .mp4
 Rotate 180°: {self.rotate_180}
-Min size: {self.format_size(self.min_size_bytes)} (0 = include empty files)"""
+Min size: {self.format_size(self.min_size_bytes)} (0 = include empty files)
+Copy metadata: {self.copy_metadata}
+Skip AV1: {self.skip_av1}
+Clean errors: {self.clean_errors}
+Strip Unicode display: {self.strip_unicode_display}"""
 
         self.console.print(Panel(start_info, title="CONFIGURATION", border_style="cyan"))
         self.console.print()  # Empty line before MENU
