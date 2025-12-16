@@ -1028,7 +1028,7 @@ class VideoCompressor:
         # Currently Processing Panel
         processing_table = Table(show_header=False, box=None, padding=(0, 1))
         processing_table.add_column("Status", width=1, style="yellow")
-        processing_table.add_column("File", style="yellow")
+        processing_table.add_column("File", style="yellow", width=40, no_wrap=True, overflow="ellipsis")
         processing_table.add_column("Res", width=3, justify="right", style="cyan")
         processing_table.add_column("FPS", width=6, justify="right", style="cyan")
         processing_table.add_column("Size", justify="right")
@@ -1072,7 +1072,7 @@ class VideoCompressor:
         # Last Completed Panel
         completed_table = Table(show_header=False, box=None, padding=(0, 1))
         completed_table.add_column("Status", width=1, style="green")
-        completed_table.add_column("File", style="green", no_wrap=False)
+        completed_table.add_column("File", style="green", width=40, no_wrap=True, overflow="ellipsis")
         completed_table.add_column("Res", width=3, justify="right", style="cyan")
         completed_table.add_column("FPS", width=6, justify="right", style="cyan")
         completed_table.add_column("Input", justify="right", style="cyan")
@@ -1113,7 +1113,7 @@ class VideoCompressor:
         # Next in Queue Panel
         next_table = Table(show_header=False, box=None, padding=(0, 1))
         next_table.add_column("", width=1, style="dim")
-        next_table.add_column("File")
+        next_table.add_column("File", width=40, no_wrap=True, overflow="ellipsis")
         next_table.add_column("Res", width=3, justify="right", style="cyan")
         next_table.add_column("FPS", width=6, justify="right", style="cyan")
         next_table.add_column("Size", justify="right")
