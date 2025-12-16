@@ -165,6 +165,63 @@ python video/move_err_files.py /run/media/xai/.../QVR --dest /path/to/quarantine
 
 ---
 
+## check_4k.py
+
+Classify MP4 files by resolution and write 4K/non-4K lists with bitrate and codec info.
+
+### Features
+
+- Recursively scans for `.mp4` files and probes width/height/codec/bitrate via `ffprobe`
+- Writes tab-separated `files_4k.txt` and `files_non4k.txt` with resolution, bitrate (Mbps), and codec
+- Prints progress with per-file summary
+
+### Requirements
+
+- Python 3.9+
+- ffprobe available in `PATH`
+
+### Usage
+
+```bash
+python video/check_4k.py /path/to/videos \
+  --output-4k files_4k.txt \
+  --output-non4k files_non4k.txt
+```
+
+### Output
+
+- `files_4k.txt` and `files_non4k.txt` in current directory (paths, resolution, bitrate, codec)
+- Console summary of counts and locations
+
+---
+
+## check_collisions.py
+
+Find files that would collide after compression because they share a basename but have different extensions.
+
+### Features
+
+- Scans recursively for `.mp4` and `.flv` (extensions configurable in code)
+- Reports directories where the same stem exists with multiple extensions
+- Shows file sizes to help decide which to keep
+
+### Requirements
+
+- Python 3.9+
+
+### Usage
+
+```bash
+python video/check_collisions.py /path/to/videos
+```
+
+### Output
+
+- Console report listing each directory with collisions and the conflicting files
+- Exit status `0` with printed warning or success message
+
+---
+
 ## rename_video.py
 
 Universal video file renaming tool supporting multiple camera brands (DJI, Panasonic, Sony).
