@@ -49,6 +49,7 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
         'min_size_bytes': 1024 * 1024,  # 1 MiB
         'clean_errors': False,
         'skip_av1': False,
+        'strip_unicode_display': True,
         'autorotate_patterns': {}
     }
 
@@ -87,6 +88,8 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
                 defaults['clean_errors'] = config.getboolean('general', 'clean_errors')
             if config.has_option('general', 'skip_av1'):
                 defaults['skip_av1'] = config.getboolean('general', 'skip_av1')
+            if config.has_option('general', 'strip_unicode_display'):
+                defaults['strip_unicode_display'] = config.getboolean('general', 'strip_unicode_display')
 
         # Load [autorotate] section
         if config.has_section('autorotate'):
@@ -247,7 +250,7 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False, strip_unicode_display: bool = True):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
@@ -261,6 +264,7 @@ class VideoCompressor:
         self.min_size_bytes = max(0, int(min_size_bytes))
         self.clean_errors = clean_errors
         self.skip_av1 = skip_av1
+        self.strip_unicode_display = strip_unicode_display
         self.max_depth = 3
         self.stats = CompressionStats()
         self.console = Console()
@@ -937,6 +941,17 @@ class VideoCompressor:
                 except Exception as e:
                     self.logger.warning(f"Failed to cleanup temp file {temp_fixed_file}: {e}")
 
+    def sanitize_filename_for_display(self, filename: str) -> str:
+        """
+        Sanitize filename for display by replacing non-ASCII characters with '?'.
+        Only affects display, file names are never modified.
+        """
+        if not self.strip_unicode_display:
+            return filename
+
+        # Replace non-ASCII characters (emoji, special Unicode) with '?'
+        return ''.join(c if ord(c) < 128 else '?' for c in filename)
+
     def format_size(self, size: int) -> str:
         """Format size in bytes to human readable"""
         for unit in ['B', 'KB', 'MB', 'GB']:
@@ -1058,7 +1073,7 @@ class VideoCompressor:
             spinner_char = spinner_frames[(spinner_frame + idx) % len(spinner_frames)]
             processing_table.add_row(
                 spinner_char,
-                filename,
+                self.sanitize_filename_for_display(filename),
                 self.format_resolution(metadata),
                 self.format_fps(metadata),
                 self.format_size(info['size']),
@@ -1095,7 +1110,7 @@ class VideoCompressor:
             warn_icon = "📦" if compression_ratio < 50 else ""
             completed_table.add_row(
                 "✓",
-                item['input'].name,
+                self.sanitize_filename_for_display(item['input'].name),
                 self.format_resolution(metadata),
                 self.format_fps(metadata),
                 self.format_size(item['input_size']),
@@ -1156,7 +1171,7 @@ class VideoCompressor:
 
                     next_table.add_row(
                         "»",
-                        file.name,
+                        self.sanitize_filename_for_display(file.name),
                         self.format_resolution(metadata),
                         self.format_fps(metadata),
                         self.format_size(file.stat().st_size),
@@ -1727,6 +1742,21 @@ Output:
         help=f'Skip files that already use AV1 codec (default: {"skip" if config["skip_av1"] else "compress"} from config)'
     )
 
+    parser.add_argument(
+        '--strip-unicode-display',
+        action='store_true',
+        dest='strip_unicode_display',
+        default=None,
+        help='Strip non-ASCII Unicode characters from filenames in UI display (replaces emoji/special chars with \'?\')'
+    )
+
+    parser.add_argument(
+        '--no-strip-unicode-display',
+        action='store_false',
+        dest='strip_unicode_display',
+        help='Show original filenames with Unicode characters in UI (may break table alignment)'
+    )
+
     args = parser.parse_args()
 
     # Validate input directory
@@ -1754,6 +1784,9 @@ Output:
     # Determine metadata copying: --no-metadata flag overrides config
     copy_metadata = not args.no_metadata if args.no_metadata else config['copy_metadata']
 
+    # Determine Unicode display stripping: CLI flag overrides config if provided
+    strip_unicode_display = args.strip_unicode_display if args.strip_unicode_display is not None else config['strip_unicode_display']
+
     # Run compression
     compressor = VideoCompressor(
         input_dir=args.input_dir,
@@ -1767,7 +1800,8 @@ Output:
         autorotate_patterns=config['autorotate_patterns'],
         min_size_bytes=args.min_size,
         clean_errors=args.clean_errors,
-        skip_av1=args.skip_av1
+        skip_av1=args.skip_av1,
+        strip_unicode_display=strip_unicode_display
     )
 
     try:
