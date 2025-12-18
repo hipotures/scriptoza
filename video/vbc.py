@@ -5,7 +5,7 @@ Compresses video files (configurable extensions) to AV1/MP4 with specified quali
 """
 
 import argparse
-import configparser
+import yaml
 import logging
 import re
 import select
@@ -22,6 +22,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Set, Dict, Optional, Deque
 
+# Optional deep metadata analysis
+try:
+    import exiftool
+except ImportError:
+    exiftool = None
+
 try:
     from rich.live import Live
     from rich.panel import Panel
@@ -36,7 +42,7 @@ except ImportError:
 
 def load_config(config_path: Optional[Path] = None) -> Dict:
     """
-    Load configuration from conf/vbc.conf or a provided path.
+    Load configuration from conf/vbc.yaml or a provided path.
     Returns dict with default values if config file doesn't exist or can't be read
     """
     defaults = {
@@ -45,15 +51,17 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
         'prefetch_factor': 1,
         'gpu': True,
         'copy_metadata': True,
-        'extensions': ['mp4'],
+        'extensions': ['mp4', 'flv', 'webm'],
         'min_size_bytes': 1024 * 1024,  # 1 MiB
         'clean_errors': False,
         'skip_av1': False,
         'strip_unicode_display': True,
+        'use_exif': True,
+        'dynamic_cq': {},
         'autorotate_patterns': {}
     }
 
-    config_file = Path(config_path) if config_path else Path(__file__).resolve().parent.parent / 'conf' / 'vbc.conf'
+    config_file = Path(config_path) if config_path else Path(__file__).resolve().parent.parent / 'conf' / 'vbc.yaml'
 
     if not config_file.exists():
         if config_path:
@@ -61,47 +69,28 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
         return defaults
 
     try:
-        config = configparser.RawConfigParser()
-        config.read(config_file)
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
 
-        # Load [general] section
-        if config.has_section('general'):
-            if config.has_option('general', 'threads'):
-                defaults['threads'] = config.getint('general', 'threads')
-            if config.has_option('general', 'cq'):
-                defaults['cq'] = config.getint('general', 'cq')
-            if config.has_option('general', 'prefetch_factor'):
-                defaults['prefetch_factor'] = config.getint('general', 'prefetch_factor')
-            if config.has_option('general', 'gpu'):
-                defaults['gpu'] = config.getboolean('general', 'gpu')
-            if config.has_option('general', 'copy_metadata'):
-                defaults['copy_metadata'] = config.getboolean('general', 'copy_metadata')
-            if config.has_option('general', 'extensions'):
-                ext_str = config.get('general', 'extensions')
-                # Split by comma, strip whitespace, filter empty
-                extensions = [ext.strip() for ext in ext_str.split(',') if ext.strip()]
-                if extensions:
-                    defaults['extensions'] = extensions
-            if config.has_option('general', 'min_size_bytes'):
-                defaults['min_size_bytes'] = max(0, config.getint('general', 'min_size_bytes'))
-            if config.has_option('general', 'clean_errors'):
-                defaults['clean_errors'] = config.getboolean('general', 'clean_errors')
-            if config.has_option('general', 'skip_av1'):
-                defaults['skip_av1'] = config.getboolean('general', 'skip_av1')
-            if config.has_option('general', 'strip_unicode_display'):
-                defaults['strip_unicode_display'] = config.getboolean('general', 'strip_unicode_display')
+        if 'general' in config:
+            gen = config['general']
+            defaults.update({
+                'threads': gen.get('threads', defaults['threads']),
+                'cq': gen.get('cq', defaults['cq']),
+                'prefetch_factor': gen.get('prefetch_factor', defaults['prefetch_factor']),
+                'gpu': gen.get('gpu', defaults['gpu']),
+                'copy_metadata': gen.get('copy_metadata', defaults['copy_metadata']),
+                'extensions': gen.get('extensions', defaults['extensions']),
+                'min_size_bytes': gen.get('min_size_bytes', defaults['min_size_bytes']),
+                'clean_errors': gen.get('clean_errors', defaults['clean_errors']),
+                'skip_av1': gen.get('skip_av1', defaults['skip_av1']),
+                'strip_unicode_display': gen.get('strip_unicode_display', defaults['strip_unicode_display']),
+                'use_exif': gen.get('use_exif', defaults['use_exif']),
+                'dynamic_cq': gen.get('dynamic_cq', defaults['dynamic_cq'])
+            })
 
-        # Load [autorotate] section
-        if config.has_section('autorotate'):
-            autorotate = {}
-            for pattern, angle_str in config.items('autorotate'):
-                try:
-                    angle = int(angle_str)
-                    if angle in [0, 90, 180, 270]:
-                        autorotate[pattern] = angle
-                except (ValueError, re.error):
-                    pass
-            defaults['autorotate_patterns'] = autorotate
+        if 'autorotate' in config:
+            defaults['autorotate_patterns'] = config['autorotate']
 
         return defaults
     except Exception as e:
@@ -192,6 +181,7 @@ class CompressionStats:
         self.success_count = 0
         self.error_count = 0
         self.skipped_count = 0
+        self.hw_cap_count = 0
         self.total_input_size = 0
         self.total_output_size = 0
         self.completed: Deque[Dict] = deque(maxlen=5)
@@ -208,6 +198,10 @@ class CompressionStats:
     def add_error(self):
         with self.lock:
             self.error_count += 1
+
+    def add_hw_cap(self):
+        with self.lock:
+            self.hw_cap_count += 1
 
     def add_skipped(self):
         with self.lock:
@@ -239,6 +233,7 @@ class CompressionStats:
                 'success': self.success_count,
                 'error': self.error_count,
                 'skipped': self.skipped_count,
+                'hw_cap': self.hw_cap_count,
                 'total_input_size': self.total_input_size,
                 'total_output_size': self.total_output_size,
                 'avg_compression': avg_compression,
@@ -250,7 +245,7 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False, strip_unicode_display: bool = True):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False, strip_unicode_display: bool = True, use_exif: bool = False, dynamic_cq: Dict[str, int] = None):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
@@ -265,6 +260,8 @@ class VideoCompressor:
         self.clean_errors = clean_errors
         self.skip_av1 = skip_av1
         self.strip_unicode_display = strip_unicode_display
+        self.use_exif = use_exif and (exiftool is not None)
+        self.dynamic_cq = dynamic_cq or {}
         self.max_depth = 3
         self.stats = CompressionStats()
         self.console = Console()
@@ -273,12 +270,24 @@ class VideoCompressor:
         self.last_action_time = None
         self.last_action_lock = threading.Lock()
 
+        # Initialize ExifTool if needed
+        self.et = None
+        if self.use_exif:
+            try:
+                # Use ExifToolHelper for newer pyexiftool versions (0.5+)
+                self.et = exiftool.ExifToolHelper()
+                self.et.run()
+            except Exception as e:
+                self.logger.warning(f"Failed to start ExifToolHelper: {e}")
+                self.use_exif = False
+
         # Precomputed counters for UI
         self.files_to_compress_count = 0
         self.already_compressed_count = 0
         self.ignored_small_count = 0
         self.ignored_err_count = 0
         self.ignored_av1_count = 0
+        self.ignored_hw_cap_count = 0
 
         # Refresh functionality
         self.refresh_requested = False
@@ -332,15 +341,24 @@ class VideoCompressor:
                     all_files.append(video_file)
         return sorted(all_files), ignored_small
 
-    def find_error_marked_inputs(self, input_files: List[Path]) -> Set[Path]:
-        """Return set of input files that have existing .err markers in output_dir."""
+    def find_error_marked_inputs(self, input_files: List[Path]) -> tuple[Set[Path], Set[Path]]:
+        """Return (general_errors, hw_cap_errors) sets of input files that have existing .err markers."""
         err_marked: Set[Path] = set()
+        hw_cap_marked: Set[Path] = set()
+        
         for input_file in input_files:
             output_path = self.get_output_path(input_file)
             err_file = output_path.parent / f"{output_path.stem}.err"
             if err_file.exists():
-                err_marked.add(input_file)
-        return err_marked
+                try:
+                    content = err_file.read_text()
+                    if "Hardware is lacking required capabilities" in content:
+                        hw_cap_marked.add(input_file)
+                    else:
+                        err_marked.add(input_file)
+                except:
+                    err_marked.add(input_file)
+        return err_marked, hw_cap_marked
 
     def get_output_path(self, input_file: Path) -> Path:
         """Get corresponding output path with .mp4 extension"""
@@ -472,6 +490,49 @@ class VideoCompressor:
 
                 if 'width' in metadata and 'height' in metadata:
                     metadata['megapixels'] = round(metadata['width'] * metadata['height'] / 1_000_000)
+
+            # Deep metadata analysis with ExifTool for dynamic CQ
+            if self.use_exif and self.et:
+                try:
+                    # Request specific tags to identify camera
+                    # get_tags in ExifToolHelper takes list of files and list of tags
+                    results = self.et.get_tags([str(file)], tags=['Model', 'Make', 'DeviceModelName', 'Encoder'])
+                    if results and isinstance(results, list) and len(results) > 0:
+                        tags = results[0]
+                        
+                        # Extract model and make
+                        model_val = str(
+                            tags.get('EXIF:Model') or 
+                            tags.get('QuickTime:Model') or 
+                            tags.get('XML:DeviceModelName') or 
+                            tags.get('QuickTime:Encoder') or 
+                            tags.get('Model') or 
+                            ""
+                        )
+                        make_val = str(tags.get('EXIF:Make') or tags.get('QuickTime:Make') or tags.get('Make') or "")
+                        
+                        if model_val:
+                            # Clean model value for display
+                            metadata['camera_raw'] = model_val
+                            
+                            # Check for dynamic CQ matches
+                            matched = False
+                            for pattern, custom_cq in self.dynamic_cq.items():
+                                if pattern in model_val:
+                                    metadata['camera'] = pattern
+                                    metadata['custom_cq'] = custom_cq
+                                    matched = True
+                                    break
+                            
+                            if not matched:
+                                # Fallback: use manufacturer if model didn't match any pattern
+                                if "Sony" in make_val or "Sony" in model_val: metadata['camera'] = "Sony"
+                                elif "Panasonic" in make_val: metadata['camera'] = "Pana"
+                                elif "DJI" in make_val or "DJI" in model_val: metadata['camera'] = "DJI"
+                                else: metadata['camera'] = model_val[:10] # Generic short model name
+                except Exception as e:
+                    self.logger.debug(f"ExifTool analysis failed for {file.name}: {e}")
+
         except Exception as e:
             self.logger.debug(f"Queue metadata probe failed for {file.name}: {e}")
 
@@ -711,7 +772,12 @@ class VideoCompressor:
             }
 
         # Check and fix color space if needed (before acquiring thread slot)
-        validity_status, file_to_compress, temp_fixed_file, metadata = self.check_and_fix_color_space(input_file)
+        validity_status, file_to_compress, temp_fixed_file, metadata_base = self.check_and_fix_color_space(input_file)
+        
+        # Get full metadata (including camera model and custom CQ)
+        metadata = self.get_queue_metadata(input_file)
+        if metadata_base:
+            metadata.update(metadata_base)
 
         # Skip corrupted files immediately without trying to compress
         if validity_status == "corrupted":
@@ -734,6 +800,11 @@ class VideoCompressor:
             rotation_angle = 180
         else:
             rotation_angle = self.get_auto_rotation(input_file)
+
+        # Determine CQ value (use custom if camera detected, otherwise global)
+        active_cq = metadata.get('custom_cq', self.cq)
+        if 'camera' in metadata:
+            self.logger.info(f"Detected camera: {metadata['camera']} - using custom CQ: {active_cq}")
 
         # Acquire thread slot (returns False if shutdown requested)
         if not self.thread_controller.acquire():
@@ -782,7 +853,7 @@ class VideoCompressor:
                     cmd.extend([
                         '-c:v', 'libsvtav1',
                         '-preset', '8',  # Preset 8 = fast encoding
-                        '-crf', str(self.cq),
+                        '-crf', str(active_cq),
                         '-c:a', 'copy',
                     ])
 
@@ -820,7 +891,7 @@ class VideoCompressor:
                 cmd.extend([
                     '-c:v', 'av1_nvenc',
                     '-preset', 'p7',
-                    '-cq', str(self.cq),
+                    '-cq', str(active_cq),
                     '-b:v', '0',
                     '-c:a', 'copy',
                 ])
@@ -886,8 +957,17 @@ class VideoCompressor:
 
             error_msg = result.stderr if result.stderr else "Unknown error"
             err_file.write_text(error_msg)
-            self.logger.error(f"Failed: {filename}: {error_msg}")
             self.stats.stop_processing(filename)
+            
+            if "Hardware is lacking required capabilities" in error_msg:
+                self.logger.warning(f"HW_CAP: {filename}: Hardware lacking capabilities")
+                return {
+                    'status': 'hw_cap',
+                    'input': input_file,
+                    'error': error_msg
+                }
+
+            self.logger.error(f"Failed: {filename}: {error_msg}")
             return {
                 'status': 'error',
                 'input': input_file,
@@ -983,7 +1063,7 @@ class VideoCompressor:
             return f"{metadata['fps']}fps"
         return ""
 
-    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0, already_compressed_count: int = 0, ignored_small_count: int = 0, ignored_err_count: int = 0, ignored_av1_count: int = 0) -> Group:
+    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0, already_compressed_count: int = 0, ignored_small_count: int = 0, ignored_err_count: int = 0, ignored_av1_count: int = 0, ignored_hw_cap_count: int = 0) -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
 
@@ -997,7 +1077,7 @@ class VideoCompressor:
         # Compression Status Panel (dynamic + counters)
         status_lines = [
             f"Files to compress: {total_files} | Already compressed: {already_compressed_count}",
-            f"Ignored: size: {ignored_small_count} | err: {ignored_err_count} | av1: {ignored_av1_count}"
+            f"Ignored: size: {ignored_small_count} | err: {ignored_err_count} | av1: {ignored_av1_count} | hw_cap: {ignored_hw_cap_count}"
         ]
         current_threads = self.thread_controller.get_current()
         is_shutdown = self.thread_controller.is_shutdown_requested()
@@ -1107,6 +1187,7 @@ class VideoCompressor:
         for item in completed_list[:5]:
             metadata = item.get('metadata', {})
             compression_ratio = item.get('compression_ratio', 100)
+            
             warn_icon = "📦" if compression_ratio < 50 else ""
             completed_table.add_row(
                 "✓",
@@ -1136,6 +1217,7 @@ class VideoCompressor:
         next_table.add_column("File", width=40, no_wrap=True, overflow="ellipsis")
         next_table.add_column("Res", width=3, justify="right", style="cyan")
         next_table.add_column("FPS", width=6, justify="right", style="cyan")
+        next_table.add_column("Cam", width=16, style="magenta", no_wrap=True)
         next_table.add_column("Size", justify="right")
         next_table.add_column("Codec", width=5, justify="center", no_wrap=True, overflow="ellipsis")
         next_table.add_column("", width=2, justify="center", style="magenta")
@@ -1168,12 +1250,15 @@ class VideoCompressor:
                     codec_raw = metadata.get('codec')
                     codec = codec_raw.lower() if codec_raw else ""
                     warn_icon = "📦" if codec == 'av1' else ""
+                    
+                    cam_info = metadata.get('camera', "")
 
                     next_table.add_row(
                         "»",
                         self.sanitize_filename_for_display(file.name),
                         self.format_resolution(metadata),
                         self.format_fps(metadata),
+                        cam_info,
                         self.format_size(file.stat().st_size),
                         codec,
                         warn_icon
@@ -1189,7 +1274,7 @@ class VideoCompressor:
             queue_panel = Panel("Queue empty", title="NEXT IN QUEUE", border_style="blue")
 
         # Summary at bottom
-        summary = f"✓ {stats['success']} success  ✗ {stats['error']} errors  ⊘ {stats['skipped']} skipped"
+        summary = f"✓ {stats['success']} success  ✗ {stats['error']} errors  ⚠ {stats['hw_cap']} hw_cap  ⊘ {stats['skipped']} skipped"
         summary_panel = Panel(summary, border_style="white")
 
         return Group(
@@ -1213,8 +1298,11 @@ class VideoCompressor:
         # Step 2: Find all input files
         input_files, ignored_small = self.find_input_files()
         self.ignored_small_count = ignored_small
-        err_marked = set() if self.clean_errors else self.find_error_marked_inputs(input_files)
+        
+        err_marked, hw_cap_marked = (set(), set()) if self.clean_errors else self.find_error_marked_inputs(input_files)
         self.ignored_err_count = len(err_marked)
+        self.ignored_hw_cap_count = len(hw_cap_marked)
+        
         if not input_files:
             ext_list = ', '.join([f'.{ext}' for ext in self.extensions])
             if ignored_small > 0:
@@ -1231,7 +1319,7 @@ class VideoCompressor:
         av1_files = set()
         if self.skip_av1:
             for f in input_files:
-                if f not in completed_files and f not in err_marked:
+                if f not in completed_files and f not in err_marked and f not in hw_cap_marked:
                     metadata = self.get_queue_metadata(f)
                     if metadata.get('codec') == 'av1':
                         av1_files.add(f)
@@ -1239,8 +1327,8 @@ class VideoCompressor:
         else:
             self.ignored_av1_count = 0
 
-        # Step 4: Filter out completed files and AV1 files
-        files_to_process = [f for f in input_files if f not in completed_files and f not in err_marked and f not in av1_files]
+        # Step 4: Filter out completed files, error files, and AV1 files
+        files_to_process = [f for f in input_files if f not in completed_files and f not in err_marked and f not in hw_cap_marked and f not in av1_files]
         self.files_to_compress_count = len(files_to_process)
 
         if not files_to_process:
@@ -1249,6 +1337,8 @@ class VideoCompressor:
                 parts.append(f"ignored {ignored_small} below {self.format_size(self.min_size_bytes)}")
             if err_marked:
                 parts.append(f"skipped {len(err_marked)} with existing .err (use --clean-errors to retry)")
+            if hw_cap_marked:
+                parts.append(f"skipped {len(hw_cap_marked)} due to GPU hardware limits")
             if av1_files:
                 parts.append(f"skipped {len(av1_files)} with AV1 codec")
             suffix = f" ({'; '.join(parts)})" if parts else ""
@@ -1259,6 +1349,8 @@ class VideoCompressor:
         encoder_name = "SVT-AV1 (CPU)" if self.use_cpu else "NVENC AV1 (GPU)"
 
         ext_list = ', '.join([f'.{ext}' for ext in self.extensions])
+        dynamic_cq_info = ", ".join([f"{k}:{v}" for k, v in self.dynamic_cq.items()]) if self.dynamic_cq else "None"
+        
         start_info = f"""[cyan]Video Batch Compression - {encoder_name}[/cyan]
 Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}
 Input: {self.input_dir}
@@ -1270,6 +1362,8 @@ Extensions: {ext_list} → .mp4
 Rotate 180°: {self.rotate_180}
 Min size: {self.format_size(self.min_size_bytes)} (0 = include empty files)
 Copy metadata: {self.copy_metadata}
+Use ExifTool: {self.use_exif}
+Dynamic CQ: {dynamic_cq_info}
 Skip AV1: {self.skip_av1}
 Clean errors: {self.clean_errors}
 Strip Unicode display: {self.strip_unicode_display}"""
@@ -1304,7 +1398,8 @@ Strip Unicode display: {self.strip_unicode_display}"""
                 self.already_compressed_count,
                 self.ignored_small_count,
                 self.ignored_err_count,
-                self.ignored_av1_count
+                self.ignored_av1_count,
+                self.ignored_hw_cap_count
             )
             with self.ui_lock:
                 live_obj.update(display)
@@ -1364,8 +1459,11 @@ Strip Unicode display: {self.strip_unicode_display}"""
                     # Find new files
                     new_input_files, new_ignored_small = self.find_input_files()
                     self.ignored_small_count = new_ignored_small
-                    new_err_marked = set() if self.clean_errors else self.find_error_marked_inputs(new_input_files)
+                    
+                    new_err_marked, new_hw_cap_marked = (set(), set()) if self.clean_errors else self.find_error_marked_inputs(new_input_files)
                     self.ignored_err_count = len(new_err_marked)
+                    self.ignored_hw_cap_count = len(new_hw_cap_marked)
+                    
                     new_completed_files = self.find_completed_files()
                     self.already_compressed_count = len(new_completed_files)
 
@@ -1389,14 +1487,14 @@ Strip Unicode display: {self.strip_unicode_display}"""
                         # Find files to ADD: new files not in any known set
                         candidates_add = [
                             f for f in new_input_files
-                            if f not in new_completed_files and f not in known and f not in new_err_marked
+                            if f not in new_completed_files and f not in known and f not in new_err_marked and f not in new_hw_cap_marked
                         ]
 
                         # Find files to REMOVE: files in pending_files that no longer exist in source
                         new_input_files_set = set(new_input_files)
                         candidates_remove = [
                             f for f in list(pending_files)
-                            if f not in new_input_files_set or f in new_err_marked
+                            if f not in new_input_files_set or f in new_err_marked or f in new_hw_cap_marked
                         ]
 
                         added = 0
@@ -1523,6 +1621,8 @@ Strip Unicode display: {self.strip_unicode_display}"""
                                     self.stats.add_success(result)
                                 elif result['status'] == 'skipped':
                                     self.stats.add_skipped()
+                                elif result['status'] == 'hw_cap':
+                                    self.stats.add_hw_cap()
                                 else:
                                     self.stats.add_error()
 
@@ -1585,6 +1685,17 @@ Strip Unicode display: {self.strip_unicode_display}"""
             # Stop threads
             stop_refresh.set()
             self.stop_keyboard_thread.set()
+            
+            # Terminate ExifTool process
+            if self.et:
+                try:
+                    # ExifToolHelper might have stop() or terminate() depending on version
+                    if hasattr(self.et, 'terminate'):
+                        self.et.terminate()
+                    elif hasattr(self.et, 'stop'):
+                        self.et.stop()
+                except:
+                    pass
 
         # Final summary
         end_time = datetime.now()
@@ -1597,6 +1708,7 @@ Strip Unicode display: {self.strip_unicode_display}"""
             f"Total files processed: {total_files}",
             f"[green]Successful: {stats['success']}[/green]",
             f"[yellow]Skipped: {stats['skipped']}[/yellow]",
+            f"[yellow]Hardware Cap: {stats['hw_cap']}[/yellow]",
             f"[red]Failed: {stats['error']}[/red]",
         ]
 
@@ -1650,11 +1762,11 @@ def main():
     pre_parser.add_argument(
         '--config',
         type=Path,
-        help='Path to configuration file (default: conf/vbc.conf next to this script)'
+        help='Path to configuration file (default: conf/vbc.yaml next to this script)'
     )
     pre_args, _ = pre_parser.parse_known_args()
 
-    # Load configuration from conf/vbc.conf or user-provided path
+    # Load configuration from conf/vbc.yaml or user-provided path
     config = load_config(pre_args.config)
 
     parser = argparse.ArgumentParser(
@@ -1667,10 +1779,10 @@ Example:
   python vbc.py /path/to/videos --rotate-180 --no-metadata
 
 Configuration:
-  - Default values are loaded from conf/vbc.conf
-  - You can override config path with --config /path/to/vbc.conf
+  - Default values are loaded from conf/vbc.yaml
+  - You can override config path with --config /path/to/vbc.yaml
   - CLI arguments override config file settings
-  - Auto-rotation patterns defined in config file
+  - Auto-rotation patterns and dynamic CQ defined in config file (YAML)
 
 Output:
   - Compressed files: /path/to/videos_out/
@@ -1682,7 +1794,7 @@ Output:
     parser.add_argument(
         'input_dir',
         type=Path,
-        help='Input directory containing video files (extensions configured in vbc.conf)'
+        help='Input directory containing video files (extensions configured in vbc.yaml)'
     )
 
     parser.add_argument(
@@ -1761,6 +1873,21 @@ Output:
         help='Show original filenames with Unicode characters in UI (may break table alignment)'
     )
 
+    parser.add_argument(
+        '--use-exif',
+        action='store_true',
+        dest='use_exif',
+        default=None,
+        help=f'Use ExifTool for deep metadata analysis and dynamic CQ. Default: {config["use_exif"]} from config'
+    )
+
+    parser.add_argument(
+        '--no-exif',
+        action='store_false',
+        dest='use_exif',
+        help='Disable deep metadata analysis'
+    )
+
     args = parser.parse_args()
 
     # Validate input directory
@@ -1791,6 +1918,9 @@ Output:
     # Determine Unicode display stripping: CLI flag overrides config if provided
     strip_unicode_display = args.strip_unicode_display if args.strip_unicode_display is not None else config['strip_unicode_display']
 
+    # Determine ExifTool usage
+    use_exif = args.use_exif if args.use_exif is not None else config['use_exif']
+
     # Run compression
     compressor = VideoCompressor(
         input_dir=args.input_dir,
@@ -1805,7 +1935,9 @@ Output:
         min_size_bytes=args.min_size,
         clean_errors=args.clean_errors,
         skip_av1=args.skip_av1,
-        strip_unicode_display=strip_unicode_display
+        strip_unicode_display=strip_unicode_display,
+        use_exif=use_exif,
+        dynamic_cq=config['dynamic_cq']
     )
 
     try:
