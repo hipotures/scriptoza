@@ -7,29 +7,55 @@ from pathlib import Path
 
 @pytest.fixture
 def test_data_dir(tmp_path):
-    """Przygotowuje katalog testowy na bazie rzeczywistych wycinków 10s"""
+    """Przygotowuje katalog testowy na bazie rzeczywistych wycinków 10s z Twoich aparatów"""
     d = tmp_path / "input"
     d.mkdir()
     
+    # Katalog z wycinkami, które stworzyliśmy wcześniej z Twoich plików /tmp/
     data_src = Path(__file__).resolve().parent / "data"
     
-    # 1. Sony
-    sony_file = d / "sony_test.mp4"
-    shutil.copy(data_src / "sony_10s.mp4", sony_file)
-    # Wymuszamy model w wielu polach, żeby vbc go na pewno znalazło
-    subprocess.run(["exiftool", "-Model=ILCE-7RM5", "-Sony:DeviceModelName=ILCE-7RM5", "-overwrite_original", str(sony_file)], capture_output=True)
+    files = {
+        "sony_test.mp4": data_src / "sony_10s.mp4",
+        "gh7_test.mp4": data_src / "gh7_10s.mp4",
+        "dji_test.mp4": data_src / "dji_10s.mp4"
+    }
+    
+    for target_name, src_path in files.items():
+        if src_path.exists():
+            shutil.copy(src_path, d / target_name)
+        else:
+            pytest.skip(f"Brak pliku wzorcowego: {src_path}. Upewnij się, że wycinki 10s istnieją.")
 
-    # 2. GH7
-    gh7_file = d / "gh7_test.mp4"
-    shutil.copy(data_src / "gh7_10s.mp4", gh7_file)
-    subprocess.run(["exiftool", "-Model=DC-GH7", "-Make=Panasonic", "-Panasonic:Make=Panasonic", "-GPSLatitude=50.0615", "-overwrite_original", str(gh7_file)], capture_output=True)
+    # Wymuszamy stabilne metadane dla testów (model, producent, GPS).
+    metadata_updates = {
+        "sony_test.mp4": [
+            "-Model=ILCE-7RM5",
+            "-Sony:DeviceModelName=ILCE-7RM5",
+            "-Make=Sony",
+        ],
+        "gh7_test.mp4": [
+            "-Model=DC-GH7",
+            "-Make=Panasonic",
+            "-Panasonic:Make=Panasonic",
+            "-GPSLatitude=50.0615",
+            "-GPSLongitude=19.9380",
+        ],
+        "dji_test.mp4": [
+            "-Model=DJI OsmoPocket3",
+            "-Make=DJI",
+            "-DJI:Make=DJI",
+        ],
+    }
 
-    # 3. DJI
-    dji_file = d / "dji_test.mp4"
-    shutil.copy(data_src / "dji_10s.mp4", dji_file)
-    subprocess.run(["exiftool", "-Model=DJI OsmoPocket3", "-Make=DJI", "-DJI:Make=DJI", "-overwrite_original", str(dji_file)], capture_output=True)
+    for filename, tags in metadata_updates.items():
+        file_path = d / filename
+        if file_path.exists():
+            subprocess.run(
+                ["exiftool", *tags, "-overwrite_original", str(file_path)],
+                capture_output=True
+            )
 
-    # 4. QVR (używamy DJI jako bazy)
+    # Plik QVR do testu rotacji (używamy DJI jako bazy nazwy)
     shutil.copy(data_src / "dji_10s.mp4", d / "QVR_20250101_120000.mp4")
 
     return d
@@ -42,9 +68,9 @@ def vbc_yaml(tmp_path):
     
     content = {
         'general': {
-            'threads': 2,
+            'threads': 1, # Zostawiam 1 wątek dla stabilności GPU w teście
             'cq': 45,
-            'gpu': False, # Używamy CPU w testach dla przewidywalności rozmiarów
+            'gpu': True, # Włączamy GPU
             'copy_metadata': True,
             'extensions': ['mp4', 'mov'],
             'min_size_bytes': 0,

@@ -291,11 +291,12 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False, strip_unicode_display: bool = True, use_exif: bool = False, dynamic_cq: Dict[str, int] = None, filter_cameras: List[str] = None):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False, strip_unicode_display: bool = True, use_exif: bool = False, dynamic_cq: Dict[str, int] = None, filter_cameras: List[str] = None, cq_overridden: bool = False):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
         self.cq = cq
+        self.cq_overridden = cq_overridden
         self.rotate_180 = rotate_180
         self.use_cpu = use_cpu
         self.prefetch_factor = prefetch_factor
@@ -316,6 +317,16 @@ class VideoCompressor:
         self.last_action = ""
         self.last_action_time = None
         self.last_action_lock = threading.Lock()
+
+        # Setup logging FIRST so it's available for early error reporting
+        self.output_dir.mkdir(exist_ok=True)
+        log_file = self.output_dir / "compression.log"
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[logging.FileHandler(log_file)]
+        )
+        self.logger = logging.getLogger(__name__)
 
         # Initialize ExifTool if needed
         self.et = None
@@ -351,17 +362,6 @@ class VideoCompressor:
         # Cache for queue metadata to avoid repeated ffprobe calls during UI refresh
         self.queue_metadata_cache: Dict[Path, Dict] = {}
         self.queue_metadata_lock = threading.Lock()
-
-        # Setup file logging only
-        log_file = self.output_dir / "compression.log"
-        self.output_dir.mkdir(exist_ok=True)
-
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[logging.FileHandler(log_file)]
-        )
-        self.logger = logging.getLogger(__name__)
 
     def get_depth(self, path: Path) -> int:
         """Calculate depth of path relative to input_dir"""
@@ -542,46 +542,27 @@ class VideoCompressor:
             # Deep metadata analysis with ExifTool for dynamic CQ
             if self.use_exif and self.et:
                 try:
-                    # Request specific tags to identify camera
-                    # get_tags in ExifToolHelper takes list of files and list of tags
-                    results = self.et.get_tags([str(file)], tags=['Model', 'Make', 'DeviceModelName', 'Encoder'])
+                    # Request ALL metadata to perform a full-text search for model strings
+                    results = self.et.get_metadata([str(file)])
                     if results and isinstance(results, list) and len(results) > 0:
                         tags = results[0]
+                        full_metadata_text = str(tags)
                         
-                        # Extract model and make
-                        model_val = str(
-                            tags.get('EXIF:Model') or 
-                            tags.get('QuickTime:Model') or 
-                            tags.get('XML:DeviceModelName') or 
-                            tags.get('QuickTime:Encoder') or 
-                            tags.get('Model') or 
-                            ""
-                        )
-                        make_val = str(tags.get('EXIF:Make') or tags.get('QuickTime:Make') or tags.get('Make') or "")
+                        # Set a readable model name as raw baseline
+                        model_val = str(tags.get('EXIF:Model') or tags.get('QuickTime:Model') or tags.get('Model') or "").strip()
+                        metadata['camera_raw'] = model_val
                         
-                        if model_val:
-                            # Clean model value for display
-                            metadata['camera_raw'] = model_val
-                            
-                            # Check for dynamic CQ matches
-                            matched = False
-                            for pattern, custom_cq in self.dynamic_cq.items():
-                                if pattern in model_val:
-                                    metadata['camera'] = pattern
-                                    metadata['custom_cq'] = custom_cq
-                                    matched = True
-                                    break
-                            
-                            if not matched:
-                                # Fallback: use manufacturer or model name if no pattern matched
-                                if "Sony" in make_val or "Sony" in model_val: metadata['camera'] = "Sony"
-                                elif "Panasonic" in make_val: metadata['camera'] = "Pana"
-                                elif "DJI" in make_val or "DJI" in model_val: metadata['camera'] = "DJI"
-                                else: metadata['camera'] = model_val # Use full model name as fallback
-                                
-                            # If we have a specific camera model, make sure it's available for filtering
-                            if not metadata.get('camera') and model_val:
-                                metadata['camera'] = model_val
+                        # SEARCH: Check for exact patterns from dynamic_cq configuration
+                        # This matches strings like "ILCE-7RM5", "DC-GH7", or "DJI OsmoPocket3"
+                        for pattern, custom_cq in self.dynamic_cq.items():
+                            if pattern in full_metadata_text:
+                                metadata['camera'] = pattern
+                                metadata['custom_cq'] = custom_cq
+                                break
+                        
+                        # If no dynamic CQ match, use the raw model name if found in tags
+                        if not metadata.get('camera') and model_val:
+                            metadata['camera'] = model_val
                 except Exception as e:
                     self.logger.debug(f"ExifTool analysis failed for {file.name}: {e}")
 
@@ -878,12 +859,9 @@ class VideoCompressor:
             rotation_angle = self.get_auto_rotation(input_file)
 
         # Determine CQ value (CLI flag has priority over dynamic rules, which have priority over default)
-        # We check if cq was provided in sys.argv to determine if it's a CLI override
-        cq_overridden = any(arg.startswith('--cq') for arg in sys.argv)
+        active_cq = self.cq if self.cq_overridden else metadata.get('custom_cq', self.cq)
         
-        active_cq = self.cq if cq_overridden else metadata.get('custom_cq', self.cq)
-        
-        if 'camera' in metadata and not cq_overridden:
+        if 'camera' in metadata and not self.cq_overridden:
             self.logger.info(f"Detected camera: {metadata['camera']} - using custom CQ: {active_cq}")
 
         # Acquire thread slot (returns False if shutdown requested)
@@ -1010,13 +988,21 @@ class VideoCompressor:
                 # This ensures GPS, Lens Info, MakerNotes etc. are preserved in MP4
                 if self.copy_metadata:
                     try:
-                        # Map all source tags to XMP and QuickTime groups for MP4 compatibility
+                        # Copy common groups and explicitly map GPS tags for MP4 compatibility.
                         subprocess.run([
-                            'exiftool', 
-                            '-tagsFromFile', str(input_file), 
-                            '-XMP:all<all', '-QuickTime:all<all',
-                            '-all:all', '-unsafe', 
-                            '-overwrite_original', 
+                            'exiftool',
+                            '-m',
+                            '-tagsFromFile', str(input_file),
+                            '-XMP:all', '-QuickTime:all', '-Keys:all', '-UserData:all',
+                            '-EXIF:all', '-GPS:all',
+                            '-XMP-exif:GPSLatitude<GPSLatitude',
+                            '-XMP-exif:GPSLongitude<GPSLongitude',
+                            '-XMP-exif:GPSAltitude<GPSAltitude',
+                            '-XMP-exif:GPSPosition<GPSPosition',
+                            '-QuickTime:GPSCoordinates<GPSPosition',
+                            '-Keys:GPSCoordinates<GPSPosition',
+                            '-unsafe',
+                            '-overwrite_original',
                             str(output_file)
                         ], capture_output=True, check=True)
                         self.logger.info(f"Metadata copied successfully for {filename}")
@@ -2144,6 +2130,10 @@ Output:
         print("Warning: Camera filtering requires EXIF analysis. Enabling --use-exif automatically.")
         use_exif = True
 
+    # Determine if CQ was overridden via CLI
+    # We check sys.argv to see if --cq was explicitly passed
+    cq_overridden = any(arg.startswith('--cq') for arg in sys.argv)
+
     # Run compression
     compressor = VideoCompressor(
         input_dir=args.input_dir,
@@ -2161,7 +2151,8 @@ Output:
         strip_unicode_display=strip_unicode_display,
         use_exif=use_exif,
         dynamic_cq=config['dynamic_cq'],
-        filter_cameras=filter_cameras
+        filter_cameras=filter_cameras,
+        cq_overridden=cq_overridden
     )
 
     if args.show_config:
