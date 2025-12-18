@@ -58,6 +58,7 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
         'strip_unicode_display': True,
         'use_exif': True,
         'dynamic_cq': {},
+        'filter_cameras': [],
         'autorotate_patterns': {}
     }
 
@@ -86,7 +87,8 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
                 'skip_av1': gen.get('skip_av1', defaults['skip_av1']),
                 'strip_unicode_display': gen.get('strip_unicode_display', defaults['strip_unicode_display']),
                 'use_exif': gen.get('use_exif', defaults['use_exif']),
-                'dynamic_cq': gen.get('dynamic_cq', defaults['dynamic_cq'])
+                'dynamic_cq': gen.get('dynamic_cq', defaults['dynamic_cq']),
+                'filter_cameras': gen.get('filter_cameras', defaults['filter_cameras'])
             })
 
         if 'autorotate' in config:
@@ -245,7 +247,7 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False, strip_unicode_display: bool = True, use_exif: bool = False, dynamic_cq: Dict[str, int] = None):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False, strip_unicode_display: bool = True, use_exif: bool = False, dynamic_cq: Dict[str, int] = None, filter_cameras: List[str] = None):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
@@ -262,6 +264,7 @@ class VideoCompressor:
         self.strip_unicode_display = strip_unicode_display
         self.use_exif = use_exif and (exiftool is not None)
         self.dynamic_cq = dynamic_cq or {}
+        self.filter_cameras = filter_cameras or []
         self.max_depth = 3
         self.stats = CompressionStats()
         self.console = Console()
@@ -288,6 +291,7 @@ class VideoCompressor:
         self.ignored_err_count = 0
         self.ignored_av1_count = 0
         self.ignored_hw_cap_count = 0
+        self.ignored_camera_count = 0
 
         # Refresh functionality
         self.refresh_requested = False
@@ -925,6 +929,24 @@ class VideoCompressor:
                 if err_file.exists():
                     err_file.unlink()
                 tmp_file.rename(output_file)
+                
+                # NEW: Copy ALL metadata from source to output using ExifTool
+                # This ensures GPS, Lens Info, MakerNotes etc. are preserved in MP4
+                if self.copy_metadata:
+                    try:
+                        # Map all source tags to XMP and QuickTime groups for MP4 compatibility
+                        subprocess.run([
+                            'exiftool', 
+                            '-tagsFromFile', str(input_file), 
+                            '-XMP:all<all', '-QuickTime:all<all',
+                            '-all:all', '-unsafe', 
+                            '-overwrite_original', 
+                            str(output_file)
+                        ], capture_output=True, check=True)
+                        self.logger.info(f"Metadata copied successfully for {filename}")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to copy deep metadata for {filename}: {e}")
+
                 self.stats.stop_processing(filename)
 
                 # Calculate stats
@@ -1063,7 +1085,7 @@ class VideoCompressor:
             return f"{metadata['fps']}fps"
         return ""
 
-    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0, already_compressed_count: int = 0, ignored_small_count: int = 0, ignored_err_count: int = 0, ignored_av1_count: int = 0, ignored_hw_cap_count: int = 0) -> Group:
+    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0, already_compressed_count: int = 0, ignored_small_count: int = 0, ignored_err_count: int = 0, ignored_av1_count: int = 0, ignored_hw_cap_count: int = 0, ignored_camera_count: int = 0) -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
 
@@ -1077,7 +1099,7 @@ class VideoCompressor:
         # Compression Status Panel (dynamic + counters)
         status_lines = [
             f"Files to compress: {total_files} | Already compressed: {already_compressed_count}",
-            f"Ignored: size: {ignored_small_count} | err: {ignored_err_count} | av1: {ignored_av1_count} | hw_cap: {ignored_hw_cap_count}"
+            f"Ignored: size: {ignored_small_count} | err: {ignored_err_count} | av1: {ignored_av1_count} | hw_cap: {ignored_hw_cap_count} | cam: {ignored_camera_count}"
         ]
         current_threads = self.thread_controller.get_current()
         is_shutdown = self.thread_controller.is_shutdown_requested()
@@ -1328,7 +1350,29 @@ class VideoCompressor:
             self.ignored_av1_count = 0
 
         # Step 4: Filter out completed files, error files, and AV1 files
-        files_to_process = [f for f in input_files if f not in completed_files and f not in err_marked and f not in hw_cap_marked and f not in av1_files]
+        potential_files = [f for f in input_files if f not in completed_files and f not in err_marked and f not in hw_cap_marked and f not in av1_files]
+        
+        # Step 4.5: Optional camera filtering
+        files_to_process = []
+        if self.filter_cameras:
+            self.console.print(f"[yellow]Filtering files by camera models: {', '.join(self.filter_cameras)}...[/yellow]")
+            for f in potential_files:
+                metadata = self.get_queue_metadata(f)
+                cam_model = metadata.get('camera') or metadata.get('camera_raw', "")
+                
+                matched = False
+                for filter_pattern in self.filter_cameras:
+                    if filter_pattern.lower() in cam_model.lower():
+                        matched = True
+                        break
+                
+                if matched:
+                    files_to_process.append(f)
+                else:
+                    self.ignored_camera_count += 1
+        else:
+            files_to_process = potential_files
+
         self.files_to_compress_count = len(files_to_process)
 
         if not files_to_process:
@@ -1339,6 +1383,8 @@ class VideoCompressor:
                 parts.append(f"skipped {len(err_marked)} with existing .err (use --clean-errors to retry)")
             if hw_cap_marked:
                 parts.append(f"skipped {len(hw_cap_marked)} due to GPU hardware limits")
+            if self.ignored_camera_count > 0:
+                parts.append(f"skipped {self.ignored_camera_count} not matching camera filters")
             if av1_files:
                 parts.append(f"skipped {len(av1_files)} with AV1 codec")
             suffix = f" ({'; '.join(parts)})" if parts else ""
@@ -1350,6 +1396,7 @@ class VideoCompressor:
 
         ext_list = ', '.join([f'.{ext}' for ext in self.extensions])
         dynamic_cq_info = ", ".join([f"{k}:{v}" for k, v in self.dynamic_cq.items()]) if self.dynamic_cq else "None"
+        camera_filter_info = ", ".join(self.filter_cameras) if self.filter_cameras else "None"
         
         start_info = f"""[cyan]Video Batch Compression - {encoder_name}[/cyan]
 Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}
@@ -1363,6 +1410,7 @@ Rotate 180°: {self.rotate_180}
 Min size: {self.format_size(self.min_size_bytes)} (0 = include empty files)
 Copy metadata: {self.copy_metadata}
 Use ExifTool: {self.use_exif}
+Camera Filter: {camera_filter_info}
 Dynamic CQ: {dynamic_cq_info}
 Skip AV1: {self.skip_av1}
 Clean errors: {self.clean_errors}
@@ -1888,6 +1936,12 @@ Output:
         help='Disable deep metadata analysis'
     )
 
+    parser.add_argument(
+        '--camera',
+        type=str,
+        help='Filter by camera model (comma-separated). Example: "Sony, DJI OsmoPocket3"'
+    )
+
     args = parser.parse_args()
 
     # Validate input directory
@@ -1918,8 +1972,16 @@ Output:
     # Determine Unicode display stripping: CLI flag overrides config if provided
     strip_unicode_display = args.strip_unicode_display if args.strip_unicode_display is not None else config['strip_unicode_display']
 
+    # Determine camera filtering
+    filter_cameras = config['filter_cameras']
+    if args.camera:
+        filter_cameras = [c.strip() for c in args.camera.split(',') if c.strip()]
+
     # Determine ExifTool usage
     use_exif = args.use_exif if args.use_exif is not None else config['use_exif']
+    if filter_cameras and not use_exif:
+        print("Warning: Camera filtering requires EXIF analysis. Enabling --use-exif automatically.")
+        use_exif = True
 
     # Run compression
     compressor = VideoCompressor(
@@ -1937,7 +1999,8 @@ Output:
         skip_av1=args.skip_av1,
         strip_unicode_display=strip_unicode_display,
         use_exif=use_exif,
-        dynamic_cq=config['dynamic_cq']
+        dynamic_cq=config['dynamic_cq'],
+        filter_cameras=filter_cameras
     )
 
     try:
