@@ -11,8 +11,11 @@ import os
 from pathlib import Path
 
 # --- DEDICATED VENV ACTIVATION ---
-# Check if we are already in a virtual environment
-if not os.environ.get('VIRTUAL_ENV') and not os.environ.get('UV_VENV_PATH'):
+def activate_venv():
+    """If not in a venv and .venv exists, re-run script using that venv python"""
+    if os.environ.get('VIRTUAL_ENV') or os.environ.get('UV_VENV_PATH'):
+        return
+
     # Look for .venv in the repository root (one level up from /video)
     venv_root = Path(__file__).resolve().parent.parent / '.venv'
     venv_python = venv_root / 'bin' / 'python'
@@ -21,6 +24,11 @@ if not os.environ.get('VIRTUAL_ENV') and not os.environ.get('UV_VENV_PATH'):
         os.environ['VIRTUAL_ENV'] = str(venv_root)
         # Re-execute the script using the dedicated .venv python interpreter
         os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+
+if __name__ == "__main__":
+    # If running directly (not via uv), try to activate local venv
+    if "uv" not in sys.argv[0] and not os.environ.get('UV_VENV_PATH'):
+        activate_venv()
 # --------------------------------
 
 """
@@ -565,11 +573,15 @@ class VideoCompressor:
                                     break
                             
                             if not matched:
-                                # Fallback: use manufacturer if model didn't match any pattern
+                                # Fallback: use manufacturer or model name if no pattern matched
                                 if "Sony" in make_val or "Sony" in model_val: metadata['camera'] = "Sony"
                                 elif "Panasonic" in make_val: metadata['camera'] = "Pana"
                                 elif "DJI" in make_val or "DJI" in model_val: metadata['camera'] = "DJI"
-                                else: metadata['camera'] = model_val[:10] # Generic short model name
+                                else: metadata['camera'] = model_val # Use full model name as fallback
+                                
+                            # If we have a specific camera model, make sure it's available for filtering
+                            if not metadata.get('camera') and model_val:
+                                metadata['camera'] = model_val
                 except Exception as e:
                     self.logger.debug(f"ExifTool analysis failed for {file.name}: {e}")
 
@@ -865,9 +877,13 @@ class VideoCompressor:
         else:
             rotation_angle = self.get_auto_rotation(input_file)
 
-        # Determine CQ value (use custom if camera detected, otherwise global)
-        active_cq = metadata.get('custom_cq', self.cq)
-        if 'camera' in metadata:
+        # Determine CQ value (CLI flag has priority over dynamic rules, which have priority over default)
+        # We check if cq was provided in sys.argv to determine if it's a CLI override
+        cq_overridden = any(arg.startswith('--cq') for arg in sys.argv)
+        
+        active_cq = self.cq if cq_overridden else metadata.get('custom_cq', self.cq)
+        
+        if 'camera' in metadata and not cq_overridden:
             self.logger.info(f"Detected camera: {metadata['camera']} - using custom CQ: {active_cq}")
 
         # Acquire thread slot (returns False if shutdown requested)

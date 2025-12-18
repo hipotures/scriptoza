@@ -16,6 +16,11 @@
 !video/*.py
 !video/*.sh
 
+# Allow tests but ignore binary data
+!tests/
+!tests/*.py
+tests/data/
+
 # Allow photo directory and its contents
 !photo/
 !photo/README.md
