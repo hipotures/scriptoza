@@ -3,6 +3,8 @@ import subprocess
 import os
 import sys
 import csv
+import shutil
+import yaml
 from pathlib import Path
 
 # Dodanie katalogu video do sys.path
@@ -42,6 +44,36 @@ def read_latest_report(out_dir: Path) -> list[dict]:
         rows = list(reader)
         assert reader.fieldnames
     return rows
+
+def get_resolution(file_path: Path) -> tuple[int, int]:
+    res = subprocess.run(
+        [
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0:s=x",
+            str(file_path),
+        ],
+        capture_output=True,
+        text=True
+    )
+    assert res.returncode == 0, f"ffprobe failed for {file_path}: {res.stderr}"
+    output = res.stdout.strip()
+    assert output, f"ffprobe returned empty output for {file_path}"
+    width_str, height_str = output.split("x")
+    return int(width_str), int(height_str)
+
+def write_config_with_autorotate(tmp_path: Path, base_config: Path, patterns: dict) -> Path:
+    with open(base_config, "r") as f:
+        config = yaml.safe_load(f)
+    config["autorotate"] = patterns
+    conf_dir = tmp_path / "conf"
+    conf_dir.mkdir(exist_ok=True)
+    conf_file = conf_dir / "vbc.yaml"
+    with open(conf_file, "w") as f:
+        yaml.safe_dump(config, f)
+    return conf_file
 
 # --- TESTY JEDNOSTKOWE ---
 
@@ -93,7 +125,7 @@ def test_e2e_camera_filtering(test_data_dir, vbc_yaml):
     assert (out_dir / "dji_test.mp4").exists()
     assert not (out_dir / "gh7_test.mp4").exists()
 
-def test_e2e_rotation_qvr(test_data_dir, vbc_yaml):
+def test_e2e_autorotation_regex_qvr(test_data_dir, vbc_yaml):
     run_vbc([
         str(test_data_dir), "--min-size", "0", 
         "--config", str(vbc_yaml)
@@ -117,6 +149,77 @@ def test_e2e_metadata_preservation_gh7(test_data_dir, vbc_yaml):
     assert "DC-GH7" in res.stdout
     # Testujemy czy GPS przetrwał (sprawdzając nową metodę kopiowania w vbc.py)
     assert "50" in res.stdout
+
+def test_resolution_preserved_after_compression(test_data_dir, vbc_yaml):
+    run_vbc([
+        str(test_data_dir), "--min-size", "0",
+        "--config", str(vbc_yaml), "--camera", "Pocket"
+    ])
+
+    input_file = Path(test_data_dir) / "dji_test.mp4"
+    out_file = Path(f"{test_data_dir}_out") / "dji_test.mp4"
+    assert out_file.exists()
+
+    assert get_resolution(input_file) == get_resolution(out_file)
+
+def test_rotation_90_270_swaps_resolution(tmp_path, test_data_dir, vbc_yaml):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir(exist_ok=True)
+
+    src = Path(test_data_dir) / "dji_test.mp4"
+    rot90 = input_dir / "ROT90_dji.mp4"
+    rot270 = input_dir / "ROT270_dji.mp4"
+    shutil.copy(src, rot90)
+    shutil.copy(src, rot270)
+
+    config_path = write_config_with_autorotate(
+        tmp_path,
+        vbc_yaml,
+        {
+            "ROT90_.*\\.mp4": 90,
+            "ROT270_.*\\.mp4": 270,
+        }
+    )
+
+    run_vbc([
+        str(input_dir), "--min-size", "0",
+        "--config", str(config_path), "--camera", "Pocket"
+    ])
+
+    out90 = Path(f"{input_dir}_out") / "ROT90_dji.mp4"
+    out270 = Path(f"{input_dir}_out") / "ROT270_dji.mp4"
+    assert out90.exists()
+    assert out270.exists()
+
+    in_w, in_h = get_resolution(rot90)
+    assert get_resolution(out90) == (in_h, in_w)
+    assert get_resolution(out270) == (in_h, in_w)
+
+def test_rotation_180_keeps_resolution(tmp_path, test_data_dir, vbc_yaml):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir(exist_ok=True)
+
+    src = Path(test_data_dir) / "dji_test.mp4"
+    rot180 = input_dir / "ROT180_dji.mp4"
+    shutil.copy(src, rot180)
+
+    config_path = write_config_with_autorotate(
+        tmp_path,
+        vbc_yaml,
+        {
+            "ROT180_.*\\.mp4": 180,
+        }
+    )
+
+    run_vbc([
+        str(input_dir), "--min-size", "0",
+        "--config", str(config_path), "--camera", "Pocket"
+    ])
+
+    out180 = Path(f"{input_dir}_out") / "ROT180_dji.mp4"
+    assert out180.exists()
+
+    assert get_resolution(rot180) == get_resolution(out180)
 
 def test_show_config_cli_flags(test_data_dir, vbc_yaml):
     res = run_vbc([
