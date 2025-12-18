@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# /// script
+# dependencies = [
+#   "rich",
+#   "pyyaml",
+#   "pyexiftool",
+# ]
+# ///
 """
 Batch video compression script using NVENC AV1 with rich UI
 Compresses video files (configurable extensions) to AV1/MP4 with specified quality
@@ -11,16 +18,31 @@ import re
 import select
 import subprocess
 import sys
+import os
 import threading
 import time
 import termios
 import tty
 import shutil
+import csv
+import json
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Set, Dict, Optional, Deque
+
+# Automatic venv activation
+def activate_venv():
+    """If not in a venv and .venv exists, re-run script using that venv python"""
+    venv_path = Path(__file__).resolve().parent.parent / '.venv'
+    if venv_path.exists() and not os.environ.get('VIRTUAL_ENV'):
+        python_bin = venv_path / 'bin' / 'python'
+        if python_bin.exists():
+            os.execv(str(python_bin), [str(python_bin)] + sys.argv)
+
+if __name__ == "__main__" and "uv" not in sys.argv[0]:
+    activate_venv()
 
 # Optional deep metadata analysis
 try:
@@ -183,6 +205,8 @@ class CompressionStats:
         self.success_count = 0
         self.error_count = 0
         self.skipped_count = 0
+        self.camera_skip_count = 0
+        self.av1_skip_count = 0
         self.hw_cap_count = 0
         self.total_input_size = 0
         self.total_output_size = 0
@@ -204,6 +228,14 @@ class CompressionStats:
     def add_hw_cap(self):
         with self.lock:
             self.hw_cap_count += 1
+
+    def add_camera_skip(self):
+        with self.lock:
+            self.camera_skip_count += 1
+
+    def add_av1_skip(self):
+        with self.lock:
+            self.av1_skip_count += 1
 
     def add_skipped(self):
         with self.lock:
@@ -236,6 +268,8 @@ class CompressionStats:
                 'error': self.error_count,
                 'skipped': self.skipped_count,
                 'hw_cap': self.hw_cap_count,
+                'camera_skip': self.camera_skip_count,
+                'av1_skip': self.av1_skip_count,
                 'total_input_size': self.total_input_size,
                 'total_output_size': self.total_output_size,
                 'avg_compression': avg_compression,
@@ -798,6 +832,30 @@ class VideoCompressor:
                 'error': 'File is corrupted (ffprobe failed)'
             }
 
+        # Live filtering: AV1 skip
+        if self.skip_av1 and metadata.get('codec') == 'av1':
+            return {
+                'status': 'av1_skip',
+                'input': input_file,
+                'error': 'Already AV1 codec'
+            }
+
+        # Live filtering: Camera model
+        if self.filter_cameras:
+            cam_model = metadata.get('camera') or metadata.get('camera_raw', "")
+            matched = False
+            for filter_pattern in self.filter_cameras:
+                if filter_pattern.lower() in cam_model.lower():
+                    matched = True
+                    break
+            
+            if not matched:
+                return {
+                    'status': 'camera_skip',
+                    'input': input_file,
+                    'error': f'Camera model "{cam_model}" not in filter'
+                }
+
         # Determine rotation angle
         # CLI flag --rotate-180 takes priority, otherwise check auto-rotation config
         if self.rotate_180:
@@ -1085,7 +1143,7 @@ class VideoCompressor:
             return f"{metadata['fps']}fps"
         return ""
 
-    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0, already_compressed_count: int = 0, ignored_small_count: int = 0, ignored_err_count: int = 0, ignored_av1_count: int = 0, ignored_hw_cap_count: int = 0, ignored_camera_count: int = 0) -> Group:
+    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0, already_compressed_count: int = 0, ignored_small_count: int = 0, ignored_err_count: int = 0, ignored_hw_cap_count: int = 0) -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
 
@@ -1099,7 +1157,7 @@ class VideoCompressor:
         # Compression Status Panel (dynamic + counters)
         status_lines = [
             f"Files to compress: {total_files} | Already compressed: {already_compressed_count}",
-            f"Ignored: size: {ignored_small_count} | err: {ignored_err_count} | av1: {ignored_av1_count} | hw_cap: {ignored_hw_cap_count} | cam: {ignored_camera_count}"
+            f"Ignored: size: {ignored_small_count} | err: {ignored_err_count} | hw_cap: {ignored_hw_cap_count} | av1: {stats['av1_skip']} | cam: {stats['camera_skip']}"
         ]
         current_threads = self.thread_controller.get_current()
         is_shutdown = self.thread_controller.is_shutdown_requested()
@@ -1309,6 +1367,112 @@ class VideoCompressor:
             summary_panel
         )
 
+    def show_config(self):
+        """Display current configuration in a pretty format"""
+        table = Table(title="VBC CURRENT CONFIGURATION", border_style="cyan")
+        table.add_column("Parameter", style="yellow")
+        table.add_column("Value", style="green")
+
+        table.add_row("Input Directory", str(self.input_dir))
+        table.add_row("Output Directory", str(self.output_dir))
+        table.add_row("Threads", str(self.thread_controller.get_current()))
+        table.add_row("AV1 Quality (Default CQ)", str(self.cq))
+        table.add_row("GPU Acceleration", str(not self.use_cpu))
+        table.add_row("Copy Metadata", str(self.copy_metadata))
+        table.add_row("Use ExifTool Analysis", str(self.use_exif))
+        table.add_row("Skip AV1 Codec", str(self.skip_av1))
+        table.add_row("Min File Size", self.format_size(self.min_size_bytes))
+        
+        # Camera Filters
+        cam_filters = ", ".join(self.filter_cameras) if self.filter_cameras else "ALL CAMERAS"
+        table.add_row("Camera Filters", cam_filters)
+
+        # Dynamic CQ
+        if self.dynamic_cq:
+            cq_rules = "\n".join([f"  {k} → CQ{v}" for k, v in self.dynamic_cq.items()])
+            table.add_row("Dynamic CQ Rules", cq_rules)
+
+        # Autorotate
+        if self.autorotate_patterns:
+            rotate_rules = "\n".join([f"  {k} → {v}°" for k, v in self.autorotate_patterns.items()])
+            table.add_row("Autorotate Rules", rotate_rules)
+
+        self.console.print(table)
+
+    def generate_report(self):
+        """Generate a detailed CSV report of all files (Dry Run)"""
+        self.console.print("[cyan]Starting Dry Run - generating report...[/cyan]")
+        
+        input_files, ignored_small = self.find_input_files()
+        completed_files = self.find_completed_files()
+        err_marked, hw_cap_marked = self.find_error_marked_inputs(input_files)
+        
+        report_file = self.output_dir / f"compression_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        self.output_dir.mkdir(exist_ok=True)
+
+        rows = []
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            console=self.console
+        ) as progress:
+            task = progress.add_task("Analyzing files...", total=len(input_files))
+            
+            for f in input_files:
+                status = "Pending"
+                if f in completed_files: status = "Already Compressed"
+                elif f in err_marked: status = "Previous Error"
+                elif f in hw_cap_marked: status = "Hardware Cap Error"
+                
+                metadata = self.get_queue_metadata(f)
+                cam_model = metadata.get('camera') or metadata.get('camera_raw', "")
+                active_cq = metadata.get('custom_cq', self.cq)
+                codec = metadata.get('codec', "unknown")
+                
+                # Filter check
+                cam_match = "Yes"
+                if self.filter_cameras:
+                    matched = False
+                    for p in self.filter_cameras:
+                        if p.lower() in cam_model.lower(): matched = True; break
+                    if not matched: cam_match = "No"; status = "Filtered Out"
+
+                if status == "Pending" and self.skip_av1 and codec == 'av1':
+                    status = "Skip (AV1)"
+
+                rows.append({
+                    'File': f.name,
+                    'Path': str(f.relative_to(self.input_dir)),
+                    'Size': self.format_size(f.stat().st_size),
+                    'Codec': codec,
+                    'Resolution': f"{metadata.get('width', '?')}x{metadata.get('height', '?')}",
+                    'Camera': cam_model,
+                    'Camera Match': cam_match,
+                    'Target CQ': active_cq,
+                    'Status': status
+                })
+                progress.update(task, advance=1)
+
+        with open(report_file, 'w', newline='') as csvfile:
+            fieldnames = ['File', 'Status', 'Target CQ', 'Camera', 'Camera Match', 'Codec', 'Resolution', 'Size', 'Path']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(row)
+
+        self.console.print(f"\n[green]Report generated successfully![/green]")
+        self.console.print(f"File: [bold]{report_file}[/bold]")
+        
+        # Print summary table
+        summary = Table(show_header=False, border_style="dim")
+        status_counts = {}
+        for r in rows: status_counts[r['Status']] = status_counts.get(r['Status'], 0) + 1
+        
+        for status, count in status_counts.items():
+            summary.add_row(status, str(count))
+        self.console.print(Panel(summary, title="DRY RUN SUMMARY"))
+
     def run(self):
         """Main execution method"""
         # Save start time
@@ -1337,42 +1501,8 @@ class VideoCompressor:
         completed_files = self.find_completed_files()
         self.already_compressed_count = len(completed_files)
 
-        # Step 3.5: Filter out AV1 files if skip_av1 is enabled
-        av1_files = set()
-        if self.skip_av1:
-            for f in input_files:
-                if f not in completed_files and f not in err_marked and f not in hw_cap_marked:
-                    metadata = self.get_queue_metadata(f)
-                    if metadata.get('codec') == 'av1':
-                        av1_files.add(f)
-            self.ignored_av1_count = len(av1_files)
-        else:
-            self.ignored_av1_count = 0
-
-        # Step 4: Filter out completed files, error files, and AV1 files
-        potential_files = [f for f in input_files if f not in completed_files and f not in err_marked and f not in hw_cap_marked and f not in av1_files]
-        
-        # Step 4.5: Optional camera filtering
-        files_to_process = []
-        if self.filter_cameras:
-            self.console.print(f"[yellow]Filtering files by camera models: {', '.join(self.filter_cameras)}...[/yellow]")
-            for f in potential_files:
-                metadata = self.get_queue_metadata(f)
-                cam_model = metadata.get('camera') or metadata.get('camera_raw', "")
-                
-                matched = False
-                for filter_pattern in self.filter_cameras:
-                    if filter_pattern.lower() in cam_model.lower():
-                        matched = True
-                        break
-                
-                if matched:
-                    files_to_process.append(f)
-                else:
-                    self.ignored_camera_count += 1
-        else:
-            files_to_process = potential_files
-
+        # Step 4: Filter candidates based on file existence only (błyskawiczne)
+        files_to_process = [f for f in input_files if f not in completed_files and f not in err_marked and f not in hw_cap_marked]
         self.files_to_compress_count = len(files_to_process)
 
         if not files_to_process:
@@ -1383,16 +1513,15 @@ class VideoCompressor:
                 parts.append(f"skipped {len(err_marked)} with existing .err (use --clean-errors to retry)")
             if hw_cap_marked:
                 parts.append(f"skipped {len(hw_cap_marked)} due to GPU hardware limits")
-            if self.ignored_camera_count > 0:
-                parts.append(f"skipped {self.ignored_camera_count} not matching camera filters")
-            if av1_files:
-                parts.append(f"skipped {len(av1_files)} with AV1 codec")
             suffix = f" ({'; '.join(parts)})" if parts else ""
             self.console.print(f"[green]All files already compressed![/green]{suffix}")
             return
 
         # Print initial info to console with file counts
         encoder_name = "SVT-AV1 (CPU)" if self.use_cpu else "NVENC AV1 (GPU)"
+        preset = "8 (Fast)" if self.use_cpu else "p7 (Slow/HQ)"
+        metadata_method = "Deep (ExifTool + XMP)" if (self.use_exif and self.copy_metadata) else ("Basic (FFmpeg)" if self.copy_metadata else "None")
+        autorotate_count = len(self.autorotate_patterns)
 
         ext_list = ', '.join([f'.{ext}' for ext in self.extensions])
         dynamic_cq_info = ", ".join([f"{k}:{v}" for k, v in self.dynamic_cq.items()]) if self.dynamic_cq else "None"
@@ -1402,19 +1531,18 @@ class VideoCompressor:
 Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}
 Input: {self.input_dir}
 Output: {self.output_dir}
-Threads: {self.thread_controller.get_current()}
-Prefetch factor: {self.prefetch_factor}× (max_inflight = {self.prefetch_factor * self.thread_controller.get_current()})
-Quality: CQ{self.cq}
-Extensions: {ext_list} → .mp4
-Rotate 180°: {self.rotate_180}
-Min size: {self.format_size(self.min_size_bytes)} (0 = include empty files)
-Copy metadata: {self.copy_metadata}
-Use ExifTool: {self.use_exif}
-Camera Filter: {camera_filter_info}
+Threads: {self.thread_controller.get_current()} (Prefetch: {self.prefetch_factor}x)
+Encoder: {encoder_name} | Preset: {preset}
+Audio: Copy (stream copy)
+Quality: CQ{self.cq} (Global Default)
 Dynamic CQ: {dynamic_cq_info}
-Skip AV1: {self.skip_av1}
-Clean errors: {self.clean_errors}
-Strip Unicode display: {self.strip_unicode_display}"""
+Camera Filter: {camera_filter_info}
+Metadata: {metadata_method} (Analysis: {self.use_exif})
+Autorotate: {autorotate_count} rules loaded
+Manual Rotation: {'180°' if self.rotate_180 else 'None'}
+Extensions: {ext_list} → .mp4
+Min size: {self.format_size(self.min_size_bytes)} | Skip AV1: {self.skip_av1}
+Clean errors: {self.clean_errors} | Strip Unicode: {self.strip_unicode_display}"""
 
         self.console.print(Panel(start_info, title="CONFIGURATION", border_style="cyan"))
         self.console.print()  # Empty line before MENU
@@ -1446,7 +1574,6 @@ Strip Unicode display: {self.strip_unicode_display}"""
                 self.already_compressed_count,
                 self.ignored_small_count,
                 self.ignored_err_count,
-                self.ignored_av1_count,
                 self.ignored_hw_cap_count
             )
             with self.ui_lock:
@@ -1602,7 +1729,7 @@ Strip Unicode display: {self.strip_unicode_display}"""
         keyboard_thread.start()
 
         try:
-            with Live(self.create_display(total_files, completed_count, files_to_process, set(), None, list(pending_files), [], 0, self.already_compressed_count, self.ignored_small_count, self.ignored_err_count, self.ignored_av1_count),
+            with Live(self.create_display(total_files, completed_count, files_to_process, set(), None, list(pending_files), [], 0, self.already_compressed_count, self.ignored_small_count, self.ignored_err_count, self.ignored_hw_cap_count),
                       refresh_per_second=10, console=self.console) as live:
 
                 # Start auto-refresh thread
@@ -1671,6 +1798,10 @@ Strip Unicode display: {self.strip_unicode_display}"""
                                     self.stats.add_skipped()
                                 elif result['status'] == 'hw_cap':
                                     self.stats.add_hw_cap()
+                                elif result['status'] == 'camera_skip':
+                                    self.stats.add_camera_skip()
+                                elif result['status'] == 'av1_skip':
+                                    self.stats.add_av1_skip()
                                 else:
                                     self.stats.add_error()
 
@@ -1942,6 +2073,18 @@ Output:
         help='Filter by camera model (comma-separated). Example: "Sony, DJI OsmoPocket3"'
     )
 
+    parser.add_argument(
+        '--show-config',
+        action='store_true',
+        help='Show current configuration and exit'
+    )
+
+    parser.add_argument(
+        '--report',
+        action='store_true',
+        help='Scan files and generate a CSV report (Dry Run)'
+    )
+
     args = parser.parse_args()
 
     # Validate input directory
@@ -2002,6 +2145,14 @@ Output:
         dynamic_cq=config['dynamic_cq'],
         filter_cameras=filter_cameras
     )
+
+    if args.show_config:
+        compressor.show_config()
+        sys.exit(0)
+
+    if args.report:
+        compressor.generate_report()
+        sys.exit(0)
 
     try:
         compressor.run()
