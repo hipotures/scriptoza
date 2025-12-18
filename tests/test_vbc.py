@@ -398,3 +398,83 @@ def test_sanitize_filename_for_display(tmp_path):
         filter_cameras=[]
     )
     assert vc_keep.sanitize_filename_for_display(name) == name
+
+def test_cleanup_temp_files_keeps_non_tmp(tmp_path):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+
+    vc = VideoCompressor(
+        input_dir=input_dir,
+        threads=1,
+        cq=45,
+        rotate_180=False,
+        use_cpu=True,
+        prefetch_factor=1,
+        copy_metadata=False,
+        extensions=["mp4"],
+        autorotate_patterns={},
+        min_size_bytes=0,
+        clean_errors=False,
+        skip_av1=False,
+        strip_unicode_display=True,
+        use_exif=False,
+        dynamic_cq={},
+        filter_cameras=[]
+    )
+
+    out_dir = vc.output_dir
+    keep_video = out_dir / "keep.mp4"
+    keep_image = out_dir / "keep.jpg"
+    keep_text = out_dir / "keep.txt"
+    temp_file = out_dir / "temp.tmp"
+    colorfix_file = out_dir / "clip_colorfix.mp4"
+    err_file = out_dir / "clip.err"
+
+    for path in (keep_video, keep_image, keep_text, temp_file, colorfix_file, err_file):
+        path.write_text("x")
+
+    vc.cleanup_temp_files()
+
+    assert keep_video.exists()
+    assert keep_image.exists()
+    assert keep_text.exists()
+    assert not temp_file.exists()
+    assert not colorfix_file.exists()
+    assert err_file.exists()
+
+def test_cleanup_temp_files_removes_err_when_enabled(tmp_path):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+
+    vc = VideoCompressor(
+        input_dir=input_dir,
+        threads=1,
+        cq=45,
+        rotate_180=False,
+        use_cpu=True,
+        prefetch_factor=1,
+        copy_metadata=False,
+        extensions=["mp4"],
+        autorotate_patterns={},
+        min_size_bytes=0,
+        clean_errors=True,
+        skip_av1=False,
+        strip_unicode_display=True,
+        use_exif=False,
+        dynamic_cq={},
+        filter_cameras=[]
+    )
+
+    out_dir = vc.output_dir
+    keep_video = out_dir / "keep.mp4"
+    err_file = out_dir / "clip.err"
+    temp_file = out_dir / "temp.tmp"
+
+    for path in (keep_video, err_file, temp_file):
+        path.write_text("x")
+
+    vc.cleanup_temp_files()
+
+    assert keep_video.exists()
+    assert not temp_file.exists()
+    assert not err_file.exists()
