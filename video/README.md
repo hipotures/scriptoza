@@ -2,13 +2,17 @@
 
 ## vbc.py (Video Batch Compression)
 
-Advanced batch video compression script with configuration file, auto-rotation, and EXIF preservation. Supports both GPU (NVENC AV1) and CPU (SVT-AV1) encoding.
+Advanced batch video compression script with YAML configuration, auto-rotation, camera detection, and deep EXIF preservation. Supports both GPU (NVENC AV1) and CPU (SVT-AV1) encoding.
 
 ### Features
 
-- **Configuration file support** - `conf/vbc.conf` with default settings (threads, quality, GPU/CPU, metadata copying)
+- **YAML Configuration** - `conf/vbc.yaml` for structured settings (threads, quality, filters, dynamic CQ)
+- **Deep Camera Detection** - Uses `exiftool` to identify camera hardware (DJI, Sony, Panasonic/GH7)
+- **Dynamic CQ** - Automatically applies specific quality settings based on detected camera model
+- **Camera Filtering** - Process only videos from specific cameras using `--camera` or config filters
+- **Deep EXIF Preservation** - Uses `exiftool` to copy GPS, Lens Info, and MakerNotes from source to MP4 (more reliable than FFmpeg mapping)
+- **Hardware Cap Tracking** - Dedicated `hw_cap` counter for "Hardware is lacking required capabilities" errors (tracks GPU limits separately from file errors)
 - **Auto-rotation** - Regex-based automatic video rotation (e.g., QVR files rotated 180° automatically)
-- **EXIF preservation** - GPS coordinates, camera info, and timestamps preserved by default (`-map_metadata`)
 - **Automatic color space fix** - Detects and fixes FFmpeg 7.x "reserved color space" errors (bug #11020)
 - **Corrupted file detection** - Early detection and skip of corrupted files (moov atom missing)
 - **Minimum size filter** - Skip files smaller than configurable threshold (default 1 MiB, `--min-size`, set 0 to include empty files)
@@ -23,7 +27,7 @@ Advanced batch video compression script with configuration file, auto-rotation, 
   - Progress bar with active thread count
   - Currently processing files list with animated spinner
   - Recently completed files (5 most recent)
-  - Next files in queue (5 upcoming)
+  - Next files in queue (5 upcoming) with detected **Camera Model** column
 - Graceful shutdown (key `S`) - completes current tasks without starting new ones
 - Detailed file logging
 - Error handling with `.err` file output
@@ -33,34 +37,39 @@ Advanced batch video compression script with configuration file, auto-rotation, 
 
 - Python 3.9+
 - Linux/macOS terminal (uses termios/tty; Windows not supported)
-- ffmpeg with AV1 support:
-  - GPU mode: NVIDIA GPU with NVENC AV1 support + `av1_nvenc`
-  - CPU mode: `libsvtav1` encoder
-- rich (`pip install rich`)
+- ffmpeg with AV1 support
+- exiftool (required for metadata and camera detection)
+- Python packages: `rich`, `pyyaml`, `pyexiftool`
 
 ### Installation
 
 ```bash
-pip install rich
+pip install rich pyyaml pyexiftool
 ```
 
 ### Configuration File
 
-Default settings are stored in `conf/vbc.conf`:
+Default settings are stored in `conf/vbc.yaml`:
 
-```ini
-[general]
-threads = 4          # Parallel compression threads
-cq = 45              # Quality (lower = better, larger file)
-prefetch_factor = 1  # Queue prefetch multiplier
-gpu = True           # True = NVENC GPU, False = SVT-AV1 CPU
-copy_metadata = True # Copy EXIF (GPS, camera info)
-skip_av1 = False     # Skip files already using AV1 codec
+```yaml
+general:
+  threads: 4
+  cq: 45
+  gpu: true
+  copy_metadata: true
+  use_exif: true
+  
+  # Process only these cameras (empty = all)
+  filter_cameras: ["DJI OsmoPocket3", "ILCE-7RM5"]
+  
+  # Specific quality for detected models
+  dynamic_cq:
+    "DJI OsmoPocket3": 35
+    "DC-GH7": 30
+    "ILCE-7RM5": 35
 
-[autorotate]
-# Regex patterns for auto-rotation
-# NOTE: Use single backslash (\d) with RawConfigParser
-QVR_\d{8}_\d{6}\.mp4 = 180  # QVR files rotated 180°
+autorotate:
+  'QVR_\d{8}_\d{6}\.mp4': 180
 ```
 
 **CLI arguments override config file settings.**
@@ -71,7 +80,8 @@ QVR_\d{8}_\d{6}\.mp4 = 180  # QVR files rotated 180°
 python video/vbc.py <input_directory> [options]
 
 # Examples:
-python video/vbc.py /path/to/videos  # Uses config defaults
+python video/vbc.py /path/to/videos  # Uses YAML defaults
+python video/vbc.py /path/to/videos --camera "Sony, DJI"  # Filter specific cameras
 python video/vbc.py /path/to/videos --threads 4 --cq 45
 python video/vbc.py /path/to/videos --rotate-180 --no-metadata  # Override auto-rotation, strip EXIF
 python video/vbc.py /path/to/videos --cpu  # Use CPU encoder instead of GPU
@@ -79,16 +89,17 @@ python video/vbc.py /path/to/videos --cpu  # Use CPU encoder instead of GPU
 
 #### Options
 
-- `--threads N` - Number of parallel compression threads (default: from config)
-- `--cq N` - Constant quality value for AV1 (default: from config, lower=better quality)
-- `--rotate-180` - Rotate ALL videos 180° (overrides auto-rotation from config)
+- `--camera "MODEL"` - Filter by camera model (comma-separated, e.g., "Sony, GH7")
+- `--threads N` - Number of parallel compression threads
+- `--cq N` - Constant quality value for AV1 (lower=better quality)
+- `--rotate-180` - Rotate ALL videos 180°
 - `--cpu` - Use CPU encoder (SVT-AV1) instead of GPU (NVENC)
-- `--prefetch-factor N` - Queue prefetch multiplier 1-5 (default: from config)
-- `--no-metadata` - Do not copy EXIF metadata (strips GPS, camera info)
-- `--min-size BYTES` - Minimum input size to process (default: 1048576 = 1 MiB; set 0 to include empty files)
-- `--clean-errors` - Remove existing `.err` markers and retry those files (default: keep `.err` and skip marked files)
-- `--skip-av1` - Skip files already using AV1 codec (default: compress AV1 files)
-- `--config PATH` - Load settings from a specific config file (default: `conf/vbc.conf` next to repo)
+- `--use-exif` / `--no-exif` - Enable/disable deep metadata analysis
+- `--no-metadata` - Do not copy EXIF metadata
+- `--min-size BYTES` - Minimum input size to process
+- `--clean-errors` - Remove existing `.err` markers and retry
+- `--skip-av1` - Skip files already using AV1 codec
+- `--config PATH` - Load settings from a specific YAML file
 
 ### Runtime Controls
 
