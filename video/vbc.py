@@ -788,7 +788,7 @@ class VideoCompressor:
 
                     # Copy EXIF metadata if enabled
                     if self.copy_metadata:
-                        cmd.extend(['-map_metadata', '0'])
+                        cmd.extend(['-map_metadata', '0', '-movflags', 'use_metadata_tags'])
 
                     cmd.extend([
                         '-f', 'mp4',
@@ -827,7 +827,7 @@ class VideoCompressor:
 
                 # Copy EXIF metadata if enabled
                 if self.copy_metadata:
-                    cmd.extend(['-map_metadata', '0'])
+                    cmd.extend(['-map_metadata', '0', '-movflags', 'use_metadata_tags'])
 
                 cmd.extend([
                     '-f', 'mp4',
