@@ -33,6 +33,16 @@ def find_config_line(output: str, label: str) -> str:
             return line
     return ""
 
+def read_latest_report(out_dir: Path) -> list[dict]:
+    reports = sorted(out_dir.glob("compression_report_*.csv"))
+    assert reports, "Brak raportu CSV"
+    report_path = reports[-1]
+    with report_path.open(newline='') as csvfile:
+        reader = csv.DictReader(csvfile)
+        rows = list(reader)
+        assert reader.fieldnames
+    return rows
+
 # --- TESTY JEDNOSTKOWE ---
 
 def test_config_loading(vbc_yaml):
@@ -150,16 +160,42 @@ def test_report_generates_csv(test_data_dir, vbc_yaml):
 
     assert res.returncode == 0, f"STDOUT: {res.stdout}\nSTDERR: {res.stderr}"
     out_dir = Path(f"{test_data_dir}_out")
-    reports = sorted(out_dir.glob("compression_report_*.csv"))
-    assert reports, "Brak raportu CSV"
+    rows = read_latest_report(out_dir)
+    assert rows
+    assert "File" in rows[0]
+    assert "Status" in rows[0]
+    assert len(rows) >= 4
 
-    with reports[-1].open(newline='') as csvfile:
-        reader = csv.DictReader(csvfile)
-        rows = list(reader)
-        assert reader.fieldnames
-        assert "File" in reader.fieldnames
-        assert "Status" in reader.fieldnames
-        assert len(rows) >= 4
+def test_report_camera_filter_multiple_values(test_data_dir, vbc_yaml):
+    res = run_vbc([
+        str(test_data_dir), "--report", "--config", str(vbc_yaml),
+        "--camera", "ILCE-7RM5, DJI OsmoPocket3"
+    ])
+
+    assert res.returncode == 0, f"STDOUT: {res.stdout}\nSTDERR: {res.stderr}"
+    out_dir = Path(f"{test_data_dir}_out")
+    rows = read_latest_report(out_dir)
+    rows_by_file = {row["File"]: row for row in rows}
+
+    assert rows_by_file["sony_test.mp4"]["Camera Match"] == "Yes"
+    assert rows_by_file["dji_test.mp4"]["Camera Match"] == "Yes"
+    assert rows_by_file["gh7_test.mp4"]["Camera Match"] == "No"
+    assert rows_by_file["gh7_test.mp4"]["Status"] == "Filtered Out"
+
+def test_report_camera_filter_case_insensitive(test_data_dir, vbc_yaml):
+    res = run_vbc([
+        str(test_data_dir), "--report", "--config", str(vbc_yaml),
+        "--camera", "dJi osMoPockEt3"
+    ])
+
+    assert res.returncode == 0, f"STDOUT: {res.stdout}\nSTDERR: {res.stderr}"
+    out_dir = Path(f"{test_data_dir}_out")
+    rows = read_latest_report(out_dir)
+    rows_by_file = {row["File"]: row for row in rows}
+
+    assert rows_by_file["dji_test.mp4"]["Camera Match"] == "Yes"
+    assert rows_by_file["sony_test.mp4"]["Camera Match"] == "No"
+    assert rows_by_file["gh7_test.mp4"]["Camera Match"] == "No"
 
 def test_invalid_min_size_rejected(test_data_dir, vbc_yaml):
     res = run_vbc([
