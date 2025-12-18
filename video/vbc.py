@@ -6,6 +6,23 @@
 #   "pyexiftool",
 # ]
 # ///
+import sys
+import os
+from pathlib import Path
+
+# --- DEDICATED VENV ACTIVATION ---
+# Check if we are already in a virtual environment
+if not os.environ.get('VIRTUAL_ENV') and not os.environ.get('UV_VENV_PATH'):
+    # Look for .venv in the repository root (one level up from /video)
+    venv_root = Path(__file__).resolve().parent.parent / '.venv'
+    venv_python = venv_root / 'bin' / 'python'
+    if venv_python.exists():
+        # Set the environment variable so the next process knows it's active
+        os.environ['VIRTUAL_ENV'] = str(venv_root)
+        # Re-execute the script using the dedicated .venv python interpreter
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+# --------------------------------
+
 """
 Batch video compression script using NVENC AV1 with rich UI
 Compresses video files (configurable extensions) to AV1/MP4 with specified quality
@@ -17,8 +34,6 @@ import logging
 import re
 import select
 import subprocess
-import sys
-import os
 import threading
 import time
 import termios
@@ -29,20 +44,7 @@ import json
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import List, Set, Dict, Optional, Deque
-
-# Automatic venv activation
-def activate_venv():
-    """If not in a venv and .venv exists, re-run script using that venv python"""
-    venv_path = Path(__file__).resolve().parent.parent / '.venv'
-    if venv_path.exists() and not os.environ.get('VIRTUAL_ENV'):
-        python_bin = venv_path / 'bin' / 'python'
-        if python_bin.exists():
-            os.execv(str(python_bin), [str(python_bin)] + sys.argv)
-
-if __name__ == "__main__" and "uv" not in sys.argv[0]:
-    activate_venv()
 
 # Optional deep metadata analysis
 try:
