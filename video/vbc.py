@@ -92,7 +92,8 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
         'use_exif': True,
         'dynamic_cq': {},
         'filter_cameras': [],
-        'autorotate_patterns': {}
+        'autorotate_patterns': {},
+        'min_compression_ratio': 0.0
     }
 
     config_file = Path(config_path) if config_path else Path(__file__).resolve().parent.parent / 'conf' / 'vbc.yaml'
@@ -122,7 +123,8 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
                 'debug': gen.get('debug', defaults['debug']),
                 'use_exif': gen.get('use_exif', defaults['use_exif']),
                 'dynamic_cq': gen.get('dynamic_cq', defaults['dynamic_cq']),
-                'filter_cameras': gen.get('filter_cameras', defaults['filter_cameras'])
+                'filter_cameras': gen.get('filter_cameras', defaults['filter_cameras']),
+                'min_compression_ratio': gen.get('min_compression_ratio', defaults['min_compression_ratio'])
             })
 
         if 'autorotate' in config:
@@ -220,6 +222,7 @@ class CompressionStats:
         self.camera_skip_count = 0
         self.av1_skip_count = 0
         self.hw_cap_count = 0
+        self.min_ratio_skip_count = 0
         self.total_input_size = 0
         self.total_output_size = 0
         self.completed: Deque[Dict] = deque(maxlen=5)
@@ -248,6 +251,14 @@ class CompressionStats:
     def add_av1_skip(self):
         with self.lock:
             self.av1_skip_count += 1
+
+    def add_min_ratio_skip(self, result: Dict) -> None:
+        """Record a file where original was kept due to insufficient compression"""
+        with self.lock:
+            self.min_ratio_skip_count += 1
+            self.total_input_size += result['input_size']
+            self.total_output_size += result['input_size']  # Original size used
+            self.completed.append(result)
 
     def add_skipped(self):
         with self.lock:
@@ -282,6 +293,7 @@ class CompressionStats:
                 'hw_cap': self.hw_cap_count,
                 'camera_skip': self.camera_skip_count,
                 'av1_skip': self.av1_skip_count,
+                'min_ratio_skip': self.min_ratio_skip_count,
                 'total_input_size': self.total_input_size,
                 'total_output_size': self.total_output_size,
                 'avg_compression': avg_compression,
@@ -293,7 +305,7 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False, strip_unicode_display: bool = True, use_exif: bool = False, dynamic_cq: Dict[str, int] = None, filter_cameras: List[str] = None, cq_overridden: bool = False, debug: bool = False):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False, strip_unicode_display: bool = True, use_exif: bool = False, dynamic_cq: Dict[str, int] = None, filter_cameras: List[str] = None, cq_overridden: bool = False, debug: bool = False, min_compression_ratio: float = 0.0):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
@@ -313,6 +325,7 @@ class VideoCompressor:
         self.dynamic_cq = dynamic_cq or {}
         self.filter_cameras = filter_cameras or []
         self.debug = debug
+        self.min_compression_ratio = min_compression_ratio
         self.max_depth = 3
         self.stats = CompressionStats()
         self.console = Console()
@@ -1110,6 +1123,30 @@ class VideoCompressor:
                 output_size = output_file.stat().st_size
                 compression_ratio = (1 - output_size / input_size) * 100
 
+                # Check if compression meets minimum ratio threshold
+                min_ratio_percent = self.min_compression_ratio * 100
+                if min_ratio_percent > 0 and compression_ratio < min_ratio_percent:
+                    # Compression insufficient - copy original to output directory
+                    # (shutil already imported at top of file)
+                    shutil.copy2(input_file, output_file)
+
+                    self.logger.warning(
+                        f"MinRatio: {filename}: {self.format_size(input_size)} → {self.format_size(output_size)} "
+                        f"({compression_ratio:.1f}% < {min_ratio_percent:.1f}% minimum) - keeping original"
+                    )
+                    log_compress_end("min_ratio_skip")
+
+                    return {
+                        'status': 'min_ratio_skip',
+                        'input': input_file,
+                        'output': output_file,
+                        'input_size': input_size,
+                        'output_size': input_size,  # Original size
+                        'compression_ratio': None,  # Indicates no compression applied
+                        'duration': duration,
+                        'metadata': metadata
+                    }
+
                 # Log with resolution and FPS (classic format)
                 resolution_str = f"{metadata.get('width', '?')}x{metadata.get('height', '?')}" if metadata else "?"
                 fps_str = f"{metadata.get('fps', '?')}fps" if metadata else "?"
@@ -1260,7 +1297,7 @@ class VideoCompressor:
         # Compression Status Panel (dynamic + counters)
         status_lines = [
             f"Files to compress: {total_files} | Already compressed: {already_compressed_count}",
-            f"Ignored: size: {ignored_small_count} | err: {ignored_err_count} | hw_cap: {ignored_hw_cap_count} | av1: {stats['av1_skip']} | cam: {stats['camera_skip']}"
+            f"Ignored: size: {ignored_small_count} | err: {ignored_err_count} | hw_cap: {ignored_hw_cap_count} | av1: {stats['av1_skip']} | cam: {stats['camera_skip']} | ratio: {stats['min_ratio_skip']}"
         ]
         current_threads = self.thread_controller.get_current()
         is_shutdown = self.thread_controller.is_shutdown_requested()
@@ -1370,8 +1407,15 @@ class VideoCompressor:
         for item in completed_list[:5]:
             metadata = item.get('metadata', {})
             compression_ratio = item.get('compression_ratio', 100)
-            
-            warn_icon = "📦" if compression_ratio < 50 else ""
+
+            # Handle None ratio (original kept due to min_ratio)
+            if compression_ratio is None:
+                ratio_str = "-"
+                warn_icon = "📋"  # Clipboard icon for original file kept
+            else:
+                ratio_str = f"{compression_ratio:.1f}%"
+                warn_icon = "📦" if compression_ratio < 50 else ""
+
             completed_table.add_row(
                 "✓",
                 self.sanitize_filename_for_display(item['input'].name),
@@ -1380,7 +1424,7 @@ class VideoCompressor:
                 self.format_size(item['input_size']),
                 "→",
                 self.format_size(item['output_size']),
-                f"{compression_ratio:.1f}%",
+                ratio_str,
                 self.format_time(item['duration']),
                 warn_icon
             )
@@ -1457,7 +1501,7 @@ class VideoCompressor:
             queue_panel = Panel("Queue empty", title="NEXT IN QUEUE", border_style="blue")
 
         # Summary at bottom
-        summary = f"✓ {stats['success']} success  ✗ {stats['error']} errors  ⚠ {stats['hw_cap']} hw_cap  ⊘ {stats['skipped']} skipped"
+        summary = f"✓ {stats['success']} success  ✗ {stats['error']} errors  ⚠ {stats['hw_cap']} hw_cap  📋 {stats['min_ratio_skip']} ratio  ⊘ {stats['skipped']} skipped"
         summary_panel = Panel(summary, border_style="white")
 
         return Group(
@@ -1901,6 +1945,8 @@ Debug logging: {self.debug}"""
                                     self.stats.add_camera_skip()
                                 elif result['status'] == 'av1_skip':
                                     self.stats.add_av1_skip()
+                                elif result['status'] == 'min_ratio_skip':
+                                    self.stats.add_min_ratio_skip(result)
                                 else:
                                     self.stats.add_error()
 
@@ -2166,6 +2212,14 @@ Output:
     )
 
     parser.add_argument(
+        '--min-ratio',
+        type=float,
+        metavar='RATIO',
+        default=config['min_compression_ratio'],
+        help=f'Minimum compression ratio (0.0-1.0, e.g., 0.1 = 10%% savings required, 0.0 = disabled). Default: {config["min_compression_ratio"]}'
+    )
+
+    parser.add_argument(
         '--show-config',
         action='store_true',
         help='Show current configuration and exit'
@@ -2259,7 +2313,8 @@ Output:
         dynamic_cq=config['dynamic_cq'],
         filter_cameras=filter_cameras,
         cq_overridden=cq_overridden,
-        debug=debug
+        debug=debug,
+        min_compression_ratio=args.min_ratio
     )
 
     if args.show_config:

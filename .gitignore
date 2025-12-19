@@ -9,6 +9,7 @@
 # Allow conf directory and config files
 !conf/
 !conf/*.conf
+!conf/*.yaml
 
 # Allow video directory and its contents
 !video/
