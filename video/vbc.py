@@ -1716,15 +1716,7 @@ Clean errors: {self.clean_errors} | Strip Unicode: {self.strip_unicode_display}"
                     # Trigger top-up to submit new files if there's capacity
                     top_up_queue(executor)
 
-                    # Update display
-                    with completed_files_lock:
-                        completed_set_copy = set(completed_files_set)
-                    with queue_lock:
-                        pending_files_copy = list(pending_files)
-                        in_flight_files_copy = list(in_flight.values())
-                    with self.spinner_lock:
-                        frame = self.spinner_frame
-                    safe_live_update(live, completed_set_copy, pending_files_copy, in_flight_files_copy, frame)
+                    # UI updates are handled by auto-refresh thread.
                 except Exception as e:
                     self.logger.error(f"Refresh error: {e}")
 
@@ -1834,14 +1826,7 @@ Clean errors: {self.clean_errors} | Strip Unicode: {self.strip_unicode_display}"
                             # Submit-on-demand: replenish queue after completion
                             top_up_queue(executor)
 
-                        with completed_files_lock:
-                            completed_set_copy = set(completed_files_set)
-                        with queue_lock:
-                            pending_files_copy = list(pending_files)
-                            in_flight_files_copy = list(in_flight.values())
-                        with self.spinner_lock:
-                            frame = self.spinner_frame
-                        safe_live_update(live, completed_set_copy, pending_files_copy, in_flight_files_copy, frame)
+                        # UI updates are handled by auto-refresh thread.
 
                 except KeyboardInterrupt:
                     self.console.print("\n[yellow]Ctrl+C detected - stopping new tasks...[/yellow]")

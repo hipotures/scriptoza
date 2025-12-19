@@ -129,7 +129,7 @@ During compression, you can control the process using keyboard shortcuts:
 - Preserves directory structure
 - Thread-safe statistics tracking with condition variables
 - Submit-on-demand queue management with dynamic thread scaling
-- Auto-refresh UI every 1 second with animated spinner
+- Auto-refresh UI every 1 second with animated spinner (single refresh thread only to avoid EXIF lock contention)
 - 6-hour timeout per file
 - Maximum scan depth: 3 directory levels
 - Hard limit: 8 concurrent compression threads
