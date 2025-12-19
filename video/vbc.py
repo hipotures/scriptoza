@@ -479,7 +479,7 @@ class VideoCompressor:
 
         return 0
 
-    def get_queue_metadata(self, file: Path) -> Dict:
+    def get_queue_metadata(self, file: Path, caller: str = "unknown") -> Dict:
         """
         Return cached metadata for queue display; run ffprobe once per file and cache result.
         """
@@ -494,7 +494,9 @@ class VideoCompressor:
             return cached
 
         metadata: Dict = {}
+        caller_label = caller or "unknown"
         try:
+            self.logger.debug(f"Queue metadata cache miss: {file.name} caller={caller_label}")
             result = subprocess.run([
                 'ffprobe', '-v', 'error', '-select_streams', 'v:0',
                 '-show_entries', 'stream=width,height,avg_frame_rate,codec_name',
@@ -564,10 +566,10 @@ class VideoCompressor:
                         if not metadata.get('camera') and model_val:
                             metadata['camera'] = model_val
                 except Exception as e:
-                    self.logger.debug(f"ExifTool analysis failed for {file.name}: {e}")
+                    self.logger.debug(f"ExifTool analysis failed for {file.name} caller={caller_label}: {e}")
 
         except Exception as e:
-            self.logger.debug(f"Queue metadata probe failed for {file.name}: {e}")
+            self.logger.debug(f"Queue metadata probe failed for {file.name} caller={caller_label}: {e}")
 
         with self.queue_metadata_lock:
             self.queue_metadata_cache[file] = metadata
@@ -808,7 +810,7 @@ class VideoCompressor:
         validity_status, file_to_compress, temp_fixed_file, metadata_base = self.check_and_fix_color_space(input_file)
         
         # Get full metadata (including camera model and custom CQ)
-        metadata = self.get_queue_metadata(input_file)
+        metadata = self.get_queue_metadata(input_file, caller="compress")
         if metadata_base:
             metadata.update(metadata_base)
 
@@ -1147,7 +1149,7 @@ class VideoCompressor:
             return f"{metadata['fps']}fps"
         return ""
 
-    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0, already_compressed_count: int = 0, ignored_small_count: int = 0, ignored_err_count: int = 0, ignored_hw_cap_count: int = 0) -> Group:
+    def create_display(self, total_files: int, completed_count: int, queue: List[Path], completed_files_set: Set[Path] = None, submitted_files_set: Set[Path] = None, pending_files_list: List[Path] = None, in_flight_files: List[Path] = None, spinner_frame: int = 0, already_compressed_count: int = 0, ignored_small_count: int = 0, ignored_err_count: int = 0, ignored_hw_cap_count: int = 0, caller: str = "ui") -> Group:
         """Create rich display with all panels"""
         stats = self.stats.get_stats()
 
@@ -1330,7 +1332,7 @@ class VideoCompressor:
 
             for file in next_files:
                 if file.exists():
-                    metadata = self.get_queue_metadata(file)
+                    metadata = self.get_queue_metadata(file, caller=caller)
                     codec_raw = metadata.get('codec')
                     codec = codec_raw.lower() if codec_raw else ""
                     warn_icon = "📦" if codec == 'av1' else ""
@@ -1429,7 +1431,7 @@ class VideoCompressor:
                 elif f in err_marked: status = "Previous Error"
                 elif f in hw_cap_marked: status = "Hardware Cap Error"
                 
-                metadata = self.get_queue_metadata(f)
+                metadata = self.get_queue_metadata(f, caller="report")
                 cam_model = metadata.get('camera') or metadata.get('camera_raw', "")
                 active_cq = metadata.get('custom_cq', self.cq)
                 codec = metadata.get('codec', "unknown")
@@ -1564,7 +1566,7 @@ Clean errors: {self.clean_errors} | Strip Unicode: {self.strip_unicode_display}"
         in_flight: Dict = {}  # Future -> Path, submitted but not completed
         queue_lock = threading.Lock()  # Protects pending_files and in_flight
 
-        def safe_live_update(live_obj, completed_files_snapshot, pending_files_snapshot, in_flight_snapshot, spinner_frame):
+        def safe_live_update(live_obj, completed_files_snapshot, pending_files_snapshot, in_flight_snapshot, spinner_frame, caller):
             """Render display and update Live with UI lock to avoid concurrent updates."""
             display = self.create_display(
                 total_files,
@@ -1578,7 +1580,8 @@ Clean errors: {self.clean_errors} | Strip Unicode: {self.strip_unicode_display}"
                 self.already_compressed_count,
                 self.ignored_small_count,
                 self.ignored_err_count,
-                self.ignored_hw_cap_count
+                self.ignored_hw_cap_count,
+                caller=caller
             )
             with self.ui_lock:
                 live_obj.update(display)
@@ -1612,7 +1615,7 @@ Clean errors: {self.clean_errors} | Strip Unicode: {self.strip_unicode_display}"
                         in_flight_files_copy = list(in_flight.values())
                     with self.spinner_lock:
                         frame = self.spinner_frame
-                    safe_live_update(live, completed_set_copy, pending_files_copy, in_flight_files_copy, frame)
+                    safe_live_update(live, completed_set_copy, pending_files_copy, in_flight_files_copy, frame, "ui:auto_refresh")
                 except:
                     pass
                 stop_refresh.wait(1.0)
@@ -1721,15 +1724,15 @@ Clean errors: {self.clean_errors} | Strip Unicode: {self.strip_unicode_display}"
                     self.logger.error(f"Refresh error: {e}")
 
         # Start keyboard listener thread
-        keyboard_thread = threading.Thread(target=self.keyboard_listener, daemon=True)
+        keyboard_thread = threading.Thread(target=self.keyboard_listener, daemon=True, name="ui_keyboard_listener")
         keyboard_thread.start()
 
         try:
-            with Live(self.create_display(total_files, completed_count, files_to_process, set(), None, list(pending_files), [], 0, self.already_compressed_count, self.ignored_small_count, self.ignored_err_count, self.ignored_hw_cap_count),
+            with Live(self.create_display(total_files, completed_count, files_to_process, set(), None, list(pending_files), [], 0, self.already_compressed_count, self.ignored_small_count, self.ignored_err_count, self.ignored_hw_cap_count, caller="ui:init"),
                       refresh_per_second=10, console=self.console) as live:
 
                 # Start auto-refresh thread
-                refresh_thread = threading.Thread(target=auto_refresh, daemon=True)
+                refresh_thread = threading.Thread(target=auto_refresh, daemon=True, name="ui_auto_refresh")
                 refresh_thread.start()
 
                 # Use max 8 workers pool (GPU NVENC session limit)
@@ -1742,7 +1745,8 @@ Clean errors: {self.clean_errors} | Strip Unicode: {self.strip_unicode_display}"
                     refresh_handler_thread = threading.Thread(
                         target=refresh_handler,
                         args=(executor, files_to_process),
-                        daemon=True
+                        daemon=True,
+                        name="ui_refresh_handler"
                     )
                     refresh_handler_thread.start()
 
