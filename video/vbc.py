@@ -88,6 +88,7 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
         'clean_errors': False,
         'skip_av1': False,
         'strip_unicode_display': True,
+        'debug': False,
         'use_exif': True,
         'dynamic_cq': {},
         'filter_cameras': [],
@@ -118,6 +119,7 @@ def load_config(config_path: Optional[Path] = None) -> Dict:
                 'clean_errors': gen.get('clean_errors', defaults['clean_errors']),
                 'skip_av1': gen.get('skip_av1', defaults['skip_av1']),
                 'strip_unicode_display': gen.get('strip_unicode_display', defaults['strip_unicode_display']),
+                'debug': gen.get('debug', defaults['debug']),
                 'use_exif': gen.get('use_exif', defaults['use_exif']),
                 'dynamic_cq': gen.get('dynamic_cq', defaults['dynamic_cq']),
                 'filter_cameras': gen.get('filter_cameras', defaults['filter_cameras'])
@@ -291,7 +293,7 @@ class CompressionStats:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False, strip_unicode_display: bool = True, use_exif: bool = False, dynamic_cq: Dict[str, int] = None, filter_cameras: List[str] = None, cq_overridden: bool = False):
+    def __init__(self, input_dir: Path, threads: int = 8, cq: int = 45, rotate_180: bool = False, use_cpu: bool = False, prefetch_factor: int = 1, copy_metadata: bool = True, extensions: List[str] = None, autorotate_patterns: Dict[str, int] = None, min_size_bytes: int = 1024 * 1024, clean_errors: bool = False, skip_av1: bool = False, strip_unicode_display: bool = True, use_exif: bool = False, dynamic_cq: Dict[str, int] = None, filter_cameras: List[str] = None, cq_overridden: bool = False, debug: bool = False):
         self.input_dir = input_dir.resolve()
         self.output_dir = Path(f"{self.input_dir}_out")
         self.thread_controller = ThreadController(threads)
@@ -310,6 +312,7 @@ class VideoCompressor:
         self.use_exif = use_exif and (exiftool is not None)
         self.dynamic_cq = dynamic_cq or {}
         self.filter_cameras = filter_cameras or []
+        self.debug = debug
         self.max_depth = 3
         self.stats = CompressionStats()
         self.console = Console()
@@ -778,10 +781,26 @@ class VideoCompressor:
     def compress_file(self, input_file: Path) -> dict:
         """Compress a single video file using NVENC AV1"""
         filename = input_file.name
+        thread_id = threading.get_ident() if self.debug else None
+        compress_start = time.monotonic() if self.debug else None
+
+        def log_compress_end(status: str, reason: str = ""):
+            if not self.debug:
+                return
+            msg = f"COMPRESS_END: {filename} status={status}"
+            if reason:
+                msg += f" reason={reason}"
+            if compress_start is not None:
+                msg += f" elapsed={time.monotonic() - compress_start:.2f}s"
+            self.logger.info(msg)
+
+        if self.debug:
+            self.logger.info(f"COMPRESS_START: {filename} (thread {thread_id})")
 
         # Check file and get size BEFORE acquiring thread slot
         try:
             if not input_file.exists():
+                log_compress_end("skipped", "missing_file")
                 return {
                     'status': 'skipped',
                     'input': input_file,
@@ -789,6 +808,7 @@ class VideoCompressor:
                 }
             input_size = input_file.stat().st_size
         except Exception as e:
+            log_compress_end("error", "stat_failed")
             return {
                 'status': 'error',
                 'input': input_file,
@@ -800,6 +820,7 @@ class VideoCompressor:
         if output_path.exists():
             # Log collision for later grep
             self.logger.warning(f"COLLISION: Output exists, skipping input={input_file} output={output_path}")
+            log_compress_end("skipped", "output_exists")
             return {
                 'status': 'skipped',
                 'input': input_file,
@@ -823,6 +844,7 @@ class VideoCompressor:
             except:
                 pass
             self.logger.error(f"Skipped corrupted file: {filename}")
+            log_compress_end("error", "corrupted")
             return {
                 'status': 'error',
                 'input': input_file,
@@ -831,6 +853,7 @@ class VideoCompressor:
 
         # Live filtering: AV1 skip
         if self.skip_av1 and metadata.get('codec') == 'av1':
+            log_compress_end("av1_skip")
             return {
                 'status': 'av1_skip',
                 'input': input_file,
@@ -847,6 +870,7 @@ class VideoCompressor:
                     break
             
             if not matched:
+                log_compress_end("camera_skip")
                 return {
                     'status': 'camera_skip',
                     'input': input_file,
@@ -871,6 +895,7 @@ class VideoCompressor:
             # Cleanup temp file if created
             if temp_fixed_file and temp_fixed_file.exists():
                 temp_fixed_file.unlink()
+            log_compress_end("skipped", "shutdown_requested")
             return {
                 'status': 'skipped',
                 'input': input_file,
@@ -969,6 +994,12 @@ class VideoCompressor:
                     '-stats'
                 ])
 
+            if self.debug:
+                ffmpeg_start = time.monotonic()
+                self.logger.info(f"FFMPEG_START: {filename} (thread {thread_id})")
+            else:
+                ffmpeg_start = None
+
             start_time = datetime.now()
 
             # Run compression
@@ -980,6 +1011,10 @@ class VideoCompressor:
                 timeout=21600  # 6 hour timeout
             )
 
+            if self.debug and ffmpeg_start is not None:
+                ffmpeg_elapsed = time.monotonic() - ffmpeg_start
+                self.logger.info(f"FFMPEG_DONE: {filename} rc={result.returncode} elapsed={ffmpeg_elapsed:.2f}s")
+
             if result.returncode == 0:
                 # Success - rename tmp to final
                 if err_file.exists():
@@ -989,27 +1024,84 @@ class VideoCompressor:
                 # NEW: Copy ALL metadata from source to output using ExifTool
                 # This ensures GPS, Lens Info, MakerNotes etc. are preserved in MP4
                 if self.copy_metadata:
-                    try:
-                        # Copy common groups and explicitly map GPS tags for MP4 compatibility.
-                        subprocess.run([
-                            'exiftool',
-                            '-m',
-                            '-tagsFromFile', str(input_file),
-                            '-XMP:all', '-QuickTime:all', '-Keys:all', '-UserData:all',
-                            '-EXIF:all', '-GPS:all',
-                            '-XMP-exif:GPSLatitude<GPSLatitude',
-                            '-XMP-exif:GPSLongitude<GPSLongitude',
-                            '-XMP-exif:GPSAltitude<GPSAltitude',
-                            '-XMP-exif:GPSPosition<GPSPosition',
-                            '-QuickTime:GPSCoordinates<GPSPosition',
-                            '-Keys:GPSCoordinates<GPSPosition',
-                            '-unsafe',
-                            '-overwrite_original',
-                            str(output_file)
-                        ], capture_output=True, check=True)
-                        self.logger.info(f"Metadata copied successfully for {filename}")
-                    except Exception as e:
-                        self.logger.warning(f"Failed to copy deep metadata for {filename}: {e}")
+                    exiftool_cmd = [
+                        'exiftool',
+                        '-m',
+                        '-tagsFromFile', str(input_file),
+                        '-XMP:all', '-QuickTime:all', '-Keys:all', '-UserData:all',
+                        '-EXIF:all', '-GPS:all',
+                        '-XMP-exif:GPSLatitude<GPSLatitude',
+                        '-XMP-exif:GPSLongitude<GPSLongitude',
+                        '-XMP-exif:GPSAltitude<GPSAltitude',
+                        '-XMP-exif:GPSPosition<GPSPosition',
+                        '-QuickTime:GPSCoordinates<GPSPosition',
+                        '-Keys:GPSCoordinates<GPSPosition',
+                        '-unsafe',
+                        '-overwrite_original',
+                        str(output_file)
+                    ]
+                    if self.debug:
+                        timeout_s = 30
+                        max_attempts = 2
+                        timed_out = False
+                        for attempt in range(1, max_attempts + 1):
+                            try:
+                                exif_start = time.monotonic()
+                                self.logger.info(
+                                    f"EXIF_COPY_START: {filename} attempt {attempt}/{max_attempts} (thread {thread_id})"
+                                )
+                                subprocess.run(
+                                    exiftool_cmd,
+                                    capture_output=True,
+                                    check=True,
+                                    timeout=timeout_s
+                                )
+                                exif_elapsed = time.monotonic() - exif_start
+                                self.logger.info(
+                                    f"EXIF_COPY_DONE: {filename} attempt {attempt}/{max_attempts} "
+                                    f"elapsed={exif_elapsed:.2f}s"
+                                )
+                                self.logger.info(f"Metadata copied successfully for {filename}")
+                                timed_out = False
+                                break
+                            except subprocess.TimeoutExpired:
+                                timed_out = True
+                                exif_elapsed = time.monotonic() - exif_start
+                                self.logger.warning(
+                                    f"ExifTool metadata copy timed out after {timeout_s}s "
+                                    f"(attempt {attempt}/{max_attempts}) for {filename}"
+                                )
+                                self.logger.warning(
+                                    f"EXIF_COPY_TIMEOUT: {filename} attempt {attempt}/{max_attempts} "
+                                    f"elapsed={exif_elapsed:.2f}s"
+                                )
+                            except Exception as e:
+                                exif_elapsed = time.monotonic() - exif_start
+                                self.logger.warning(
+                                    f"EXIF_COPY_ERROR: {filename} attempt {attempt}/{max_attempts} "
+                                    f"elapsed={exif_elapsed:.2f}s error={e}"
+                                )
+                                self.logger.warning(f"Failed to copy deep metadata for {filename}: {e}")
+                                timed_out = False
+                                break
+                        if timed_out:
+                            try:
+                                err_file.write_text(
+                                    f"ExifTool metadata copy timed out after {timeout_s}s (2 attempts)."
+                                )
+                            except:
+                                pass
+                            self.logger.error(
+                                f"ExifTool metadata copy timed out after {timeout_s}s (2 attempts) for {filename}"
+                            )
+                    else:
+                        try:
+                            subprocess.run(exiftool_cmd, capture_output=True, check=True)
+                        except Exception as e:
+                            self.logger.warning(f"Failed to copy deep metadata for {filename}: {e}")
+                else:
+                    if self.debug:
+                        self.logger.info(f"EXIF_COPY_SKIPPED: {filename} (copy_metadata=False)")
 
                 self.stats.stop_processing(filename)
 
@@ -1025,6 +1117,7 @@ class VideoCompressor:
                     f"Success: {filename} {resolution_str} {fps_str}: {self.format_size(input_size)} → "
                     f"{self.format_size(output_size)} ({compression_ratio:.1f}%) in {duration:.0f}s"
                 )
+                log_compress_end("success")
 
                 return {
                     'status': 'success',
@@ -1047,6 +1140,7 @@ class VideoCompressor:
             
             if "Hardware is lacking required capabilities" in error_msg:
                 self.logger.warning(f"HW_CAP: {filename}: Hardware lacking capabilities")
+                log_compress_end("hw_cap")
                 return {
                     'status': 'hw_cap',
                     'input': input_file,
@@ -1054,6 +1148,7 @@ class VideoCompressor:
                 }
 
             self.logger.error(f"Failed: {filename}: {error_msg}")
+            log_compress_end("error")
             return {
                 'status': 'error',
                 'input': input_file,
@@ -1066,6 +1161,7 @@ class VideoCompressor:
             err_file = self.get_output_path(input_file).parent / f"{input_file.stem}.err"
             err_file.write_text(error_msg)
             self.logger.error(f"Timeout: {filename}")
+            log_compress_end("error", "timeout")
             return {
                 'status': 'error',
                 'input': input_file,
@@ -1082,6 +1178,7 @@ class VideoCompressor:
             except:
                 pass
             self.logger.error(f"Exception: {filename}: {error_msg}")
+            log_compress_end("error", "exception")
             return {
                 'status': 'error',
                 'input': input_file,
@@ -1386,6 +1483,7 @@ class VideoCompressor:
         table.add_row("GPU Acceleration", str(not self.use_cpu))
         table.add_row("Copy Metadata", str(self.copy_metadata))
         table.add_row("Use ExifTool Analysis", str(self.use_exif))
+        table.add_row("Debug Logging", str(self.debug))
         table.add_row("Skip AV1 Codec", str(self.skip_av1))
         table.add_row("Min File Size", self.format_size(self.min_size_bytes))
         
@@ -1548,7 +1646,8 @@ Autorotate: {autorotate_count} rules loaded
 Manual Rotation: {'180°' if self.rotate_180 else 'None'}
 Extensions: {ext_list} → .mp4
 Min size: {self.format_size(self.min_size_bytes)} | Skip AV1: {self.skip_av1}
-Clean errors: {self.clean_errors} | Strip Unicode: {self.strip_unicode_display}"""
+Clean errors: {self.clean_errors} | Strip Unicode: {self.strip_unicode_display}
+Debug logging: {self.debug}"""
 
         self.console.print(Panel(start_info, title="CONFIGURATION", border_style="cyan"))
         self.console.print()  # Empty line before MENU
@@ -2078,6 +2177,21 @@ Output:
         help='Scan files and generate a CSV report (Dry Run)'
     )
 
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        dest='debug',
+        default=None,
+        help='Enable verbose debug logging (compression/exif timings)'
+    )
+
+    parser.add_argument(
+        '--no-debug',
+        action='store_false',
+        dest='debug',
+        help='Disable verbose debug logging'
+    )
+
     args = parser.parse_args()
 
     # Validate input directory
@@ -2123,6 +2237,9 @@ Output:
     # We check sys.argv to see if --cq was explicitly passed
     cq_overridden = any(arg.startswith('--cq') for arg in sys.argv)
 
+    # Determine debug logging
+    debug = args.debug if args.debug is not None else config['debug']
+
     # Run compression
     compressor = VideoCompressor(
         input_dir=args.input_dir,
@@ -2141,7 +2258,8 @@ Output:
         use_exif=use_exif,
         dynamic_cq=config['dynamic_cq'],
         filter_cameras=filter_cameras,
-        cq_overridden=cq_overridden
+        cq_overridden=cq_overridden,
+        debug=debug
     )
 
     if args.show_config:
