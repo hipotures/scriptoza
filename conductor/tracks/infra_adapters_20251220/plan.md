@@ -16,7 +16,7 @@
 - [ ] Task: Conductor - User Manual Verification 'Metadata Extraction' (Protocol in workflow.md)
 
 ## Phase 3: FFmpeg Compression Adapter
-- [ ] Task: Implement FFmpeg Compressor
+- [x] Task: Implement FFmpeg Compressor (ad54307)
     - [ ] Sub-task: Write Tests for FFmpeg command generation
     - [ ] Sub-task: Implement `vbc/infrastructure/ffmpeg.py` (focus on command building and execution)
     - [ ] Sub-task: Implement Progress Parsing (emit events)
