@@ -28,6 +28,11 @@ tests/data/
 !photo/*.py
 !photo/*.sh
 
+# Allow the new modular package
+!scriptoza/
+!scriptoza/**/*.py
+!scriptoza/**/__init__.py
+
 # Ignore Python cache
 __pycache__/
 *.pyc
