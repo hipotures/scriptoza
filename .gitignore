@@ -30,14 +30,19 @@ tests/data/
 
 # Allow the new modular package
 !scriptoza/
+!scriptoza/**/
 !scriptoza/**/*.py
-!scriptoza/**/__init__.py
 
 # Allow conductor directory
 !conductor/
 !conductor/**/
 !conductor/**/*.md
 !conductor/**/*.json
+
+# Allow new tests
+!tests/
+!tests/**/
+!tests/**/*.py
 
 # Ignore Python cache
 __pycache__/
