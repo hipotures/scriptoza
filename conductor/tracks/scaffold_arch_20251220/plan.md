@@ -13,7 +13,7 @@
 - [x] Task: Implement Domain Entities (dc6b3d9)
     - [ ] Sub-task: Write Tests for Domain Models (VideoFile, JobStatus transitions)
     - [ ] Sub-task: Implement `vbc/domain/models.py`
-- [ ] Task: Implement Event Bus
+- [x] Task: Implement Event Bus (d768b1e)
     - [ ] Sub-task: Write Tests for Event Bus (Subscribe/Publish)
     - [ ] Sub-task: Implement `vbc/infrastructure/event_bus.py`
     - [ ] Sub-task: Define Core Events in `vbc/domain/events.py`
