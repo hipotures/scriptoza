@@ -10,7 +10,7 @@
 - [x] Task: Implement ExifTool Adapter (87f8ed2)
     - [ ] Sub-task: Write Tests for ExifTool Adapter (mock pyexiftool)
     - [ ] Sub-task: Implement `vbc/infrastructure/exif_tool.py`
-- [ ] Task: Implement FFprobe Helper
+- [x] Task: Implement FFprobe Helper (412c457)
     - [ ] Sub-task: Write Tests for FFprobe parsing
     - [ ] Sub-task: Implement `vbc/infrastructure/ffprobe.py` (or integrate into `ffmpeg.py`)
 - [ ] Task: Conductor - User Manual Verification 'Metadata Extraction' (Protocol in workflow.md)
