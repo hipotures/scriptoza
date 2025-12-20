@@ -20,7 +20,7 @@
 - [ ] Task: Conductor - User Manual Verification 'Domain Modeling & Events' (Protocol in workflow.md)
 
 ## Phase 3: CLI Entry Point Scaffold
-- [ ] Task: Create Typer Entry Point
+- [x] Task: Create Typer Entry Point (196a5ef)
     - [ ] Sub-task: Implement minimal `vbc/main.py`
     - [ ] Sub-task: Verify it runs (`python -m vbc.main --help`)
 - [ ] Task: Conductor - User Manual Verification 'CLI Entry Point Scaffold' (Protocol in workflow.md)
