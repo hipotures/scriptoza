@@ -24,7 +24,7 @@ def test_orchestrator_sequential_flow():
     mock_ffprobe.get_stream_info.return_value = {"width": 1920, "height": 1080, "codec": "h264", "fps": 30.0}
     
     # Mock compression side effect to update job status
-    def compress_side_effect(job, config):
+    def compress_side_effect(job, config, **kwargs):
         job.status = JobStatus.COMPLETED
     mock_ffmpeg.compress.side_effect = compress_side_effect
     
