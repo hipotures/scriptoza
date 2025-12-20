@@ -3,7 +3,7 @@
 ## Phase 1: Project Skeleton & Configuration
 - [x] Task: Create Directory Structure (e9633e4)
     - Create `scriptoza/vbc` and subdirectories (`config`, `domain`, `infrastructure`, `pipeline`) with `__init__.py` files.
-- [ ] Task: Implement Pydantic Configuration Models
+- [x] Task: Implement Pydantic Configuration Models (3dcbf48)
     - [ ] Sub-task: Write Tests for Config Models (Test valid/invalid YAML data)
     - [ ] Sub-task: Implement `scriptoza/vbc/config/models.py`
     - [ ] Sub-task: Implement `scriptoza/vbc/config/loader.py` (YAML to Pydantic)
