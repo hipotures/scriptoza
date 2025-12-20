@@ -4,7 +4,7 @@
 - [x] Task: Implement Orchestrator Skeleton (fe3c658)
     - [ ] Sub-task: Write Tests for basic Orchestrator flow (mocked sequential execution)
     - [ ] Sub-task: Implement `vbc/pipeline/orchestrator.py` with sequential job execution
-- [ ] Task: Implement Metadata & Decision Logic
+- [x] Task: Implement Metadata - [~] Task: Implement Metadata & Decision Logic Decision Logic (dbfea35)
     - [ ] Sub-task: Write Tests for Dynamic CQ and Auto-rotate matching
     - [ ] Sub-task: Port matching logic from original script to Orchestrator
 - [ ] Task: Conductor - User Manual Verification 'Sequential Orchestration' (Protocol in workflow.md)
