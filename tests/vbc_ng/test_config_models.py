@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from scriptoza.vbc.config.models import AppConfig, GeneralConfig, AutoRotateConfig
+from vbc.config.models import AppConfig, GeneralConfig, AutoRotateConfig
 
 def test_valid_config():
     data = {
@@ -32,10 +32,11 @@ def test_invalid_cq():
         GeneralConfig(threads=4, cq=64, gpu=True, copy_metadata=True, use_exif=True, extensions=[".mp4"], min_size_bytes=0)
 
 def test_config_defaults():
-    # Test minimal required fields if any (assuming some defaults exist)
-    gen = GeneralConfig(threads=1, cq=45, gpu=True, copy_metadata=True, use_exif=True, extensions=[".mp4"], min_size_bytes=0)
+    gen = GeneralConfig(threads=1, extensions=[".mp4"])
     assert gen.filter_cameras == []
     assert gen.dynamic_cq == {}
+    assert gen.cq == 45
+    assert gen.min_compression_ratio == 0.1
 
 def test_load_config(tmp_path):
     d = tmp_path / "conf"
@@ -49,7 +50,7 @@ autorotate:
   patterns:
     "test.*": 90
 """)
-    from scriptoza.vbc.config.loader import load_config
+    from vbc.config.loader import load_config
     config = load_config(f)
     assert config.general.threads == 8
     assert config.general.cq == 30
