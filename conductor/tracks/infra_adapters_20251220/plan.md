@@ -7,7 +7,7 @@
 - [ ] Task: Conductor - User Manual Verification 'File Scanner' (Protocol in workflow.md)
 
 ## Phase 2: Metadata Extraction (ExifTool & FFprobe)
-- [ ] Task: Implement ExifTool Adapter
+- [x] Task: Implement ExifTool Adapter (87f8ed2)
     - [ ] Sub-task: Write Tests for ExifTool Adapter (mock pyexiftool)
     - [ ] Sub-task: Implement `vbc/infrastructure/exif_tool.py`
 - [ ] Task: Implement FFprobe Helper
