@@ -33,6 +33,12 @@ tests/data/
 !scriptoza/**/*.py
 !scriptoza/**/__init__.py
 
+# Allow conductor directory
+!conductor/
+!conductor/**/
+!conductor/**/*.md
+!conductor/**/*.json
+
 # Ignore Python cache
 __pycache__/
 *.pyc
