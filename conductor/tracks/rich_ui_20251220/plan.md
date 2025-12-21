@@ -4,7 +4,7 @@
 - [x] Task: Implement UI State Manager (efae25e)
     - [ ] Sub-task: Write Tests for `UIState` (statistics, ETA)
     - [ ] Sub-task: Implement `vbc/ui/state.py`
-- [ ] Task: Map Events to UI Updates
+- [x] Task: Map Events to UI Updates (ce57710)
     - [ ] Sub-task: Create Event Handlers in `vbc/ui/manager.py` to update `UIState`
 - [ ] Task: Conductor - User Manual Verification 'UI State & Event Mapping' (Protocol in workflow.md)
 
