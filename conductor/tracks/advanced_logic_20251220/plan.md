@@ -10,9 +10,9 @@
 - [ ] Task: Conductor - User Manual Verification 'Specialized Error Handling' (Protocol in workflow.md)
 
 ## Phase 2: Smart Skipping & Space Optimization
-- [ ] Task: Implement Codec Skipping (`--skip-av1`)
+- [x] Task: Implement Codec Skipping (--skip-av1) (ee56a4f)
     - [ ] Sub-task: Update Orchestrator to check metadata before submission
-- [ ] Task: Implement Compression Ratio Guard
+- [x] Task: Implement Compression Ratio Guard (ee56a4f)
     - [ ] Sub-task: Add logic to compare input/output size and keep the best version
 - [ ] Task: Conductor - User Manual Verification 'Smart Skipping' (Protocol in workflow.md)
 
