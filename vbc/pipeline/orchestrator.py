@@ -1,6 +1,7 @@
 import re
 import threading
 import concurrent.futures
+import shutil
 from pathlib import Path
 from typing import Optional, List
 from vbc.config.models import AppConfig, GeneralConfig
@@ -87,6 +88,12 @@ class Orchestrator:
         try:
             # 2. Metadata & Decision
             video_file.metadata = self.exif_adapter.extract_metadata(video_file)
+            
+            # Smart Skipping: already AV1
+            if self.config.general.skip_av1 and video_file.metadata and "av1" in video_file.metadata.codec.lower():
+                self.event_bus.publish(JobFailed(job=CompressionJob(source_file=video_file, status=JobStatus.SKIPPED), error_message="Already encoded in AV1"))
+                return
+
             target_cq = self._determine_cq(video_file)
             rotation = self._determine_rotation(video_file)
             
@@ -120,6 +127,16 @@ class Orchestrator:
             self.ffmpeg_adapter.compress(job, job_config, rotate=rotation)
             
             if job.status == JobStatus.COMPLETED:
+                # Check compression ratio
+                if output_path.exists():
+                    out_size = output_path.stat().st_size
+                    in_size = video_file.size_bytes
+                    ratio = out_size / in_size
+                    if ratio > (1.0 - self.config.general.min_compression_ratio):
+                        # Savings too small, copy original
+                        shutil.copy2(video_file.path, output_path)
+                        job.error_message = f"Ratio {ratio:.2f} above threshold, kept original"
+                
                 self.event_bus.publish(JobCompleted(job=job))
             elif job.status in (JobStatus.FAILED, JobStatus.HW_CAP_LIMIT):
                 # Write error marker
