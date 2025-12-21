@@ -16,7 +16,7 @@
 - [ ] Task: Conductor - User Manual Verification 'Concurrent Execution' (Protocol in workflow.md)
 
 ## Phase 3: Final Integration Scaffold
-- [ ] Task: Integrate with CLI
+- [x] Task: Integrate with CLI (1650b2f)
     - [ ] Sub-task: Update `vbc/main.py` to instantiate adapters and run Orchestrator
     - [ ] Sub-task: Verify E2E flow with mocked adapters via CLI
 - [ ] Task: Conductor - User Manual Verification 'Final Integration Scaffold' (Protocol in workflow.md)
