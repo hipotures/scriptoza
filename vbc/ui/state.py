@@ -46,6 +46,7 @@ class UIState:
         self.shutdown_requested = False
         self.interrupt_requested = False
         self.finished = False
+        self.strip_unicode_display = True
         self.processing_start_time: Optional[datetime] = None
 
         # User action feedback (like old vbc.py)

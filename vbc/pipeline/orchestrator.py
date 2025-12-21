@@ -149,6 +149,8 @@ class Orchestrator:
 
     def _determine_rotation(self, file: VideoFile) -> Optional[int]:
         """Determines if rotation is needed based on filename pattern."""
+        if self.config.general.manual_rotation is not None:
+            return self.config.general.manual_rotation
         filename = file.path.name
         for pattern, angle in self.config.autorotate.patterns.items():
             if re.search(pattern, filename):

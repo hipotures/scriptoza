@@ -53,6 +53,12 @@ class Dashboard:
             return f"{int(metadata.fps)}fps"
         return ""
 
+    def _sanitize_filename(self, filename: str) -> str:
+        """Replace non-ASCII characters for display."""
+        if not self.state.strip_unicode_display:
+            return filename
+        return "".join(c if ord(c) < 128 else "?" for c in filename)
+
     def _generate_menu_panel(self) -> Panel:
         return Panel(
             "[bright_red]<[/bright_red] decrease threads | [bright_red]>[/bright_red] increase threads | [bright_red]S[/bright_red] stop | [bright_red]R[/bright_red] refresh",
@@ -148,10 +154,11 @@ class Dashboard:
                 spinner_char = spinner_frames[(self._spinner_frame + idx) % len(spinner_frames)]
 
                 # Calculate elapsed time
-                filename = job.source_file.path.name
+                filename = self._sanitize_filename(job.source_file.path.name)
                 elapsed = 0.0
-                if filename in self.state.job_start_times:
-                    elapsed = (datetime.now() - self.state.job_start_times[filename]).total_seconds()
+                start_key = job.source_file.path.name
+                if start_key in self.state.job_start_times:
+                    elapsed = (datetime.now() - self.state.job_start_times[start_key]).total_seconds()
 
                 table.add_row(
                     spinner_char,
@@ -182,6 +189,7 @@ class Dashboard:
             table.add_column("", width=2, justify="center", style="magenta")
 
             for job in list(self.state.recent_jobs)[:5]:
+                display_name = self._sanitize_filename(job.source_file.path.name)
                 if job.status == JobStatus.COMPLETED:
                     # Calculate compression ratio
                     input_size = job.source_file.size_bytes
@@ -193,7 +201,7 @@ class Dashboard:
 
                     table.add_row(
                         "✓",
-                        job.source_file.path.name[:40],
+                        display_name[:40],
                         self.format_resolution(job.source_file.metadata),
                         self.format_fps(job.source_file.metadata),
                         self.format_size(input_size),
@@ -207,7 +215,7 @@ class Dashboard:
                     # Interrupted job (Ctrl+C) - show in bright red
                     table.add_row(
                         "✗",
-                        job.source_file.path.name[:40],
+                        display_name[:40],
                         self.format_resolution(job.source_file.metadata),
                         self.format_fps(job.source_file.metadata),
                         self.format_size(job.source_file.size_bytes),
@@ -222,7 +230,7 @@ class Dashboard:
                     status_text = job.status.value if hasattr(job.status, 'value') else str(job.status)
                     table.add_row(
                         "✗",
-                        job.source_file.path.name[:40],
+                        display_name[:40],
                         self.format_resolution(job.source_file.metadata),
                         self.format_fps(job.source_file.metadata),
                         self.format_size(job.source_file.size_bytes),
@@ -251,9 +259,10 @@ class Dashboard:
             # Show first 5 pending files
             for vf in list(self.state.pending_files)[:5]:
                 # Metadata is already cached by orchestrator
+                display_name = self._sanitize_filename(vf.path.name)
                 table.add_row(
                     "»",
-                    vf.path.name[:40],
+                    display_name[:40],
                     self.format_resolution(vf.metadata),
                     self.format_fps(vf.metadata),
                     self.format_size(vf.size_bytes),

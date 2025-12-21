@@ -15,6 +15,7 @@ class GeneralConfig(BaseModel):
     clean_errors: bool = False
     skip_av1: bool = False
     strip_unicode_display: bool = True
+    manual_rotation: Optional[int] = Field(default=None)
     min_compression_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
     debug: bool = False
 

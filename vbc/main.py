@@ -35,6 +35,7 @@ def compress(
     clean_errors: bool = typer.Option(False, "--clean-errors", help="Remove existing .err markers and retry"),
     skip_av1: bool = typer.Option(False, "--skip-av1", help="Skip files already encoded in AV1"),
     min_size: Optional[int] = typer.Option(None, "--min-size", help="Minimum input size in bytes to process"),
+    rotate_180: bool = typer.Option(False, "--rotate-180", help="Rotate output 180 degrees"),
     debug: bool = typer.Option(False, "--debug/--no-debug", help="Enable verbose debug logging")
 ):
     """Batch compress videos in a directory with full feature parity."""
@@ -52,6 +53,7 @@ def compress(
         if skip_av1: config.general.skip_av1 = True
         if min_size is not None: config.general.min_size_bytes = min_size
         if debug: config.general.debug = True
+        if rotate_180: config.general.manual_rotation = 180
 
         # Setup output directory and logging FIRST
         output_dir = input_dir.with_name(f"{input_dir.name}_out")
@@ -62,6 +64,7 @@ def compress(
         bus = EventBus()
         ui_state = UIState()
         ui_state.current_threads = config.general.threads
+        ui_state.strip_unicode_display = config.general.strip_unicode_display
 
         if config.general.filter_cameras and not config.general.use_exif:
             logger.warning("Camera filtering requires EXIF analysis. Enabling use_exif automatically.")
