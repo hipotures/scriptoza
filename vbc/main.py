@@ -1,18 +1,20 @@
 import typer
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from vbc.config.loader import load_config
 from vbc.infrastructure.event_bus import EventBus
 from vbc.infrastructure.file_scanner import FileScanner
 from vbc.infrastructure.exif_tool import ExifToolAdapter
 from vbc.infrastructure.ffprobe import FFprobeAdapter
 from vbc.infrastructure.ffmpeg import FFmpegAdapter
+from vbc.infrastructure.housekeeping import HousekeepingService
 from vbc.pipeline.orchestrator import Orchestrator
 from vbc.ui.state import UIState
 from vbc.ui.manager import UIManager
 from vbc.ui.dashboard import Dashboard
 from vbc.ui.keyboard import KeyboardListener, ThreadControlEvent, RequestShutdown
+from vbc.domain.events import HardwareCapabilityExceeded
 
 app = typer.Typer(help="VBC (Video Batch Compression) - Modular Version")
 
@@ -22,27 +24,41 @@ def compress(
     config_path: Optional[Path] = typer.Option(Path("conf/vbc.yaml"), "--config", "-c", help="Path to YAML config"),
     threads: Optional[int] = typer.Option(None, "--threads", "-t", help="Override number of threads"),
     cq: Optional[int] = typer.Option(None, "--cq", help="Override constant quality (0-63)"),
-    gpu: Optional[bool] = typer.Option(None, "--gpu/--cpu", help="Enable/disable GPU acceleration")
+    gpu: Optional[bool] = typer.Option(None, "--gpu/--cpu", help="Enable/disable GPU acceleration"),
+    clean_errors: bool = typer.Option(False, "--clean-errors", help="Remove existing .err markers and retry"),
+    skip_av1: bool = typer.Option(False, "--skip-av1", help="Skip files already encoded in AV1"),
+    min_size: Optional[int] = typer.Option(None, "--min-size", help="Minimum input size in bytes to process")
 ):
-    """Batch compress videos in a directory with interactive UI."""
+    """Batch compress videos in a directory with full feature parity."""
     if not input_dir.exists():
         typer.secho(f"Error: Directory {input_dir} does not exist.", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
     try:
         config = load_config(config_path)
+        # Apply CLI overrides
         if threads: config.general.threads = threads
         if cq: config.general.cq = cq
         if gpu is not None: config.general.gpu = gpu
+        if clean_errors: config.general.clean_errors = True
+        if skip_av1: config.general.skip_av1 = True
+        if min_size is not None: config.general.min_size_bytes = min_size
         
         bus = EventBus()
         ui_state = UIState()
         ui_state.current_threads = config.general.threads
         
-        # UI Manager connects bus to ui_state
+        # Housekeeping (Cleanup stale files)
+        housekeeper = HousekeepingService()
+        housekeeper.cleanup_temp_files(input_dir)
+        if config.general.clean_errors:
+            # Also cleanup in output dir if it exists
+            output_dir = input_dir.with_name(f"{input_dir.name}_out")
+            if output_dir.exists():
+                housekeeper.cleanup_error_markers(output_dir)
+        
         ui_manager = UIManager(bus, ui_state)
         
-        # Listen for thread changes to update UI state
         @bus.subscribe(ThreadControlEvent)
         def on_thread_change(e: ThreadControlEvent):
             with ui_state._lock:
@@ -75,9 +91,7 @@ def compress(
         keyboard = KeyboardListener(bus)
         dashboard = Dashboard(ui_state)
         
-        # Start runtime
         keyboard.start()
-        
         with dashboard.start():
             orchestrator.run(input_dir)
             
