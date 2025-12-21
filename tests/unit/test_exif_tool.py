@@ -10,22 +10,24 @@ def test_extract_metadata():
         "QuickTime:ImageWidth": 1920,
         "QuickTime:ImageHeight": 1080,
         "QuickTime:VideoFrameRate": 60,
-        "QuickTime:HandlerDescription": "VideoHandler",
+        "QuickTime:CompressorID": "hvc1",
         "QuickTime:Model": "DJI Osmo Pocket 3",
         "QuickTime:AvgBitrate": 100000000
     }]
-    
+
     with patch("exiftool.ExifTool") as MockExifTool:
         instance = MockExifTool.return_value
-        instance.get_metadata_batch.return_value = mock_exif_data
-        
+        instance.running = True
+        instance.execute_json.return_value = mock_exif_data
+
         adapter = ExifToolAdapter()
         vf = VideoFile(path=Path("test.mp4"), size_bytes=1000)
         metadata = adapter.extract_metadata(vf)
-        
+
         assert metadata.width == 1920
         assert metadata.height == 1080
         assert metadata.fps == 60
+        assert metadata.codec == "hevc"  # hvc1 maps to hevc
         assert metadata.camera_model == "DJI Osmo Pocket 3"
 
 def test_copy_metadata():

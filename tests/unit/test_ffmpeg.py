@@ -9,15 +9,16 @@ def test_ffmpeg_command_generation_gpu():
     config = GeneralConfig(threads=4, cq=45, gpu=True)
     vf = VideoFile(path=Path("input.mp4"), size_bytes=1000)
     job = CompressionJob(source_file=vf, output_path=Path("output.mp4"))
-    
+
     adapter = FFmpegAdapter(event_bus=MagicMock())
     cmd = adapter._build_command(job, config)
-    
+
     assert "ffmpeg" in cmd
     assert "-c:v" in cmd
     assert "av1_nvenc" in cmd
     assert "input.mp4" in cmd
-    assert "output.mp4" in cmd
+    # FFmpeg writes to .tmp file first, then renames to .mp4
+    assert "output.tmp" in cmd or any(".tmp" in str(c) for c in cmd)
 
 def test_ffmpeg_command_generation_cpu():
     config = GeneralConfig(threads=4, cq=45, gpu=False)

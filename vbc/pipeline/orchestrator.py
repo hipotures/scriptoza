@@ -389,7 +389,7 @@ class Orchestrator:
             try:
                 rel_path = vf.path.relative_to(input_dir)
             except ValueError:
-                rel_path = vf.path.name
+                rel_path = Path(vf.path.name)
             # Always output as .mp4 (lowercase), regardless of input extension
             output_path = output_dir / rel_path.with_suffix('.mp4')
             err_path = output_path.with_suffix('.err')
@@ -464,7 +464,7 @@ class Orchestrator:
             try:
                 rel_path = video_file.path.relative_to(input_dir)
             except ValueError:
-                rel_path = video_file.path.name
+                rel_path = Path(video_file.path.name)
 
             output_dir = input_dir.with_name(f"{input_dir.name}_out")
             # Always output as .mp4 (lowercase), regardless of input extension
