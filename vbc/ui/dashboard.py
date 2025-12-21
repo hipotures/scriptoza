@@ -199,7 +199,8 @@ class Dashboard:
                     f"[dim]err:[/] {self.state.ignored_err_count} | "
                     f"[dim]av1:[/] {self.state.ignored_av1_count} | "
                     f"[dim]cam:[/] {self.state.cam_skipped_count} | "
-                    f"[dim]hw_cap:[/] {self.state.hw_cap_count}"
+                    f"[dim]hw_cap:[/] {self.state.hw_cap_count} | "
+                    f"[dim]ratio:[/] {self.state.min_ratio_skip_count}"
                 )
 
         return Panel("\n".join(lines), title="COMPRESSION STATUS", border_style="cyan")
@@ -365,6 +366,7 @@ class Dashboard:
             table = Table(show_header=False, box=None, padding=(0, 1))
             table.add_column("", width=1, style="dim")
             table.add_column("File", width=40, no_wrap=True, overflow="ellipsis")
+            table.add_column("Cam", width=18, style="magenta", no_wrap=True, overflow="ellipsis")
             table.add_column("Res", width=3, justify="right", style="cyan")
             table.add_column("FPS", width=6, justify="right", style="cyan")
             table.add_column("Size", justify="right")
@@ -374,9 +376,15 @@ class Dashboard:
             for vf in list(self.state.pending_files)[:5]:
                 # Metadata is already cached by orchestrator
                 display_name = self._sanitize_filename(vf.path.name)
+                cam_model = ""
+                if vf.metadata:
+                    cam_model = vf.metadata.camera_model or vf.metadata.camera_raw or ""
+                cam_model = self._sanitize_filename(cam_model)
+
                 table.add_row(
                     "»",
                     display_name[:40],
+                    cam_model[:18],
                     self.format_resolution(vf.metadata),
                     self.format_fps(vf.metadata),
                     self.format_size(vf.size_bytes),
