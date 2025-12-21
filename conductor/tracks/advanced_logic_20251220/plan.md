@@ -17,7 +17,7 @@
 - [ ] Task: Conductor - User Manual Verification 'Smart Skipping' (Protocol in workflow.md)
 
 ## Phase 3: Compatibility & Housekeeping
-- [ ] Task: Implement Housekeeping Service
+- [x] Task: Implement Housekeeping Service (e4776e1)
     - [ ] Sub-task: Create `vbc/infrastructure/housekeeping.py` for `.tmp` cleanup
 - [ ] Task: Implement Automatic Color Fix
     - [ ] Sub-task: Port the multi-stage FFmpeg logic for fixing reserved color spaces
