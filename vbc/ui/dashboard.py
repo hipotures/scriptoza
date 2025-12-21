@@ -1,8 +1,82 @@
+import re
 import threading
 import time
 from datetime import datetime
 from typing import Optional, Dict
 from rich.console import Console, Group
+from rich.align import Align
+from rich.segment import Segment
+from rich._loop import loop_last
+
+class _Overlay:
+    """Render overlay panel centered over a background renderable."""
+
+    def __init__(self, background, overlay, overlay_width: int):
+        self.background = background
+        self.overlay = overlay
+        self.overlay_width = overlay_width
+
+    def _slice_line(self, line, start: int, end: int):
+        if start >= end:
+            return []
+        result = []
+        pos = 0
+        for segment in line:
+            seg_len = segment.cell_length
+            if seg_len == 0:
+                if result:
+                    result.append(segment)
+                continue
+            seg_end = pos + seg_len
+            if seg_end <= start:
+                pos = seg_end
+                continue
+            if pos >= end:
+                break
+            cut_start = max(start - pos, 0)
+            cut_end = min(end - pos, seg_len)
+            if cut_start == 0 and cut_end == seg_len:
+                result.append(segment)
+            else:
+                _, right = segment.split_cells(cut_start)
+                mid_len = cut_end - cut_start
+                mid, _ = right.split_cells(mid_len)
+                result.append(mid)
+            pos = seg_end
+        return result
+
+    def __rich_console__(self, console, options):
+        width, height = options.size
+
+        bg_lines = console.render_lines(self.background, options, pad=True)
+        bg_lines = Segment.set_shape(bg_lines, width, height)
+
+        overlay_lines = console.render_lines(
+            self.overlay,
+            options.update(width=self.overlay_width),
+            pad=True
+        )
+        overlay_lines = [
+            Segment.adjust_line_length(line, self.overlay_width) for line in overlay_lines
+        ]
+
+        overlay_height = len(overlay_lines)
+        left = max((width - self.overlay_width) // 2, 0)
+        top = max((height - overlay_height) // 2, 0)
+
+        for idx, overlay_line in enumerate(overlay_lines):
+            target_row = top + idx
+            if target_row < 0 or target_row >= height:
+                continue
+            bg_line = bg_lines[target_row]
+            left_seg = self._slice_line(bg_line, 0, left)
+            right_seg = self._slice_line(bg_line, left + self.overlay_width, width)
+            bg_lines[target_row] = left_seg + overlay_line + right_seg
+
+        for last, line in loop_last(bg_lines):
+            yield from line
+            if not last:
+                yield Segment.line()
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
@@ -61,9 +135,29 @@ class Dashboard:
 
     def _generate_menu_panel(self) -> Panel:
         return Panel(
-            "[bright_red]<[/bright_red] decrease threads | [bright_red]>[/bright_red] increase threads | [bright_red]S[/bright_red] stop | [bright_red]R[/bright_red] refresh",
+            "[bright_red]<[/bright_red] decrease threads | [bright_red]>[/bright_red] increase threads | [bright_red]S[/bright_red] stop | [bright_red]R[/bright_red] refresh | [bright_red]C[/bright_red] config | [bright_red]Esc[/bright_red] close",
             title="MENU",
             border_style="white"
+        )
+
+    def _generate_config_overlay(self) -> Panel:
+        with self.state._lock:
+            lines = self.state.config_lines[:]
+        if lines:
+            formatted = [self._format_kv_line(line) for line in lines]
+            content = "\n".join(formatted)
+        else:
+            content = "No configuration available."
+        width = self.console.size.width
+        panel_width = max(40, int(width * 0.6))
+        panel_width = min(panel_width, max(20, width - 4))
+        return Panel(
+            content,
+            title="CONFIGURATION",
+            border_style="cyan",
+            width=panel_width,
+            style="white on black",
+            expand=False
         )
 
     def _generate_status_panel(self) -> Panel:
@@ -84,23 +178,41 @@ class Dashboard:
                 color = "green"
 
             lines = [
-                f"Status: [bold {color}]{status}[/]",
-                f"Threads: {self.state.current_threads} | Done: {self.state.completed_count} | Failed: {self.state.failed_count} | Skipped: {self.state.skipped_count}",
-                f"Storage: {saved_gb:.2f} GB saved ({ratio:.1f}% avg ratio)"
+                f"[dim]Status:[/] [bold {color}]{status}[/]",
+                (
+                    f"[dim]Threads:[/] {self.state.current_threads} | "
+                    f"[dim]Done:[/] {self.state.completed_count} | "
+                    f"[dim]Failed:[/] {self.state.failed_count} | "
+                    f"[dim]Skipped:[/] {self.state.skipped_count}"
+                ),
+                f"[dim]Storage:[/] {saved_gb:.2f} GB saved ({ratio:.1f}% avg ratio)"
             ]
 
             # Add discovery info if available
             if self.state.discovery_finished:
                 lines.append(
-                    f"Files to compress: {self.state.files_to_process} | Already compressed: {self.state.already_compressed_count}"
+                    f"[dim]Files to compress:[/] {self.state.files_to_process} | "
+                    f"[dim]Already compressed:[/] {self.state.already_compressed_count}"
                 )
                 lines.append(
-                    f"Ignored: size: {self.state.ignored_small_count} | err: {self.state.ignored_err_count} | "
-                    f"av1: {self.state.ignored_av1_count} | cam: {self.state.cam_skipped_count} | "
-                    f"hw_cap: {self.state.hw_cap_count}"
+                    f"[dim]Ignored:[/] [dim]size:[/] {self.state.ignored_small_count} | "
+                    f"[dim]err:[/] {self.state.ignored_err_count} | "
+                    f"[dim]av1:[/] {self.state.ignored_av1_count} | "
+                    f"[dim]cam:[/] {self.state.cam_skipped_count} | "
+                    f"[dim]hw_cap:[/] {self.state.hw_cap_count}"
                 )
 
         return Panel("\n".join(lines), title="COMPRESSION STATUS", border_style="cyan")
+
+    def _format_kv_line(self, line: str) -> str:
+        if ": " not in line:
+            return line
+        def _mark_key(match: re.Match) -> str:
+            prefix = match.group(1)
+            key = match.group(2)
+            return f"{prefix}[grey70]{key}:[/] "
+
+        return re.sub(r"(^|[|(]\s*)([^:|()]+):\s+", _mark_key, line)
 
     def _generate_progress_panel(self) -> Panel:
         with self.state._lock:
@@ -287,6 +399,19 @@ class Dashboard:
 
     def create_display(self) -> Group:
         """Creates display with all 7 panels."""
+        if self.state.show_config:
+            overlay = self._generate_config_overlay()
+            base = Group(
+                self._generate_menu_panel(),
+                self._generate_status_panel(),
+                self._generate_progress_panel(),
+                self._generate_processing_panel(),
+                self._generate_recent_panel(),
+                self._generate_queue_panel(),
+                self._generate_summary_panel()
+            )
+            return _Overlay(base, overlay, overlay.width or int(self.console.size.width * 0.6))
+
         return Group(
             self._generate_menu_panel(),
             self._generate_status_panel(),

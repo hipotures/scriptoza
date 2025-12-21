@@ -1,6 +1,7 @@
 import typer
 import threading
 import warnings
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
@@ -65,6 +66,50 @@ def compress(
         ui_state = UIState()
         ui_state.current_threads = config.general.threads
         ui_state.strip_unicode_display = config.general.strip_unicode_display
+
+        start_time = datetime.now()
+
+        def format_size(size: int) -> str:
+            for unit in ["B", "KB", "MB", "GB"]:
+                if size < 1024.0:
+                    return f"{size:.1f}{unit}"
+                size /= 1024.0
+            return f"{size:.1f}TB"
+
+        encoder_name = "NVENC AV1 (GPU)" if config.general.gpu else "SVT-AV1 (CPU)"
+        preset = "p7 (Slow/HQ)" if config.general.gpu else "6"
+        metadata_method = (
+            "Deep (ExifTool + XMP)" if (config.general.use_exif and config.general.copy_metadata)
+            else ("Basic (FFmpeg)" if config.general.copy_metadata else "None")
+        )
+        dynamic_cq_info = (
+            ", ".join([f"{k}:{v}" for k, v in config.general.dynamic_cq.items()])
+            if config.general.dynamic_cq else "None"
+        )
+        camera_filter_info = ", ".join(config.general.filter_cameras) if config.general.filter_cameras else "None"
+        manual_rotation = f"{config.general.manual_rotation}°" if config.general.manual_rotation is not None else "None"
+        extensions = [ext if ext.startswith(".") else f".{ext}" for ext in config.general.extensions]
+        ext_list = ", ".join(extensions)
+
+        ui_state.config_lines = [
+            f"Video Batch Compression - {encoder_name}",
+            f"Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Input: {input_dir}",
+            f"Output: {output_dir}",
+            f"Threads: {config.general.threads} (Prefetch: {config.general.prefetch_factor}x)",
+            f"Encoder: {encoder_name} | Preset: {preset}",
+            "Audio: Copy (stream copy)",
+            f"Quality: CQ{config.general.cq} (Global Default)",
+            f"Dynamic CQ: {dynamic_cq_info}",
+            f"Camera Filter: {camera_filter_info}",
+            f"Metadata: {metadata_method} (Analysis: {config.general.use_exif})",
+            f"Autorotate: {len(config.autorotate.patterns)} rules loaded",
+            f"Manual Rotation: {manual_rotation}",
+            f"Extensions: {ext_list} → .mp4",
+            f"Min size: {format_size(config.general.min_size_bytes)} | Skip AV1: {config.general.skip_av1}",
+            f"Clean errors: {config.general.clean_errors} | Strip Unicode: {config.general.strip_unicode_display}",
+            f"Debug logging: {config.general.debug}",
+        ]
 
         if config.general.filter_cameras and not config.general.use_exif:
             logger.warning("Camera filtering requires EXIF analysis. Enabling use_exif automatically.")

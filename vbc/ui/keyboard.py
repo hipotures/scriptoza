@@ -15,6 +15,14 @@ class InterruptRequested(Event):
     """Event emitted when user requests immediate interrupt (Ctrl+C)."""
     pass
 
+class ToggleConfig(Event):
+    """Event emitted when user toggles config display (Key 'C')."""
+    pass
+
+class HideConfig(Event):
+    """Event emitted when user closes config display (Esc)."""
+    pass
+
 class ThreadControlEvent(Event):
     """Event emitted to adjust thread count (Keys '<' or '>')."""
     change: int # +1 or -1
@@ -51,6 +59,10 @@ class KeyboardListener:
                         self.event_bus.publish(RefreshRequested())
                         # Immediate feedback (like old vbc.py line 787)
                         self.event_bus.publish(ActionMessage(message="REFRESH requested"))
+                    elif key in ('C', 'c'):
+                        self.event_bus.publish(ToggleConfig())
+                    elif key == '\x1b':
+                        self.event_bus.publish(HideConfig())
                     elif key == '\x03':
                         # Ctrl+C detected in keyboard listener - restore terminal and exit thread
                         # The real KeyboardInterrupt will be handled by main thread
