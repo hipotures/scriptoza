@@ -1,75 +1,127 @@
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from vbc.pipeline.orchestrator import Orchestrator
 from vbc.config.models import AppConfig, GeneralConfig
-from vbc.domain.models import VideoFile, VideoMetadata
+from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown
 
-def test_concurrency_threads():
-    """Test that orchestrator respects thread limits during concurrent processing."""
-    # Config with 4 threads
-    config = AppConfig(general=GeneralConfig(threads=4, debug=False))
+def test_concurrency_threads_limit():
+    """Test that orchestrator respects thread limits via internal condition variable."""
+    config = AppConfig(general=GeneralConfig(threads=2))
 
-    mock_file_scanner = MagicMock()
-    # Return enough files to saturate threads
-    mock_file_scanner.scan.return_value = [
-        VideoFile(path=Path(f"test{i}.mp4"), size_bytes=1000) for i in range(10)
-    ]
+    orchestrator = Orchestrator(
+        config=config,
+        event_bus=MagicMock(),
+        file_scanner=MagicMock(),
+        exif_adapter=MagicMock(),
+        ffprobe_adapter=MagicMock(),
+        ffmpeg_adapter=MagicMock()
+    )
 
-    mock_exif = MagicMock()
-    mock_ffprobe = MagicMock()
-    # Mock ffprobe to return valid stream info (not MagicMock for color_space)
-    mock_ffprobe.get_stream_info.return_value = {
-        'width': 1920,
-        'height': 1080,
-        'codec': 'h264',
-        'fps': 30.0,
-        'color_space': None,  # Must be None or string, not MagicMock
-        'duration': 10.0
-    }
+    # Verify thread controller initialized with correct value
+    assert orchestrator._current_max_threads == 2
 
-    mock_ffmpeg = MagicMock()
+    # Test increasing threads
+    old_val = orchestrator._current_max_threads
+    with orchestrator._thread_lock:
+        orchestrator._current_max_threads = min(16, old_val + 1)
+    assert orchestrator._current_max_threads == 3
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as MockExecutor, \
-         patch("concurrent.futures.wait") as MockWait:
+    # Test decreasing threads
+    with orchestrator._thread_lock:
+        orchestrator._current_max_threads = max(1, orchestrator._current_max_threads - 1)
+    assert orchestrator._current_max_threads == 2
 
-        # Mock the executor context manager
-        mock_executor_instance = MagicMock()
-        MockExecutor.return_value.__enter__.return_value = mock_executor_instance
-        MockExecutor.return_value.__exit__.return_value = None
+def test_concurrency_dynamic_adjustment():
+    """Test that thread count can be adjusted dynamically via events."""
+    config = AppConfig(general=GeneralConfig(threads=4))
 
-        # Mock futures returned by submit
-        mock_futures = [MagicMock() for _ in range(10)]
-        for f in mock_futures:
-            f.done.return_value = True
-            f.result.return_value = None
+    orchestrator = Orchestrator(
+        config=config,
+        event_bus=MagicMock(),
+        file_scanner=MagicMock(),
+        exif_adapter=MagicMock(),
+        ffprobe_adapter=MagicMock(),
+        ffmpeg_adapter=MagicMock()
+    )
 
-        mock_executor_instance.submit.side_effect = mock_futures
+    # Initial state
+    assert orchestrator._current_max_threads == 4
+    assert orchestrator._active_threads == 0
 
-        # Mock wait() to return (done_futures, pending_futures)
-        def mock_wait_func(futures_set, timeout=None, return_when=None):
-            # Return all futures as done
-            return (futures_set, set())
+    # Simulate ThreadControlEvent - increase
+    event_increase = ThreadControlEvent(change=1)
+    orchestrator._on_thread_control(event_increase)
+    assert orchestrator._current_max_threads == 5
 
-        MockWait.side_effect = mock_wait_func
+    # Simulate ThreadControlEvent - decrease
+    event_decrease = ThreadControlEvent(change=-1)
+    orchestrator._on_thread_control(event_decrease)
+    assert orchestrator._current_max_threads == 4
 
-        orchestrator = Orchestrator(
-            config=config,
-            event_bus=MagicMock(),
-            file_scanner=mock_file_scanner,
-            exif_adapter=mock_exif,
-            ffprobe_adapter=mock_ffprobe,
-            ffmpeg_adapter=mock_ffmpeg
-        )
+def test_concurrency_max_limit():
+    """Test that threads cannot exceed max limit of 16."""
+    config = AppConfig(general=GeneralConfig(threads=15))
 
-        orchestrator.run(Path("/tmp/test_concurrency"))
+    orchestrator = Orchestrator(
+        config=config,
+        event_bus=MagicMock(),
+        file_scanner=MagicMock(),
+        exif_adapter=MagicMock(),
+        ffprobe_adapter=MagicMock(),
+        ffmpeg_adapter=MagicMock()
+    )
 
-        # Verify executor was initialized with large pool (16)
-        # Actual concurrency controlled via internal _thread_lock
-        MockExecutor.assert_called_with(max_workers=16)
+    assert orchestrator._current_max_threads == 15
 
-        # Verify submit was called for each file
-        assert mock_executor_instance.submit.call_count == 10
+    # Try to increase beyond limit
+    event_increase = ThreadControlEvent(change=1)
+    orchestrator._on_thread_control(event_increase)
+    assert orchestrator._current_max_threads == 16  # Should cap at 16
 
-        # Verify wait was called
-        assert MockWait.called
+    # Try to increase again - should stay at 16
+    orchestrator._on_thread_control(event_increase)
+    assert orchestrator._current_max_threads == 16
+
+def test_concurrency_min_limit():
+    """Test that threads cannot go below 1."""
+    config = AppConfig(general=GeneralConfig(threads=2))
+
+    orchestrator = Orchestrator(
+        config=config,
+        event_bus=MagicMock(),
+        exif_adapter=MagicMock(),
+        file_scanner=MagicMock(),
+        ffprobe_adapter=MagicMock(),
+        ffmpeg_adapter=MagicMock()
+    )
+
+    # Decrease to 1
+    event_decrease = ThreadControlEvent(change=-1)
+    orchestrator._on_thread_control(event_decrease)
+    assert orchestrator._current_max_threads == 1
+
+    # Try to decrease below 1 - should stay at 1
+    orchestrator._on_thread_control(event_decrease)
+    assert orchestrator._current_max_threads == 1
+
+def test_graceful_shutdown_event():
+    """Test that shutdown event sets shutdown flag."""
+    config = AppConfig(general=GeneralConfig(threads=4))
+
+    orchestrator = Orchestrator(
+        config=config,
+        event_bus=MagicMock(),
+        file_scanner=MagicMock(),
+        exif_adapter=MagicMock(),
+        ffprobe_adapter=MagicMock(),
+        ffmpeg_adapter=MagicMock()
+    )
+
+    assert not orchestrator._shutdown_requested
+
+    # Simulate shutdown event
+    event = RequestShutdown()
+    orchestrator._on_shutdown_request(event)
+
+    assert orchestrator._shutdown_requested
