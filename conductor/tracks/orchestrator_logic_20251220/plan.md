@@ -10,7 +10,7 @@
 - [ ] Task: Conductor - User Manual Verification 'Sequential Orchestration' (Protocol in workflow.md)
 
 ## Phase 2: Concurrent Execution
-- [ ] Task: Implement Multi-threaded Execution
+- [x] Task: Implement Multi-threaded Execution (0f0d342)
     - [ ] Sub-task: Write Tests for thread pool behavior (concurrency limits)
     - [ ] Sub-task: Update Orchestrator to use `ThreadPoolExecutor`
 - [ ] Task: Conductor - User Manual Verification 'Concurrent Execution' (Protocol in workflow.md)
