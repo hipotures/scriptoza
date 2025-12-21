@@ -271,7 +271,7 @@ class Dashboard:
                 f"📋 {self.state.min_ratio_skip_count} ratio  "
                 f"⊘ {self.state.skipped_count} skipped"
             )
-        return Panel(summary, border_style="white")
+        return Panel(summary, title="SESSION STATUS", border_style="white")
 
     def create_display(self) -> Group:
         """Creates display with all 7 panels."""
