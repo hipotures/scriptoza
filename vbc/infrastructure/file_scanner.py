@@ -14,11 +14,15 @@ class FileScanner:
         """Scans the directory and yields VideoFile objects."""
         for root, dirs, files in os.walk(str(root_dir)):
             root_path = Path(root)
-            
+
             # Skip output directories (ending in _out)
             if root_path.name.endswith("_out"):
                 dirs[:] = [] # stop recursion into this branch
                 continue
+
+            # Ensure deterministic traversal: sort directories and files
+            dirs[:] = sorted(d for d in dirs if not d.endswith("_out"))
+            files.sort()
 
             for file_name in files:
                 file_path = root_path / file_name

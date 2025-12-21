@@ -18,6 +18,31 @@ class ExifToolAdapter:
                 return data[tag]
         return None
 
+    def _extract_camera_raw(self, data: Dict[str, Any]) -> Optional[str]:
+        """Extract camera model/vendor with fallback tags."""
+        tag_groups = [
+            [
+                "EXIF:Model",
+                "QuickTime:Model",
+                "Model",
+                "CameraModelName",
+                "XMP:CameraModelName",
+                "DeviceModelName",
+                "QuickTime:DeviceModelName",
+            ],
+            ["EXIF:Make", "QuickTime:Make", "Make", "XMP:Make"],
+            ["QuickTime:HandlerVendorID", "HandlerVendorID", "HandlerVendorId"],
+            ["Platform"],
+        ]
+
+        for tags in tag_groups:
+            value = self._get_tag(data, tags)
+            if value:
+                value_str = str(value).strip()
+                if value_str:
+                    return value_str
+        return None
+
     def extract_metadata(self, file: VideoFile) -> VideoMetadata:
         """Extracts metadata from a video file using ExifTool."""
         if not self.et.running:
@@ -47,7 +72,7 @@ class ExifToolAdapter:
         }
         codec = codec_map.get(str(codec_raw).lower(), str(codec_raw)) if codec_raw else "unknown"
 
-        camera = self._get_tag(data, ["QuickTime:Model", "Model", "CameraModelName"])
+        camera = self._extract_camera_raw(data)
         bitrate = self._get_tag(data, ["QuickTime:AvgBitrate", "AvgBitrate"])
 
         return VideoMetadata(
@@ -72,8 +97,7 @@ class ExifToolAdapter:
         tags = metadata_list[0]
         full_metadata_text = str(tags)
 
-        model_val = str(tags.get('EXIF:Model') or tags.get('QuickTime:Model') or tags.get('Model') or "").strip()
-        camera_raw = model_val if model_val else None
+        camera_raw = self._extract_camera_raw(tags)
 
         camera_model = None
         custom_cq = None

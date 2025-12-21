@@ -277,7 +277,7 @@ class Dashboard:
 
                 table.add_row(
                     spinner_char,
-                    filename[:40],
+                    filename,
                     self.format_resolution(job.source_file.metadata),
                     self.format_fps(job.source_file.metadata),
                     self.format_size(job.source_file.size_bytes),
@@ -316,7 +316,7 @@ class Dashboard:
 
                     table.add_row(
                         "✓",
-                        display_name[:40],
+                        display_name,
                         self.format_resolution(job.source_file.metadata),
                         self.format_fps(job.source_file.metadata),
                         self.format_size(input_size),
@@ -330,7 +330,7 @@ class Dashboard:
                     # Interrupted job (Ctrl+C) - show in bright red
                     table.add_row(
                         "✗",
-                        display_name[:40],
+                        display_name,
                         self.format_resolution(job.source_file.metadata),
                         self.format_fps(job.source_file.metadata),
                         self.format_size(job.source_file.size_bytes),
@@ -345,7 +345,7 @@ class Dashboard:
                     status_text = job.status.value if hasattr(job.status, 'value') else str(job.status)
                     table.add_row(
                         "✗",
-                        display_name[:40],
+                        display_name,
                         self.format_resolution(job.source_file.metadata),
                         self.format_fps(job.source_file.metadata),
                         self.format_size(job.source_file.size_bytes),
@@ -366,11 +366,11 @@ class Dashboard:
             table = Table(show_header=False, box=None, padding=(0, 1))
             table.add_column("", width=1, style="dim")
             table.add_column("File", width=40, no_wrap=True, overflow="ellipsis")
-            table.add_column("Cam", width=18, style="magenta", no_wrap=True, overflow="ellipsis")
             table.add_column("Res", width=3, justify="right", style="cyan")
             table.add_column("FPS", width=6, justify="right", style="cyan")
             table.add_column("Size", justify="right")
             table.add_column("Codec", width=5, justify="center", no_wrap=True, overflow="ellipsis")
+            table.add_column("Cam", width=7, style="magenta", no_wrap=True, overflow="ellipsis")
 
             # Show first 5 pending files
             for vf in list(self.state.pending_files)[:5]:
@@ -383,12 +383,12 @@ class Dashboard:
 
                 table.add_row(
                     "»",
-                    display_name[:40],
-                    cam_model[:18],
+                    display_name,
                     self.format_resolution(vf.metadata),
                     self.format_fps(vf.metadata),
                     self.format_size(vf.size_bytes),
-                    vf.metadata.codec[:5] if vf.metadata and vf.metadata.codec else ""
+                    vf.metadata.codec if vf.metadata and vf.metadata.codec else "",
+                    cam_model
                 )
 
         return Panel(table, title="NEXT IN QUEUE", border_style="blue")
