@@ -49,3 +49,7 @@ class RefreshRequested(Event):
 class ActionMessage(Event):
     """Event for user action feedback (displayed in UI for 60s)."""
     message: str
+
+class ProcessingFinished(Event):
+    """Event emitted when all tasks finish normally."""
+    pass

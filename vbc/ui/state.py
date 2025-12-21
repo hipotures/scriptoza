@@ -45,6 +45,7 @@ class UIState:
         self.current_threads = 0
         self.shutdown_requested = False
         self.interrupt_requested = False
+        self.finished = False
         self.processing_start_time: Optional[datetime] = None
 
         # User action feedback (like old vbc.py)

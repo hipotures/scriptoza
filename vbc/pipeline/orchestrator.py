@@ -13,7 +13,7 @@ from vbc.infrastructure.exif_tool import ExifToolAdapter
 from vbc.infrastructure.ffprobe import FFprobeAdapter
 from vbc.infrastructure.ffmpeg import FFmpegAdapter
 from vbc.domain.models import CompressionJob, JobStatus, VideoFile
-from vbc.domain.events import DiscoveryStarted, DiscoveryFinished, JobStarted, JobCompleted, JobFailed, QueueUpdated
+from vbc.domain.events import DiscoveryStarted, DiscoveryFinished, JobStarted, JobCompleted, JobFailed, QueueUpdated, ProcessingFinished
 from vbc.ui.keyboard import RequestShutdown, ThreadControlEvent, InterruptRequested
 
 class Orchestrator:
@@ -352,6 +352,7 @@ class Orchestrator:
         # If no files to process, exit early
         if len(files_to_process) == 0:
             self.logger.info("No files to process, exiting")
+            self.event_bus.publish(ProcessingFinished())
             return
 
         # Submit-on-demand pattern (like original vbc.py)
@@ -448,6 +449,8 @@ class Orchestrator:
 
                 # After all futures done, give UI one more refresh cycle
                 time.sleep(1.5)
+                if not self._shutdown_requested:
+                    self.event_bus.publish(ProcessingFinished())
                 self.logger.info("All files processed, exiting")
 
             except KeyboardInterrupt:

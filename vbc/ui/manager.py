@@ -4,7 +4,7 @@ from vbc.domain.events import (
     DiscoveryStarted, DiscoveryFinished,
     JobStarted, JobCompleted, JobFailed,
     JobProgressUpdated, HardwareCapabilityExceeded, QueueUpdated,
-    ActionMessage
+    ActionMessage, ProcessingFinished
 )
 from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown, InterruptRequested
 
@@ -29,6 +29,7 @@ class UIManager:
         self.bus.subscribe(InterruptRequested, self.on_interrupt_request)
         self.bus.subscribe(QueueUpdated, self.on_queue_updated)
         self.bus.subscribe(ActionMessage, self.on_action_message)
+        self.bus.subscribe(ProcessingFinished, self.on_processing_finished)
 
     def on_discovery_started(self, event: DiscoveryStarted):
         self.state.discovery_finished = False
@@ -131,3 +132,7 @@ class UIManager:
     def on_action_message(self, event: ActionMessage):
         """Handle user action feedback messages (like old vbc.py)."""
         self.state.set_last_action(event.message)
+
+    def on_processing_finished(self, event: ProcessingFinished):
+        with self.state._lock:
+            self.state.finished = True

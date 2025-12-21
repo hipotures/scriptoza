@@ -70,6 +70,9 @@ class Dashboard:
             elif self.state.shutdown_requested:
                 status = "SHUTTING DOWN"
                 color = "yellow"
+            elif self.state.finished:
+                status = "FINISHED"
+                color = "cyan"
             else:
                 status = "ACTIVE"
                 color = "green"
