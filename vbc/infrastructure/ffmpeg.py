@@ -2,6 +2,8 @@ import subprocess
 import re
 import logging
 import time
+import threading
+import queue
 from pathlib import Path
 from typing import List, Optional
 from vbc.domain.models import CompressionJob, JobStatus
@@ -93,8 +95,21 @@ class FFmpegAdapter:
         hw_cap_error = False
         color_error = False
 
-        try:
+        output_queue: "queue.Queue[Optional[str]]" = queue.Queue()
+
+        def _reader():
+            if not process.stdout:
+                output_queue.put(None)
+                return
             for line in process.stdout:
+                output_queue.put(line)
+            output_queue.put(None)
+
+        reader_thread = threading.Thread(target=_reader, daemon=True)
+        reader_thread.start()
+
+        try:
+            while True:
                 # Check for shutdown signal from orchestrator
                 if shutdown_event and shutdown_event.is_set():
                     self.logger.info(f"FFMPEG_INTERRUPTED: {filename} (shutdown signal)")
@@ -114,6 +129,16 @@ class FFmpegAdapter:
                     job.status = JobStatus.INTERRUPTED
                     job.error_message = "Interrupted by user (Ctrl+C)"
                     return  # Exit compress() early
+
+                try:
+                    line = output_queue.get(timeout=0.1)
+                except queue.Empty:
+                    if process.poll() is not None:
+                        break
+                    continue
+
+                if line is None:
+                    break
 
                 if "Hardware is lacking required capabilities" in line:
                     hw_cap_error = True
