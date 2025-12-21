@@ -5,7 +5,7 @@ from typing import List, Optional
 from vbc.domain.models import CompressionJob, JobStatus
 from vbc.config.models import GeneralConfig
 from vbc.infrastructure.event_bus import EventBus
-from vbc.domain.events import JobProgressUpdated, JobFailed
+from vbc.domain.events import JobProgressUpdated, JobFailed, HardwareCapabilityExceeded
 
 class FFmpegAdapter:
     """Wrapper around ffmpeg for video compression."""
@@ -72,8 +72,12 @@ class FFmpegAdapter:
         
         # Regex to parse 'time=00:00:00.00' from ffmpeg output
         time_regex = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+        hw_cap_error = False
         
         for line in process.stdout:
+            if "Hardware is lacking required capabilities" in line:
+                hw_cap_error = True
+
             match = time_regex.search(line)
             if match:
                 # Calculate progress if duration is known (simplified)
@@ -84,7 +88,10 @@ class FFmpegAdapter:
                 
         process.wait()
         
-        if process.returncode != 0:
+        if hw_cap_error:
+            job.status = JobStatus.HW_CAP_LIMIT
+            self.event_bus.publish(HardwareCapabilityExceeded(job=job))
+        elif process.returncode != 0:
             job.status = JobStatus.FAILED
             job.error_message = f"ffmpeg exited with code {process.returncode}"
             self.event_bus.publish(JobFailed(job=job, error_message=job.error_message))

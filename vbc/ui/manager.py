@@ -4,7 +4,7 @@ from vbc.ui.state import UIState
 from vbc.domain.events import (
     DiscoveryStarted, DiscoveryFinished, 
     JobStarted, JobCompleted, JobFailed, 
-    JobProgressUpdated
+    JobProgressUpdated, HardwareCapabilityExceeded
 )
 
 class UIManager:
@@ -22,6 +22,7 @@ class UIManager:
         self.bus.subscribe(JobCompleted, self.on_job_completed)
         self.bus.subscribe(JobFailed, self.on_job_failed)
         self.bus.subscribe(JobProgressUpdated, self.on_job_progress)
+        self.bus.subscribe(HardwareCapabilityExceeded, self.on_hw_cap_exceeded)
 
     def on_discovery_started(self, event: DiscoveryStarted):
         self.state.discovery_finished = False
@@ -43,6 +44,10 @@ class UIManager:
 
     def on_job_failed(self, event: JobFailed):
         self.state.add_failed_job(event.job)
+
+    def on_hw_cap_exceeded(self, event: HardwareCapabilityExceeded):
+        self.state.hw_cap_count += 1
+        self.state.remove_active_job(event.job)
 
     def on_job_progress(self, event: JobProgressUpdated):
         # Progress logic if needed (state currently tracks active jobs which have progress info)

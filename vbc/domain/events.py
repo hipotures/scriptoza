@@ -22,6 +22,9 @@ class JobCompleted(JobEvent):
 class JobFailed(JobEvent):
     error_message: str
 
+class HardwareCapabilityExceeded(JobEvent):
+    pass
+
 class DiscoveryStarted(Event):
     directory: Path
 
