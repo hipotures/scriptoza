@@ -14,7 +14,7 @@ from vbc.infrastructure.ffprobe import FFprobeAdapter
 from vbc.infrastructure.ffmpeg import FFmpegAdapter
 from vbc.domain.models import CompressionJob, JobStatus, VideoFile
 from vbc.domain.events import DiscoveryStarted, DiscoveryFinished, JobStarted, JobCompleted, JobFailed, QueueUpdated
-from vbc.ui.keyboard import RequestShutdown, ThreadControlEvent
+from vbc.ui.keyboard import RequestShutdown, ThreadControlEvent, InterruptRequested
 
 class Orchestrator:
     def __init__(
@@ -447,7 +447,6 @@ class Orchestrator:
                         break
 
                 # After all futures done, give UI one more refresh cycle
-                import time
                 time.sleep(1.5)
                 self.logger.info("All files processed, exiting")
 
@@ -455,6 +454,7 @@ class Orchestrator:
                 # User pressed Ctrl+C - graceful shutdown like old vbc.py (lines 1980-1997)
                 self.logger.info("Ctrl+C detected - stopping new tasks and interrupting active jobs...")
                 from vbc.domain.events import ActionMessage
+                self.event_bus.publish(InterruptRequested())
                 self.event_bus.publish(ActionMessage(message="Ctrl+C - interrupting active compressions..."))
 
                 # Signal all workers to stop immediately
@@ -470,8 +470,19 @@ class Orchestrator:
 
                 # Wait for currently running tasks to see shutdown_event (max 10 seconds)
                 self.logger.info("Waiting for active ffmpeg processes to terminate (max 10s)...")
-                import time
-                time.sleep(10)
+                deadline = time.monotonic() + 10.0
+                while True:
+                    running = [future for future in in_flight if not future.done()]
+                    if not running:
+                        break
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    concurrent.futures.wait(
+                        running,
+                        timeout=min(0.2, remaining),
+                        return_when=concurrent.futures.FIRST_COMPLETED
+                    )
 
                 # Force shutdown after timeout
                 executor.shutdown(wait=False, cancel_futures=True)

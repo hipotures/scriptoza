@@ -64,8 +64,15 @@ class Dashboard:
         with self.state._lock:
             saved_gb = self.state.space_saved_bytes / (1024**3)
             ratio = self.state.compression_ratio * 100
-            status = "ACTIVE" if not self.state.shutdown_requested else "SHUTTING DOWN"
-            color = "green" if not self.state.shutdown_requested else "yellow"
+            if self.state.interrupt_requested:
+                status = "INTERRUPTED"
+                color = "bright_red"
+            elif self.state.shutdown_requested:
+                status = "SHUTTING DOWN"
+                color = "yellow"
+            else:
+                status = "ACTIVE"
+                color = "green"
 
             lines = [
                 f"Status: [bold {color}]{status}[/]",
@@ -300,6 +307,8 @@ class Dashboard:
         if self._refresh_thread:
             self._refresh_thread.join(timeout=1.0)
         if self._live:
+            with self._ui_lock:
+                self._live.update(self.create_display())
             self._live.stop()
 
     def __enter__(self):

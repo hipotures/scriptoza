@@ -11,6 +11,10 @@ class RequestShutdown(Event):
     """Event emitted when user requests graceful shutdown (Key 'S')."""
     pass
 
+class InterruptRequested(Event):
+    """Event emitted when user requests immediate interrupt (Ctrl+C)."""
+    pass
+
 class ThreadControlEvent(Event):
     """Event emitted to adjust thread count (Keys '<' or '>')."""
     change: int # +1 or -1

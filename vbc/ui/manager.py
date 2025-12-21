@@ -6,7 +6,7 @@ from vbc.domain.events import (
     JobProgressUpdated, HardwareCapabilityExceeded, QueueUpdated,
     ActionMessage
 )
-from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown
+from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown, InterruptRequested
 
 class UIManager:
     """Subscribes to EventBus and updates UIState."""
@@ -26,6 +26,7 @@ class UIManager:
         self.bus.subscribe(HardwareCapabilityExceeded, self.on_hw_cap_exceeded)
         self.bus.subscribe(ThreadControlEvent, self.on_thread_control)
         self.bus.subscribe(RequestShutdown, self.on_shutdown_request)
+        self.bus.subscribe(InterruptRequested, self.on_interrupt_request)
         self.bus.subscribe(QueueUpdated, self.on_queue_updated)
         self.bus.subscribe(ActionMessage, self.on_action_message)
 
@@ -58,6 +59,10 @@ class UIManager:
     def on_shutdown_request(self, event: RequestShutdown):
         with self.state._lock:
             self.state.shutdown_requested = True
+
+    def on_interrupt_request(self, event: InterruptRequested):
+        with self.state._lock:
+            self.state.interrupt_requested = True
 
     def on_job_started(self, event: JobStarted):
         # Track when first job starts
