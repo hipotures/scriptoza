@@ -521,7 +521,7 @@ class Orchestrator:
             job_config = self.config.general.model_copy()
             job_config.cq = target_cq
 
-            job = CompressionJob(source_file=video_file, output_path=output_path)
+            job = CompressionJob(source_file=video_file, output_path=output_path, rotation_angle=rotation or 0)
 
             # 2. Compress
             self.event_bus.publish(JobStarted(job=job))

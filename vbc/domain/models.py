@@ -37,3 +37,4 @@ class CompressionJob(BaseModel):
     output_size_bytes: Optional[int] = None
     error_message: Optional[str] = None
     duration_seconds: Optional[float] = None
+    rotation_angle: Optional[int] = None

@@ -54,10 +54,10 @@ class Dashboard:
         return ""
 
     def _sanitize_filename(self, filename: str) -> str:
-        """Replace non-ASCII characters for display."""
+        """Remove non-ASCII characters for display."""
         if not self.state.strip_unicode_display:
             return filename
-        return "".join(c if ord(c) < 128 else "?" for c in filename)
+        return "".join(c for c in filename if ord(c) < 128)
 
     def _generate_menu_panel(self) -> Panel:
         return Panel(
@@ -150,8 +150,10 @@ class Dashboard:
             table.add_column("Time", justify="right")
 
             spinner_frames = "●○◉◎"
+            spinner_rotating = "◐◓◑◒"
             for idx, job in enumerate(self.state.active_jobs):
-                spinner_char = spinner_frames[(self._spinner_frame + idx) % len(spinner_frames)]
+                use_spinner = spinner_rotating if (job.rotation_angle or 0) > 0 else spinner_frames
+                spinner_char = use_spinner[(self._spinner_frame + idx) % len(use_spinner)]
 
                 # Calculate elapsed time
                 filename = self._sanitize_filename(job.source_file.path.name)
