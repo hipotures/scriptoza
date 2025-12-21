@@ -42,9 +42,13 @@ class KeyboardListener:
                         self.event_bus.publish(ThreadControlEvent(change=-1))
                     elif key in ('S', 's'):
                         self.event_bus.publish(RequestShutdown())
+                    elif key in ('R', 'r'):
+                        from vbc.domain.events import RefreshRequested
+                        self.event_bus.publish(RefreshRequested())
                     elif key == '\x03':
-                        self.event_bus.publish(RequestShutdown())
-                        break
+                        # Ctrl+C should exit immediately, not gracefully
+                        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                        raise KeyboardInterrupt()
         finally:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 

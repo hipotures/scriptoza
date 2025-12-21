@@ -82,7 +82,14 @@ class UIManager:
             start_time = self.state.job_start_times[filename]
             event.job.duration_seconds = (datetime.now() - start_time).total_seconds()
 
-        self.state.add_failed_job(event.job)
+        # Check if it's an AV1 skip
+        if event.error_message and "Already encoded in AV1" in event.error_message:
+            with self.state._lock:
+                self.state.ignored_av1_count += 1
+            # Don't add to failed jobs - just increment counter
+            self.state.remove_active_job(event.job)
+        else:
+            self.state.add_failed_job(event.job)
 
     def on_hw_cap_exceeded(self, event: HardwareCapabilityExceeded):
         self.state.hw_cap_count += 1

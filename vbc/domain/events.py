@@ -41,3 +41,7 @@ class DiscoveryFinished(Event):
 
 class QueueUpdated(Event):
     pending_files: List  # List[VideoFile] but avoid circular import
+
+class RefreshRequested(Event):
+    """Event to trigger re-scanning for new files."""
+    pass

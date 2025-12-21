@@ -55,7 +55,7 @@ class Dashboard:
 
     def _generate_menu_panel(self) -> Panel:
         return Panel(
-            "[bright_red]<[/bright_red] decrease threads | [bright_red]>[/bright_red] increase threads | [bright_red]S[/bright_red] stop",
+            "[bright_red]<[/bright_red] decrease threads | [bright_red]>[/bright_red] increase threads | [bright_red]S[/bright_red] stop | [bright_red]R[/bright_red] refresh",
             title="MENU",
             border_style="white"
         )
@@ -219,7 +219,7 @@ class Dashboard:
 
             # Show first 5 pending files
             for vf in list(self.state.pending_files)[:5]:
-                # Now we have VideoFile objects with metadata
+                # Metadata is already cached by orchestrator
                 table.add_row(
                     "»",
                     vf.path.name[:40],

@@ -2,6 +2,8 @@ import re
 import threading
 import concurrent.futures
 import shutil
+import logging
+import time
 from pathlib import Path
 from typing import Optional, List
 from vbc.config.models import AppConfig, GeneralConfig
@@ -30,18 +32,27 @@ class Orchestrator:
         self.exif_adapter = exif_adapter
         self.ffprobe_adapter = ffprobe_adapter
         self.ffmpeg_adapter = ffmpeg_adapter
-        
+        self.logger = logging.getLogger(__name__)
+
+        # Metadata cache (thread-safe)
+        self._metadata_cache = {}  # Path -> VideoMetadata
+        self._metadata_lock = threading.Lock()
+
         # Dynamic control state
         self._shutdown_requested = False
         self._current_max_threads = config.general.threads
         self._active_threads = 0
         self._thread_lock = threading.Condition()
-        
+        self._refresh_requested = False
+        self._refresh_lock = threading.Lock()
+
         self._setup_subscriptions()
 
     def _setup_subscriptions(self):
+        from vbc.domain.events import RefreshRequested
         self.event_bus.subscribe(RequestShutdown, self._on_shutdown_request)
         self.event_bus.subscribe(ThreadControlEvent, self._on_thread_control)
+        self.event_bus.subscribe(RefreshRequested, self._on_refresh_request)
 
     def _on_shutdown_request(self, event: RequestShutdown):
         with self._thread_lock:
@@ -53,6 +64,34 @@ class Orchestrator:
             new_val = self._current_max_threads + event.change
             self._current_max_threads = max(1, min(16, new_val))
             self._thread_lock.notify_all()
+
+    def _on_refresh_request(self, event):
+        with self._refresh_lock:
+            self._refresh_requested = True
+
+    def _get_metadata(self, video_file: VideoFile) -> Optional:
+        """Get metadata with thread-safe caching (like get_queue_metadata in original)."""
+        # Check if already cached
+        with self._metadata_lock:
+            cached = self._metadata_cache.get(video_file.path)
+            if cached is not None:
+                return cached
+
+        # Not in cache, extract it
+        try:
+            if self.config.general.debug:
+                self.logger.debug(f"Metadata cache miss: {video_file.path.name}")
+
+            metadata = self.exif_adapter.extract_metadata(video_file)
+
+            # Cache it
+            with self._metadata_lock:
+                self._metadata_cache[video_file.path] = metadata
+
+            return metadata
+        except Exception as e:
+            self.logger.warning(f"Failed to extract metadata for {video_file.path.name}: {e}")
+            return None
 
     def _determine_cq(self, file: VideoFile) -> int:
         """Determines the Constant Quality value based on camera model."""
@@ -73,20 +112,80 @@ class Orchestrator:
                 return angle
         return None
 
+    def _perform_discovery(self, input_dir: Path) -> tuple:
+        """Performs file discovery and returns (files_to_process, discovery_stats)."""
+        files = list(self.file_scanner.scan(input_dir))
+
+        # Count files that will be skipped during discovery
+        output_dir = input_dir.with_name(f"{input_dir.name}_out")
+        already_compressed = 0
+        ignored_err = 0
+        files_to_process = []
+
+        for vf in files:
+            try:
+                rel_path = vf.path.relative_to(input_dir)
+            except ValueError:
+                rel_path = vf.path.name
+            output_path = output_dir / rel_path
+            err_path = output_path.with_suffix(output_path.suffix + ".err")
+
+            # Check for error markers FIRST (before timestamp check)
+            if err_path.exists():
+                if self.config.general.clean_errors:
+                    err_path.unlink()  # Remove error marker
+                else:
+                    # Distinguish hw_cap errors from regular errors
+                    try:
+                        err_content = err_path.read_text()
+                        if "Hardware is lacking required capabilities" in err_content:
+                            pass  # hw_cap is not counted as ignored_err
+                        else:
+                            ignored_err += 1
+                    except:
+                        ignored_err += 1
+                    continue
+
+            # Check if already compressed
+            if output_path.exists() and output_path.stat().st_mtime > vf.path.stat().st_mtime:
+                already_compressed += 1
+                continue
+
+            # AV1 check is done during processing, not discovery
+            files_to_process.append(vf)
+
+        discovery_stats = {
+            'files_found': len(files),
+            'files_to_process': len(files_to_process),
+            'already_compressed': already_compressed,
+            'ignored_err': ignored_err
+        }
+
+        return files_to_process, discovery_stats
+
     def _process_file(self, video_file: VideoFile, input_dir: Path):
         """Processes a single file with dynamic concurrency control."""
+        filename = video_file.path.name
+        start_time = time.monotonic() if self.config.general.debug else None
+
+        if self.config.general.debug:
+            thread_id = threading.get_ident()
+            self.logger.info(f"PROCESS_START: {filename} (thread {thread_id})")
+
         with self._thread_lock:
             while self._active_threads >= self._current_max_threads:
                 self._thread_lock.wait()
-            
+
             if self._shutdown_requested:
+                if self.config.general.debug:
+                    self.logger.info(f"PROCESS_SKIP: {filename} (shutdown)")
                 return
-                
+
             self._active_threads += 1
 
         try:
-            # 1. Metadata & Decision
-            video_file.metadata = self.exif_adapter.extract_metadata(video_file)
+            # 1. Metadata & Decision (using thread-safe cache)
+            video_file.metadata = self._get_metadata(video_file)
             
             if self.config.general.skip_av1 and video_file.metadata and "av1" in video_file.metadata.codec.lower():
                 self.event_bus.publish(JobFailed(job=CompressionJob(source_file=video_file, status=JobStatus.SKIPPED), error_message="Already encoded in AV1"))
@@ -134,10 +233,16 @@ class Orchestrator:
                         job.error_message = f"Ratio {ratio:.2f} above threshold, kept original"
 
                 self.event_bus.publish(JobCompleted(job=job))
+                if self.config.general.debug and start_time:
+                    elapsed = time.monotonic() - start_time
+                    self.logger.info(f"PROCESS_END: {filename} status=completed elapsed={elapsed:.2f}s")
             elif job.status in (JobStatus.HW_CAP_LIMIT, JobStatus.FAILED):
                 # Event already published by FFmpeg adapter, just write error marker
                 with open(err_path, "w") as f:
                     f.write(job.error_message or "Unknown error")
+                if self.config.general.debug and start_time:
+                    elapsed = time.monotonic() - start_time
+                    self.logger.info(f"PROCESS_END: {filename} status={job.status.value} elapsed={elapsed:.2f}s")
             elif job.status == JobStatus.PROCESSING:
                 # Status not updated - treat as unknown error
                 job.status = JobStatus.FAILED
@@ -145,99 +250,61 @@ class Orchestrator:
                 with open(err_path, "w") as f:
                     f.write(job.error_message)
                 self.event_bus.publish(JobFailed(job=job, error_message=job.error_message))
+                if self.config.general.debug and start_time:
+                    elapsed = time.monotonic() - start_time
+                    self.logger.info(f"PROCESS_END: {filename} status=failed reason=status_not_updated elapsed={elapsed:.2f}s")
 
         except Exception as e:
             # Log exception but don't crash the thread
-            import logging
-            logging.error(f"Exception processing {video_file.path.name}: {e}")
+            self.logger.error(f"Exception processing {filename}: {e}")
             job.status = JobStatus.FAILED
             job.error_message = f"Exception: {str(e)}"
             with open(err_path, "w") as f:
                 f.write(job.error_message)
             self.event_bus.publish(JobFailed(job=job, error_message=job.error_message))
+            if self.config.general.debug and start_time:
+                elapsed = time.monotonic() - start_time
+                self.logger.info(f"PROCESS_END: {filename} status=exception elapsed={elapsed:.2f}s")
         finally:
             with self._thread_lock:
                 self._active_threads -= 1
                 self._thread_lock.notify_all()
 
     def run(self, input_dir: Path):
+        self.logger.info(f"Discovery started: {input_dir}")
         self.event_bus.publish(DiscoveryStarted(directory=input_dir))
-        files = list(self.file_scanner.scan(input_dir))
+        files_to_process, discovery_stats = self._perform_discovery(input_dir)
 
-        # Count files that will be skipped during discovery
-        output_dir = input_dir.with_name(f"{input_dir.name}_out")
-        already_compressed = 0
-        ignored_err = 0
-        ignored_av1 = 0
-        files_to_process = []
-
-        for vf in files:
-            try:
-                rel_path = vf.path.relative_to(input_dir)
-            except ValueError:
-                rel_path = vf.path.name
-            output_path = output_dir / rel_path
-            err_path = output_path.with_suffix(output_path.suffix + ".err")
-
-            # Check for error markers FIRST (before timestamp check)
-            if err_path.exists():
-                if self.config.general.clean_errors:
-                    err_path.unlink()  # Remove error marker
-                else:
-                    # Distinguish hw_cap errors from regular errors (like original vbc.py line 1636)
-                    try:
-                        err_content = err_path.read_text()
-                        if "Hardware is lacking required capabilities" in err_content:
-                            # hw_cap is not counted as "ignored_err" - it's hardware limit, not user error
-                            pass
-                        else:
-                            ignored_err += 1
-                    except:
-                        ignored_err += 1
-                    continue
-
-            # Check if already compressed (output exists, is newer, and no error marker)
-            if output_path.exists() and output_path.stat().st_mtime > vf.path.stat().st_mtime:
-                already_compressed += 1
-                continue
-
-            # Check for AV1 (basic check, full metadata check happens during processing)
-            if self.config.general.skip_av1:
-                try:
-                    stream_info = self.ffprobe_adapter.get_stream_info(vf.path)
-                    if "av1" in stream_info.get("codec", "").lower():
-                        ignored_av1 += 1
-                        continue
-                except:
-                    pass  # If ffprobe fails, let the file be processed
-
-            files_to_process.append(vf)
+        self.logger.info(
+            f"Discovery finished: found={discovery_stats['files_found']}, "
+            f"to_process={discovery_stats['files_to_process']}, "
+            f"already_compressed={discovery_stats['already_compressed']}, "
+            f"ignored_err={discovery_stats['ignored_err']}"
+        )
 
         self.event_bus.publish(DiscoveryFinished(
-            files_found=len(files),
-            files_to_process=len(files_to_process),
-            already_compressed=already_compressed,
+            files_found=discovery_stats['files_found'],
+            files_to_process=discovery_stats['files_to_process'],
+            already_compressed=discovery_stats['already_compressed'],
             ignored_small=0,  # Already filtered by scanner
-            ignored_err=ignored_err,
-            ignored_av1=ignored_av1
+            ignored_err=discovery_stats['ignored_err'],
+            ignored_av1=0  # AV1 check done during processing
         ))
 
         # If no files to process, exit early
         if len(files_to_process) == 0:
+            self.logger.info("No files to process, exiting")
             return
-
-        # Prefetch metadata for queue display (like original vbc.py)
-        for vf in files_to_process:
-            if not vf.metadata:
-                try:
-                    vf.metadata = self.exif_adapter.extract_metadata(vf)
-                except:
-                    pass  # Ignore metadata errors for queue display
 
         # Submit-on-demand pattern (like original vbc.py)
         from collections import deque
         pending = deque(files_to_process)
         in_flight = {}  # future -> VideoFile
+
+        # Pre-load metadata for first 5 files (for queue display)
+        for vf in list(pending)[:5]:
+            if not vf.metadata:
+                vf.metadata = self._get_metadata(vf)
 
         # Update UI with initial pending files (store VideoFile objects, not just paths)
         self.event_bus.publish(QueueUpdated(pending_files=[vf for vf in pending]))
@@ -250,6 +317,12 @@ class Orchestrator:
                     vf = pending.popleft()
                     future = executor.submit(self._process_file, vf, input_dir)
                     in_flight[future] = vf
+
+                # Pre-load metadata for next 5 files in queue (for UI display)
+                for vf in list(pending)[:5]:
+                    if not vf.metadata:
+                        vf.metadata = self._get_metadata(vf)
+
                 # Update UI with current pending files (store VideoFile objects, not just paths)
                 self.event_bus.publish(QueueUpdated(pending_files=[vf for vf in pending]))
 
@@ -273,13 +346,38 @@ class Orchestrator:
                         logging.error(f"Future failed with exception: {e}")
                     del in_flight[future]
 
+                # Check for refresh request
+                with self._refresh_lock:
+                    if self._refresh_requested:
+                        self._refresh_requested = False
+                        # Perform new discovery
+                        new_files, new_stats = self._perform_discovery(input_dir)
+                        # Track already submitted files to avoid duplicates
+                        submitted_paths = {vf.path for vf in in_flight.values()}
+                        submitted_paths.update(vf.path for vf in pending)
+                        # Add only new files not already in queue or processing
+                        for vf in new_files:
+                            if vf.path not in submitted_paths:
+                                pending.append(vf)
+                        # Update discovery stats
+                        self.event_bus.publish(DiscoveryFinished(
+                            files_found=new_stats['files_found'],
+                            files_to_process=new_stats['files_to_process'],
+                            already_compressed=new_stats['already_compressed'],
+                            ignored_small=0,
+                            ignored_err=new_stats['ignored_err'],
+                            ignored_av1=0  # AV1 check done during processing
+                        ))
+
                 # Submit more files to maintain queue
                 submit_batch()
 
                 # Exit if shutdown requested and no more in flight
                 if self._shutdown_requested and not in_flight:
+                    self.logger.info("Shutdown requested, exiting processing loop")
                     break
 
             # After all futures done, give UI one more refresh cycle
             import time
             time.sleep(1.5)
+            self.logger.info("All files processed, exiting")

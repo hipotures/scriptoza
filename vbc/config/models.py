@@ -16,6 +16,7 @@ class GeneralConfig(BaseModel):
     skip_av1: bool = False
     strip_unicode_display: bool = True
     min_compression_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
+    debug: bool = False
 
 class AutoRotateConfig(BaseModel):
     patterns: Dict[str, int] = Field(default_factory=dict)
