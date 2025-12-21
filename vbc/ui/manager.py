@@ -106,6 +106,12 @@ class UIManager:
                 self.state.ignored_av1_count += 1
             # Don't add to failed jobs - just increment counter
             self.state.remove_active_job(event.job)
+        # Check if it's a camera filter skip
+        elif event.error_message and "Camera model" in event.error_message:
+            with self.state._lock:
+                self.state.cam_skipped_count += 1
+            # Don't add to failed jobs - just increment counter
+            self.state.remove_active_job(event.job)
         # Check if it's INTERRUPTED (Ctrl+C)
         elif event.job.status == JobStatus.INTERRUPTED:
             with self.state._lock:

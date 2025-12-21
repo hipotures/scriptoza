@@ -18,7 +18,12 @@ class VideoMetadata(BaseModel):
     codec: str
     fps: float
     camera_model: Optional[str] = None
+    camera_raw: Optional[str] = None
+    custom_cq: Optional[int] = None
     bitrate_kbps: Optional[float] = None
+    megapixels: Optional[int] = None
+    color_space: Optional[str] = None
+    duration: Optional[float] = None
 
 class VideoFile(BaseModel):
     path: Path

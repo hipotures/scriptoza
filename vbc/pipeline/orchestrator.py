@@ -4,15 +4,17 @@ import concurrent.futures
 import shutil
 import logging
 import time
+import subprocess
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from vbc.config.models import AppConfig, GeneralConfig
 from vbc.infrastructure.event_bus import EventBus
 from vbc.infrastructure.file_scanner import FileScanner
 from vbc.infrastructure.exif_tool import ExifToolAdapter
 from vbc.infrastructure.ffprobe import FFprobeAdapter
 from vbc.infrastructure.ffmpeg import FFmpegAdapter
-from vbc.domain.models import CompressionJob, JobStatus, VideoFile
+from vbc.domain.models import CompressionJob, JobStatus, VideoFile, VideoMetadata
 from vbc.domain.events import DiscoveryStarted, DiscoveryFinished, JobStarted, JobCompleted, JobFailed, QueueUpdated, ProcessingFinished
 from vbc.ui.keyboard import RequestShutdown, ThreadControlEvent, InterruptRequested
 
@@ -78,8 +80,8 @@ class Orchestrator:
         with self._refresh_lock:
             self._refresh_requested = True
 
-    def _get_metadata(self, video_file: VideoFile) -> Optional:
-        """Get metadata with thread-safe caching (like get_queue_metadata in original)."""
+    def _get_metadata(self, video_file: VideoFile, base_metadata: Optional[Dict[str, Any]] = None) -> Optional[VideoMetadata]:
+        """Get metadata with thread-safe caching (ffprobe + ExifTool like legacy)."""
         # Check if already cached
         with self._metadata_lock:
             cached = self._metadata_cache.get(video_file.path)
@@ -91,7 +93,8 @@ class Orchestrator:
             if self.config.general.debug:
                 self.logger.debug(f"Metadata cache miss: {video_file.path.name}")
 
-            metadata = self.exif_adapter.extract_metadata(video_file)
+            stream_info = base_metadata or self.ffprobe_adapter.get_stream_info(video_file.path)
+            metadata = self._build_metadata(video_file, stream_info)
 
             # Cache it
             with self._metadata_lock:
@@ -102,10 +105,41 @@ class Orchestrator:
             self.logger.warning(f"Failed to extract metadata for {video_file.path.name}: {e}")
             return None
 
+    def _build_metadata(self, video_file: VideoFile, stream_info: Dict[str, Any]) -> VideoMetadata:
+        width = int(stream_info.get("width", 0) or 0)
+        height = int(stream_info.get("height", 0) or 0)
+        megapixels = round(width * height / 1_000_000) if width and height else None
+        metadata = VideoMetadata(
+            width=width,
+            height=height,
+            codec=str(stream_info.get("codec", "unknown") or "unknown"),
+            fps=float(stream_info.get("fps") or 0.0),
+            megapixels=megapixels,
+            color_space=stream_info.get("color_space"),
+            duration=float(stream_info.get("duration") or 0.0),
+        )
+
+        if self.config.general.use_exif:
+            try:
+                exif_info = self.exif_adapter.extract_exif_info(video_file, self.config.general.dynamic_cq)
+                metadata.camera_model = exif_info.get("camera_model")
+                metadata.camera_raw = exif_info.get("camera_raw")
+                metadata.custom_cq = exif_info.get("custom_cq")
+                metadata.bitrate_kbps = exif_info.get("bitrate_kbps")
+            except Exception as e:
+                if self.config.general.debug:
+                    self.logger.debug(f"ExifTool analysis failed for {video_file.path.name}: {e}")
+
+        return metadata
+
     def _determine_cq(self, file: VideoFile) -> int:
         """Determines the Constant Quality value based on camera model."""
         default_cq = self.config.general.cq if self.config.general.cq is not None else 45
-        if not file.metadata or not file.metadata.camera_model:
+        if not file.metadata:
+            return default_cq
+        if file.metadata.custom_cq is not None:
+            return file.metadata.custom_cq
+        if not file.metadata.camera_model:
             return default_cq
         model = file.metadata.camera_model
         for key, cq_value in self.config.general.dynamic_cq.items():
@@ -120,6 +154,202 @@ class Orchestrator:
             if re.search(pattern, filename):
                 return angle
         return None
+
+    def _check_and_fix_color_space(
+        self,
+        input_path: Path,
+        output_path: Path,
+        stream_info: Dict[str, Any]
+    ) -> tuple[Path, Optional[Path]]:
+        """Fix reserved color space via remux when needed (legacy behavior)."""
+        color_space = stream_info.get("color_space")
+        codec_name = stream_info.get("codec")
+
+        if color_space != "reserved":
+            return input_path, None
+
+        temp_fixed = output_path.parent / f"{output_path.stem}_colorfix.mp4"
+        temp_fixed.parent.mkdir(parents=True, exist_ok=True)
+
+        if codec_name == "hevc":
+            bsf = "hevc_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1"
+        elif codec_name == "h264":
+            bsf = "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1"
+        else:
+            self.logger.warning(f"Cannot fix color space for codec {codec_name}, proceeding with original file")
+            return input_path, None
+
+        try:
+            fix_result = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-i", str(input_path),
+                    "-c", "copy",
+                    "-bsf:v", bsf,
+                    str(temp_fixed),
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel", "error",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+        except subprocess.TimeoutExpired:
+            self.logger.error(f"Timeout while fixing color space for {input_path.name}")
+            if temp_fixed.exists():
+                temp_fixed.unlink()
+            return input_path, None
+
+        if fix_result.returncode == 0 and temp_fixed.exists():
+            self.logger.info(f"Successfully fixed color space for {input_path.name}")
+            return temp_fixed, temp_fixed
+
+        if temp_fixed.exists():
+            temp_fixed.unlink()
+        self.logger.warning(f"Failed to fix color space for {input_path.name}, proceeding with original file")
+        return input_path, None
+
+    def _build_vbc_tag_args(
+        self,
+        source_path: Path,
+        cq: int,
+        encoder: str,
+        original_size: int,
+        finished_at: str
+    ) -> List[str]:
+        return [
+            f"-XMP:VBCOriginalName={source_path.name}",
+            f"-XMP:VBCOriginalSize={original_size}",
+            f"-XMP:VBCCQ={cq}",
+            f"-XMP:VBCEncoder={encoder}",
+            f"-XMP:VBCFinishedAt={finished_at}",
+        ]
+
+    def _copy_deep_metadata(
+        self,
+        source_path: Path,
+        output_path: Path,
+        err_path: Path,
+        cq: int,
+        encoder: str,
+        original_size: int,
+        finished_at: str
+    ) -> None:
+        """Copy full metadata from source to output using ExifTool (legacy behavior)."""
+        config_path = Path(__file__).resolve().parents[2] / "conf" / "exiftool.conf"
+        vbc_tags = self._build_vbc_tag_args(source_path, cq, encoder, original_size, finished_at)
+
+        exiftool_cmd = ["exiftool"]
+        if config_path.exists():
+            exiftool_cmd.extend(["-config", str(config_path)])
+        exiftool_cmd.extend([
+            "-m",
+            "-tagsFromFile", str(source_path),
+            "-XMP:all", "-QuickTime:all", "-Keys:all", "-UserData:all",
+            "-EXIF:all", "-GPS:all",
+            "-XMP-exif:GPSLatitude<GPSLatitude",
+            "-XMP-exif:GPSLongitude<GPSLongitude",
+            "-XMP-exif:GPSAltitude<GPSAltitude",
+            "-XMP-exif:GPSPosition<GPSPosition",
+            "-QuickTime:GPSCoordinates<GPSPosition",
+            "-Keys:GPSCoordinates<GPSPosition",
+        ])
+        if config_path.exists():
+            exiftool_cmd.extend(vbc_tags)
+        exiftool_cmd.extend([
+            "-unsafe",
+            "-overwrite_original",
+            str(output_path)
+        ])
+
+        filename = source_path.name
+        if self.config.general.debug:
+            timeout_s = 30
+            max_attempts = 2
+            timed_out = False
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    exif_start = time.monotonic()
+                    self.logger.info(
+                        f"EXIF_COPY_START: {filename} attempt {attempt}/{max_attempts}"
+                    )
+                    subprocess.run(
+                        exiftool_cmd,
+                        capture_output=True,
+                        check=True,
+                        timeout=timeout_s
+                    )
+                    exif_elapsed = time.monotonic() - exif_start
+                    self.logger.info(
+                        f"EXIF_COPY_DONE: {filename} attempt {attempt}/{max_attempts} "
+                        f"elapsed={exif_elapsed:.2f}s"
+                    )
+                    self.logger.info(f"Metadata copied successfully for {filename}")
+                    timed_out = False
+                    break
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    exif_elapsed = time.monotonic() - exif_start
+                    self.logger.warning(
+                        f"ExifTool metadata copy timed out after {timeout_s}s "
+                        f"(attempt {attempt}/{max_attempts}) for {filename}"
+                    )
+                    self.logger.warning(
+                        f"EXIF_COPY_TIMEOUT: {filename} attempt {attempt}/{max_attempts} "
+                        f"elapsed={exif_elapsed:.2f}s"
+                    )
+                except Exception as e:
+                    exif_elapsed = time.monotonic() - exif_start
+                    self.logger.warning(
+                        f"EXIF_COPY_ERROR: {filename} attempt {attempt}/{max_attempts} "
+                        f"elapsed={exif_elapsed:.2f}s error={e}"
+                    )
+                    self.logger.warning(f"Failed to copy deep metadata for {filename}: {e}")
+                    timed_out = False
+                    break
+            if timed_out:
+                try:
+                    err_path.write_text(
+                        f"ExifTool metadata copy timed out after {timeout_s}s (2 attempts)."
+                    )
+                except Exception:
+                    pass
+                self.logger.error(
+                    f"ExifTool metadata copy timed out after {timeout_s}s (2 attempts) for {filename}"
+                )
+        else:
+            try:
+                subprocess.run(exiftool_cmd, capture_output=True, check=True)
+            except Exception as e:
+                self.logger.warning(f"Failed to copy deep metadata for {filename}: {e}")
+
+    def _write_vbc_tags(
+        self,
+        source_path: Path,
+        output_path: Path,
+        cq: int,
+        encoder: str,
+        original_size: int,
+        finished_at: str
+    ) -> None:
+        """Write VBC tags only (no metadata copy)."""
+        config_path = Path(__file__).resolve().parents[2] / "conf" / "exiftool.conf"
+        if not config_path.exists():
+            self.logger.warning("ExifTool config not found; skipping VBC tags")
+            return
+
+        exiftool_cmd = [
+            "exiftool",
+            "-config", str(config_path),
+            "-overwrite_original",
+        ]
+        exiftool_cmd.extend(self._build_vbc_tag_args(source_path, cq, encoder, original_size, finished_at))
+        exiftool_cmd.append(str(output_path))
+        try:
+            subprocess.run(exiftool_cmd, capture_output=True, check=True)
+        except Exception as e:
+            self.logger.warning(f"Failed to write VBC tags for {output_path.name}: {e}")
 
     def _perform_discovery(self, input_dir: Path) -> tuple:
         """Performs file discovery and returns (files_to_process, discovery_stats)."""
@@ -222,20 +452,13 @@ class Orchestrator:
 
             self._active_threads += 1
 
-        try:
-            # 1. Metadata & Decision (using thread-safe cache)
-            video_file.metadata = self._get_metadata(video_file)
-            
-            if self.config.general.skip_av1 and video_file.metadata and "av1" in video_file.metadata.codec.lower():
-                self.event_bus.publish(JobFailed(job=CompressionJob(source_file=video_file, status=JobStatus.SKIPPED), error_message="Already encoded in AV1"))
-                return
+        job = None
+        err_path = None
+        temp_fixed_file = None
+        input_path = video_file.path
+        stream_info = None
 
-            target_cq = self._determine_cq(video_file)
-            rotation = self._determine_rotation(video_file)
-            
-            job_config = self.config.general.model_copy()
-            job_config.cq = target_cq
-            
+        try:
             try:
                 rel_path = video_file.path.relative_to(input_dir)
             except ValueError:
@@ -247,7 +470,7 @@ class Orchestrator:
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
             err_path = output_path.with_suffix('.err')
-            
+
             if err_path.exists():
                 if self.config.general.clean_errors:
                     err_path.unlink()
@@ -255,16 +478,79 @@ class Orchestrator:
                     self.event_bus.publish(JobFailed(job=CompressionJob(source_file=video_file, status=JobStatus.SKIPPED), error_message="Existing error marker found"))
                     return
 
+            try:
+                stream_info = self.ffprobe_adapter.get_stream_info(video_file.path)
+            except Exception as e:
+                err_msg = "File is corrupted (ffprobe failed to read). Skipped."
+                try:
+                    err_path.write_text(err_msg)
+                except Exception:
+                    pass
+                self.logger.error(f"Corrupted file detected (ffprobe failed): {filename} - {e}")
+                job = CompressionJob(source_file=video_file, status=JobStatus.FAILED, output_path=output_path, error_message=err_msg)
+                self.event_bus.publish(JobFailed(job=job, error_message=err_msg))
+                return
+
+            input_path, temp_fixed_file = self._check_and_fix_color_space(video_file.path, output_path, stream_info)
+
+            # 1. Metadata & Decision (using thread-safe cache)
+            video_file.metadata = self._get_metadata(video_file, base_metadata=stream_info)
+
+            if self.config.general.skip_av1 and video_file.metadata and "av1" in video_file.metadata.codec.lower():
+                self.event_bus.publish(JobFailed(job=CompressionJob(source_file=video_file, status=JobStatus.SKIPPED), error_message="Already encoded in AV1"))
+                return
+
+            if self.config.general.filter_cameras:
+                cam_model = ""
+                if video_file.metadata:
+                    cam_model = video_file.metadata.camera_model or video_file.metadata.camera_raw or ""
+                matched = False
+                for filter_pattern in self.config.general.filter_cameras:
+                    if filter_pattern.lower() in cam_model.lower():
+                        matched = True
+                        break
+                if not matched:
+                    self.event_bus.publish(JobFailed(job=CompressionJob(source_file=video_file, status=JobStatus.SKIPPED), error_message=f'Camera model "{cam_model}" not in filter'))
+                    return
+
+            target_cq = self._determine_cq(video_file)
+            rotation = self._determine_rotation(video_file)
+
+            job_config = self.config.general.model_copy()
+            job_config.cq = target_cq
+
             job = CompressionJob(source_file=video_file, output_path=output_path)
-            
+
             # 2. Compress
             self.event_bus.publish(JobStarted(job=job))
             job.status = JobStatus.PROCESSING
-            self.ffmpeg_adapter.compress(job, job_config, rotate=rotation, shutdown_event=self._shutdown_event)
+            self.ffmpeg_adapter.compress(job, job_config, rotate=rotation, shutdown_event=self._shutdown_event, input_path=input_path)
 
             # Check final status after compression
             if job.status == JobStatus.COMPLETED:
                 if output_path.exists():
+                    encoder_label = "NVENC AV1 (GPU)" if job_config.gpu else "SVT-AV1 (CPU)"
+                    finished_at = datetime.now().astimezone().isoformat(timespec="seconds")
+                    if self.config.general.copy_metadata:
+                        self._copy_deep_metadata(
+                            video_file.path,
+                            output_path,
+                            err_path,
+                            job_config.cq,
+                            encoder_label,
+                            video_file.size_bytes,
+                            finished_at
+                        )
+                    else:
+                        self._write_vbc_tags(
+                            video_file.path,
+                            output_path,
+                            job_config.cq,
+                            encoder_label,
+                            video_file.size_bytes,
+                            finished_at
+                        )
+
                     out_size = output_path.stat().st_size
                     in_size = video_file.size_bytes
                     ratio = out_size / in_size
@@ -303,10 +589,11 @@ class Orchestrator:
         except KeyboardInterrupt:
             # Ctrl+C during processing - already handled by FFmpegAdapter if during ffmpeg
             # If happens elsewhere, set INTERRUPTED status
-            if job.status == JobStatus.PROCESSING:
+            if job and job.status == JobStatus.PROCESSING:
                 job.status = JobStatus.INTERRUPTED
                 job.error_message = "Interrupted by user (Ctrl+C)"
-            self.event_bus.publish(JobFailed(job=job, error_message=job.error_message or "Interrupted"))
+            if job:
+                self.event_bus.publish(JobFailed(job=job, error_message=job.error_message or "Interrupted"))
             if self.config.general.debug and start_time:
                 elapsed = time.monotonic() - start_time
                 self.logger.info(f"PROCESS_END: {filename} status=interrupted elapsed={elapsed:.2f}s")
@@ -315,15 +602,22 @@ class Orchestrator:
         except Exception as e:
             # Log exception but don't crash the thread
             self.logger.error(f"Exception processing {filename}: {e}")
-            job.status = JobStatus.FAILED
-            job.error_message = f"Exception: {str(e)}"
-            with open(err_path, "w") as f:
-                f.write(job.error_message)
-            self.event_bus.publish(JobFailed(job=job, error_message=job.error_message))
+            if job:
+                job.status = JobStatus.FAILED
+                job.error_message = f"Exception: {str(e)}"
+                if err_path:
+                    with open(err_path, "w") as f:
+                        f.write(job.error_message)
+                self.event_bus.publish(JobFailed(job=job, error_message=job.error_message))
             if self.config.general.debug and start_time:
                 elapsed = time.monotonic() - start_time
                 self.logger.info(f"PROCESS_END: {filename} status=exception elapsed={elapsed:.2f}s")
         finally:
+            if temp_fixed_file and temp_fixed_file.exists():
+                try:
+                    temp_fixed_file.unlink()
+                except Exception as e:
+                    self.logger.warning(f"Failed to cleanup temp file {temp_fixed_file}: {e}")
             with self._thread_lock:
                 self._active_threads -= 1
                 self._thread_lock.notify_all()

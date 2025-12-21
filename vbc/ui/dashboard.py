@@ -90,7 +90,8 @@ class Dashboard:
                 )
                 lines.append(
                     f"Ignored: size: {self.state.ignored_small_count} | err: {self.state.ignored_err_count} | "
-                    f"av1: {self.state.ignored_av1_count} | hw_cap: {self.state.hw_cap_count}"
+                    f"av1: {self.state.ignored_av1_count} | cam: {self.state.cam_skipped_count} | "
+                    f"hw_cap: {self.state.hw_cap_count}"
                 )
 
         return Panel("\n".join(lines), title="COMPRESSION STATUS", border_style="cyan")

@@ -62,6 +62,10 @@ def compress(
         bus = EventBus()
         ui_state = UIState()
         ui_state.current_threads = config.general.threads
+
+        if config.general.filter_cameras and not config.general.use_exif:
+            logger.warning("Camera filtering requires EXIF analysis. Enabling use_exif automatically.")
+            config.general.use_exif = True
         
         # Housekeeping (Cleanup stale files)
         housekeeper = HousekeepingService()

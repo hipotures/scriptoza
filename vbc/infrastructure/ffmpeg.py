@@ -16,12 +16,12 @@ class FFmpegAdapter:
         self.event_bus = event_bus
         self.logger = logging.getLogger(__name__)
 
-    def _build_command(self, job: CompressionJob, config: GeneralConfig, rotate: Optional[int] = None) -> List[str]:
+    def _build_command(self, job: CompressionJob, config: GeneralConfig, rotate: Optional[int] = None, input_path: Optional[Path] = None) -> List[str]:
         """Constructs the ffmpeg command line arguments."""
         cmd = [
             "ffmpeg",
             "-y", # Overwrite output files
-            "-i", str(job.source_file.path),
+            "-i", str(input_path or job.source_file.path),
         ]
         
         # Video encoding settings
@@ -43,8 +43,11 @@ class FFmpegAdapter:
         # Audio/Metadata settings
         cmd.extend([
             "-c:a", "copy",
-            "-map_metadata", "0" if config.copy_metadata else "-1"
         ])
+        if config.copy_metadata:
+            cmd.extend(["-map_metadata", "0", "-movflags", "use_metadata_tags"])
+        else:
+            cmd.extend(["-map_metadata", "-1"])
         
         # Rotation filter
         if rotate == 180:
@@ -60,7 +63,7 @@ class FFmpegAdapter:
         cmd.extend(["-f", "mp4", str(tmp_path)])
         return cmd
 
-    def compress(self, job: CompressionJob, config: GeneralConfig, rotate: Optional[int] = None, shutdown_event=None):
+    def compress(self, job: CompressionJob, config: GeneralConfig, rotate: Optional[int] = None, shutdown_event=None, input_path: Optional[Path] = None):
         """Executes the compression process."""
         filename = job.source_file.path.name
         start_time = time.monotonic() if config.debug else None
@@ -68,7 +71,7 @@ class FFmpegAdapter:
         if config.debug:
             self.logger.info(f"FFMPEG_START: {filename} (gpu={config.gpu}, cq={config.cq})")
 
-        cmd = self._build_command(job, config, rotate)
+        cmd = self._build_command(job, config, rotate, input_path=input_path)
 
         if config.debug:
             self.logger.debug(f"FFMPEG_CMD: {' '.join(cmd)}")

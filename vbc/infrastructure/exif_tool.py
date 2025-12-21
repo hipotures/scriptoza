@@ -1,4 +1,5 @@
 import exiftool
+import threading
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from vbc.domain.models import VideoFile, VideoMetadata
@@ -8,6 +9,7 @@ class ExifToolAdapter:
     
     def __init__(self):
         self.et = exiftool.ExifTool()
+        self._lock = threading.Lock()
 
     def _get_tag(self, data: Dict[str, Any], tags: List[str]) -> Optional[Any]:
         """Tries to find the first available tag from a list of aliases."""
@@ -20,8 +22,9 @@ class ExifToolAdapter:
         """Extracts metadata from a video file using ExifTool."""
         if not self.et.running:
             self.et.run()
-            
-        metadata_list = self.et.execute_json(str(file.path))
+
+        with self._lock:
+            metadata_list = self.et.execute_json(str(file.path))
         if not metadata_list:
             raise ValueError(f"Could not extract metadata for {file.path}")
             
@@ -55,6 +58,43 @@ class ExifToolAdapter:
             camera_model=str(camera) if camera else None,
             bitrate_kbps=float(bitrate) / 1000 if bitrate else None
         )
+
+    def extract_exif_info(self, file: VideoFile, dynamic_cq: Dict[str, int]) -> Dict[str, Optional[object]]:
+        """Extracts camera info and dynamic CQ using full ExifTool tags."""
+        if not self.et.running:
+            self.et.run()
+
+        with self._lock:
+            metadata_list = self.et.execute_json(str(file.path))
+        if not metadata_list:
+            raise ValueError(f"Could not extract metadata for {file.path}")
+
+        tags = metadata_list[0]
+        full_metadata_text = str(tags)
+
+        model_val = str(tags.get('EXIF:Model') or tags.get('QuickTime:Model') or tags.get('Model') or "").strip()
+        camera_raw = model_val if model_val else None
+
+        camera_model = None
+        custom_cq = None
+        for pattern, cq_value in dynamic_cq.items():
+            if pattern in full_metadata_text:
+                camera_model = pattern
+                custom_cq = cq_value
+                break
+
+        if not camera_model and camera_raw:
+            camera_model = camera_raw
+
+        bitrate = tags.get('QuickTime:AvgBitrate') or tags.get('AvgBitrate')
+        bitrate_kbps = float(bitrate) / 1000 if bitrate else None
+
+        return {
+            "camera_model": camera_model,
+            "camera_raw": camera_raw,
+            "custom_cq": custom_cq,
+            "bitrate_kbps": bitrate_kbps,
+        }
 
     def copy_metadata(self, source: Path, target: Path):
         """Copies EXIF/XMP tags from source to target."""

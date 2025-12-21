@@ -28,18 +28,31 @@ class FFprobeAdapter:
         if not video_stream:
             raise ValueError(f"No video stream found in {file_path}")
             
-        # Parse FPS (usually '30/1' or '60000/1001')
+        # Parse FPS (prefer avg_frame_rate; r_frame_rate is often timebase)
         fps = 0.0
-        fps_str = video_stream.get("r_frame_rate", "0/0")
+        fps_str = video_stream.get("avg_frame_rate", "0/0")
         if "/" in fps_str:
-            num, den = map(float, fps_str.split("/"))
-            if den != 0:
-                fps = num / den
-                
+            try:
+                num, den = map(float, fps_str.split("/"))
+                if den != 0:
+                    candidate = num / den
+                    if candidate <= 240:
+                        fps = round(candidate)
+            except ValueError:
+                fps = 0.0
+        else:
+            try:
+                candidate = float(fps_str)
+                if candidate <= 240:
+                    fps = round(candidate)
+            except ValueError:
+                fps = 0.0
+
         return {
             "width": int(video_stream.get("width", 0)),
             "height": int(video_stream.get("height", 0)),
             "codec": video_stream.get("codec_name", "unknown"),
             "fps": fps,
-            "duration": float(data.get("format", {}).get("duration", 0.0))
+            "duration": float(data.get("format", {}).get("duration", 0.0)),
+            "color_space": video_stream.get("color_space"),
         }
