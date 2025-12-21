@@ -4,7 +4,7 @@
 - [x] Task: Implement HW Capability Detection (691ea19)
     - [ ] Sub-task: Define `HardwareCapabilityExceeded` event and update `UIState`
     - [ ] Sub-task: Update `vbc/infrastructure/ffmpeg.py` to detect HW errors in output
-- [ ] Task: Implement Error Markers logic
+- [x] Task: Implement Error Markers logic (1f0e336)
     - [ ] Sub-task: Update Orchestrator to create `.err` files on failure
     - [ ] Sub-task: Implement logic to skip files with existing `.err` markers
 - [ ] Task: Conductor - User Manual Verification 'Specialized Error Handling' (Protocol in workflow.md)
