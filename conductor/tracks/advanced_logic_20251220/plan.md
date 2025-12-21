@@ -19,7 +19,7 @@
 ## Phase 3: Compatibility & Housekeeping
 - [x] Task: Implement Housekeeping Service (e4776e1)
     - [ ] Sub-task: Create `vbc/infrastructure/housekeeping.py` for `.tmp` cleanup
-- [ ] Task: Implement Automatic Color Fix
+- [x] Task: Implement Automatic Color Fix (142b091)
     - [ ] Sub-task: Port the multi-stage FFmpeg logic for fixing reserved color spaces
 - [ ] Task: Final Integration & CLI Flags
     - [ ] Sub-task: Add missing options (`--clean-errors`, `--skip-av1`, etc.) to `vbc/main.py`
