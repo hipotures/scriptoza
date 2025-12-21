@@ -45,3 +45,7 @@ class QueueUpdated(Event):
 class RefreshRequested(Event):
     """Event to trigger re-scanning for new files."""
     pass
+
+class ActionMessage(Event):
+    """Event for user action feedback (displayed in UI for 60s)."""
+    message: str

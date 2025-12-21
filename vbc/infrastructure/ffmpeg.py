@@ -60,7 +60,7 @@ class FFmpegAdapter:
         cmd.extend(["-f", "mp4", str(tmp_path)])
         return cmd
 
-    def compress(self, job: CompressionJob, config: GeneralConfig, rotate: Optional[int] = None):
+    def compress(self, job: CompressionJob, config: GeneralConfig, rotate: Optional[int] = None, shutdown_event=None):
         """Executes the compression process."""
         filename = job.source_file.path.name
         start_time = time.monotonic() if config.debug else None
@@ -89,22 +89,62 @@ class FFmpegAdapter:
         time_regex = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
         hw_cap_error = False
         color_error = False
-        
-        for line in process.stdout:
-            if "Hardware is lacking required capabilities" in line:
-                hw_cap_error = True
-            if "is not a valid value for color_primaries" in line or "is not a valid value for color_trc" in line:
-                color_error = True
 
-            match = time_regex.search(line)
-            if match:
-                # Calculate progress if duration is known (simplified)
-                # For now, just emit that something happened or parse actual seconds
-                h, m, s = map(float, match.groups())
-                current_seconds = h * 3600 + m * 60 + s
-                # self.event_bus.publish(JobProgressUpdated(job=job, progress_percent=...))
-                
-        process.wait()
+        try:
+            for line in process.stdout:
+                # Check for shutdown signal from orchestrator
+                if shutdown_event and shutdown_event.is_set():
+                    self.logger.info(f"FFMPEG_INTERRUPTED: {filename} (shutdown signal)")
+                    process.terminate()
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+
+                    # Clean up tmp file
+                    tmp_path = job.output_path.with_suffix('.tmp')
+                    if tmp_path.exists():
+                        tmp_path.unlink()
+
+                    # Set INTERRUPTED status and return (don't raise exception)
+                    job.status = JobStatus.INTERRUPTED
+                    job.error_message = "Interrupted by user (Ctrl+C)"
+                    return  # Exit compress() early
+
+                if "Hardware is lacking required capabilities" in line:
+                    hw_cap_error = True
+                if "is not a valid value for color_primaries" in line or "is not a valid value for color_trc" in line:
+                    color_error = True
+
+                match = time_regex.search(line)
+                if match:
+                    # Calculate progress if duration is known (simplified)
+                    # For now, just emit that something happened or parse actual seconds
+                    h, m, s = map(float, match.groups())
+                    current_seconds = h * 3600 + m * 60 + s
+                    # self.event_bus.publish(JobProgressUpdated(job=job, progress_percent=...))
+
+            process.wait()
+        except KeyboardInterrupt:
+            # User pressed Ctrl+C directly in this thread (shouldn't happen with daemon threads)
+            self.logger.info(f"FFMPEG_INTERRUPTED: {filename} (KeyboardInterrupt)")
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+
+            # Clean up tmp file
+            tmp_path = job.output_path.with_suffix('.tmp')
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+            # Set status and re-raise to propagate to orchestrator
+            job.status = JobStatus.INTERRUPTED
+            job.error_message = "Interrupted by user (Ctrl+C)"
+            raise
 
         # Get tmp file path
         tmp_path = job.output_path.with_suffix('.tmp')
@@ -124,7 +164,7 @@ class FFmpegAdapter:
             # Re-run with color fix remux (recursive call sets final status)
             if config.debug:
                 self.logger.info(f"FFMPEG_COLORFIX: {filename} (applying color space fix)")
-            self._apply_color_fix(job, config, rotate)
+            self._apply_color_fix(job, config, rotate, shutdown_event=shutdown_event)
             # Status is now set by recursive compress() call, don't override
             if config.debug and start_time:
                 elapsed = time.monotonic() - start_time
@@ -148,11 +188,11 @@ class FFmpegAdapter:
                 elapsed = time.monotonic() - start_time
                 self.logger.info(f"FFMPEG_END: {filename} status=completed elapsed={elapsed:.2f}s")
 
-    def _apply_color_fix(self, job: CompressionJob, config: GeneralConfig, rotate: Optional[int]):
+    def _apply_color_fix(self, job: CompressionJob, config: GeneralConfig, rotate: Optional[int], shutdown_event=None):
         """Special handling for FFmpeg 7.x 'reserved' color space bug."""
         # 1. Create a remuxed file with metadata filters
         color_fix_path = job.output_path.with_name(f"{job.output_path.stem}_colorfix.mp4")
-        
+
         # Check if source is HEVC or H264 to apply correct bitstream filter
         # For simplicity we try to apply hevc_metadata then fallback
         remux_cmd = [
@@ -161,19 +201,19 @@ class FFmpegAdapter:
             "-bsf:v", "hevc_metadata=color_primaries=1:color_trc=1:colorspace=1",
             str(color_fix_path)
         ]
-        
+
         res = subprocess.run(remux_cmd, capture_output=True)
         if res.returncode != 0:
             # Try H264 variant
             remux_cmd[5] = "h264_metadata=color_primaries=1:color_trc=1:colorspace=1"
             res = subprocess.run(remux_cmd, capture_output=True)
-            
+
         if res.returncode == 0:
             # 2. Run compression using the colorfix file as input
             original_path = job.source_file.path
             job.source_file.path = color_fix_path
             try:
-                self.compress(job, config, rotate)
+                self.compress(job, config, rotate, shutdown_event=shutdown_event)
             finally:
                 # Cleanup and restore
                 job.source_file.path = original_path

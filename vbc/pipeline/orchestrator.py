@@ -45,6 +45,7 @@ class Orchestrator:
         self._thread_lock = threading.Condition()
         self._refresh_requested = False
         self._refresh_lock = threading.Lock()
+        self._shutdown_event = threading.Event()  # Signal workers to stop
 
         self._setup_subscriptions()
 
@@ -58,12 +59,20 @@ class Orchestrator:
         with self._thread_lock:
             self._shutdown_requested = True
             self._thread_lock.notify_all()
+        # Publish feedback message (like old vbc.py line 781)
+        from vbc.domain.events import ActionMessage
+        self.event_bus.publish(ActionMessage(message="SHUTDOWN requested"))
 
     def _on_thread_control(self, event: ThreadControlEvent):
+        old_val = self._current_max_threads
         with self._thread_lock:
             new_val = self._current_max_threads + event.change
             self._current_max_threads = max(1, min(16, new_val))
             self._thread_lock.notify_all()
+        # Publish feedback message (like old vbc.py lines 769, 776)
+        from vbc.domain.events import ActionMessage
+        if new_val != old_val:
+            self.event_bus.publish(ActionMessage(message=f"Threads: {old_val} → {self._current_max_threads}"))
 
     def _on_refresh_request(self, event):
         with self._refresh_lock:
@@ -114,6 +123,28 @@ class Orchestrator:
 
     def _perform_discovery(self, input_dir: Path) -> tuple:
         """Performs file discovery and returns (files_to_process, discovery_stats)."""
+        if self.config.general.debug:
+            self.logger.info(f"DISCOVERY_START: scanning {input_dir}")
+        # First count all files (including small ones) for statistics
+        import os
+        total_files = 0
+        ignored_small = 0
+        for root, dirs, filenames in os.walk(str(input_dir)):
+            root_path = Path(root)
+            if root_path.name.endswith("_out"):
+                dirs[:] = []
+                continue
+            for fname in filenames:
+                fpath = root_path / fname
+                if fpath.suffix.lower() in self.file_scanner.extensions:
+                    total_files += 1
+                    try:
+                        if fpath.stat().st_size < self.file_scanner.min_size_bytes:
+                            ignored_small += 1
+                    except OSError:
+                        pass
+
+        # Now get files that pass size filter
         files = list(self.file_scanner.scan(input_dir))
 
         # Count files that will be skipped during discovery
@@ -156,11 +187,18 @@ class Orchestrator:
             files_to_process.append(vf)
 
         discovery_stats = {
-            'files_found': len(files),
+            'files_found': total_files,
             'files_to_process': len(files_to_process),
             'already_compressed': already_compressed,
+            'ignored_small': ignored_small,
             'ignored_err': ignored_err
         }
+
+        if self.config.general.debug:
+            self.logger.info(
+                f"DISCOVERY_END: found={total_files}, to_process={len(files_to_process)}, "
+                f"already_compressed={already_compressed}, ignored_small={ignored_small}, ignored_err={ignored_err}"
+            )
 
         return files_to_process, discovery_stats
 
@@ -222,7 +260,7 @@ class Orchestrator:
             # 2. Compress
             self.event_bus.publish(JobStarted(job=job))
             job.status = JobStatus.PROCESSING
-            self.ffmpeg_adapter.compress(job, job_config, rotate=rotation)
+            self.ffmpeg_adapter.compress(job, job_config, rotate=rotation, shutdown_event=self._shutdown_event)
 
             # Check final status after compression
             if job.status == JobStatus.COMPLETED:
@@ -238,6 +276,12 @@ class Orchestrator:
                 if self.config.general.debug and start_time:
                     elapsed = time.monotonic() - start_time
                     self.logger.info(f"PROCESS_END: {filename} status=completed elapsed={elapsed:.2f}s")
+            elif job.status == JobStatus.INTERRUPTED:
+                # User pressed Ctrl+C - don't create .err, already cleaned up by FFmpegAdapter
+                self.event_bus.publish(JobFailed(job=job, error_message=job.error_message))
+                if self.config.general.debug and start_time:
+                    elapsed = time.monotonic() - start_time
+                    self.logger.info(f"PROCESS_END: {filename} status=interrupted elapsed={elapsed:.2f}s")
             elif job.status in (JobStatus.HW_CAP_LIMIT, JobStatus.FAILED):
                 # Event already published by FFmpeg adapter, just write error marker
                 with open(err_path, "w") as f:
@@ -256,6 +300,18 @@ class Orchestrator:
                     elapsed = time.monotonic() - start_time
                     self.logger.info(f"PROCESS_END: {filename} status=failed reason=status_not_updated elapsed={elapsed:.2f}s")
 
+        except KeyboardInterrupt:
+            # Ctrl+C during processing - already handled by FFmpegAdapter if during ffmpeg
+            # If happens elsewhere, set INTERRUPTED status
+            if job.status == JobStatus.PROCESSING:
+                job.status = JobStatus.INTERRUPTED
+                job.error_message = "Interrupted by user (Ctrl+C)"
+            self.event_bus.publish(JobFailed(job=job, error_message=job.error_message or "Interrupted"))
+            if self.config.general.debug and start_time:
+                elapsed = time.monotonic() - start_time
+                self.logger.info(f"PROCESS_END: {filename} status=interrupted elapsed={elapsed:.2f}s")
+            # Re-raise to propagate to main loop
+            raise
         except Exception as e:
             # Log exception but don't crash the thread
             self.logger.error(f"Exception processing {filename}: {e}")
@@ -288,7 +344,7 @@ class Orchestrator:
             files_found=discovery_stats['files_found'],
             files_to_process=discovery_stats['files_to_process'],
             already_compressed=discovery_stats['already_compressed'],
-            ignored_small=0,  # Already filtered by scanner
+            ignored_small=discovery_stats['ignored_small'],
             ignored_err=discovery_stats['ignored_err'],
             ignored_av1=0  # AV1 check done during processing
         ))
@@ -328,58 +384,98 @@ class Orchestrator:
                 # Update UI with current pending files (store VideoFile objects, not just paths)
                 self.event_bus.publish(QueueUpdated(pending_files=[vf for vf in pending]))
 
-            # Initial batch submission
-            submit_batch()
-
-            # Process futures as they complete
-            while in_flight:
-                current_futures = set(in_flight.keys())
-                done, _ = concurrent.futures.wait(
-                    current_futures,
-                    timeout=1.0,
-                    return_when=concurrent.futures.FIRST_COMPLETED
-                )
-
-                for future in done:
-                    try:
-                        future.result()
-                    except Exception as e:
-                        import logging
-                        logging.error(f"Future failed with exception: {e}")
-                    del in_flight[future]
-
-                # Check for refresh request
-                with self._refresh_lock:
-                    if self._refresh_requested:
-                        self._refresh_requested = False
-                        # Perform new discovery
-                        new_files, new_stats = self._perform_discovery(input_dir)
-                        # Track already submitted files to avoid duplicates
-                        submitted_paths = {vf.path for vf in in_flight.values()}
-                        submitted_paths.update(vf.path for vf in pending)
-                        # Add only new files not already in queue or processing
-                        for vf in new_files:
-                            if vf.path not in submitted_paths:
-                                pending.append(vf)
-                        # Update discovery stats
-                        self.event_bus.publish(DiscoveryFinished(
-                            files_found=new_stats['files_found'],
-                            files_to_process=new_stats['files_to_process'],
-                            already_compressed=new_stats['already_compressed'],
-                            ignored_small=0,
-                            ignored_err=new_stats['ignored_err'],
-                            ignored_av1=0  # AV1 check done during processing
-                        ))
-
-                # Submit more files to maintain queue
+            try:
+                # Initial batch submission
                 submit_batch()
 
-                # Exit if shutdown requested and no more in flight
-                if self._shutdown_requested and not in_flight:
-                    self.logger.info("Shutdown requested, exiting processing loop")
-                    break
+                # Process futures as they complete
+                while in_flight:
+                    current_futures = set(in_flight.keys())
+                    done, _ = concurrent.futures.wait(
+                        current_futures,
+                        timeout=1.0,
+                        return_when=concurrent.futures.FIRST_COMPLETED
+                    )
 
-            # After all futures done, give UI one more refresh cycle
-            import time
-            time.sleep(1.5)
-            self.logger.info("All files processed, exiting")
+                    for future in done:
+                        try:
+                            future.result()
+                        except Exception as e:
+                            import logging
+                            logging.error(f"Future failed with exception: {e}")
+                        del in_flight[future]
+
+                    # Check for refresh request
+                    with self._refresh_lock:
+                        if self._refresh_requested:
+                            self._refresh_requested = False
+                            # Perform new discovery
+                            new_files, new_stats = self._perform_discovery(input_dir)
+                            # Track already submitted files to avoid duplicates
+                            submitted_paths = {vf.path for vf in in_flight.values()}
+                            submitted_paths.update(vf.path for vf in pending)
+                            # Add only new files not already in queue or processing
+                            added = 0
+                            for vf in new_files:
+                                if vf.path not in submitted_paths:
+                                    pending.append(vf)
+                                    added += 1
+                            # Update discovery stats (include ignored_small like old code)
+                            self.event_bus.publish(DiscoveryFinished(
+                                files_found=new_stats['files_found'],
+                                files_to_process=new_stats['files_to_process'],
+                                already_compressed=new_stats['already_compressed'],
+                                ignored_small=new_stats['ignored_small'],  # FIX: update this counter
+                                ignored_err=new_stats['ignored_err'],
+                                ignored_av1=0  # AV1 check done during processing
+                            ))
+                            # Publish feedback message (like old vbc.py lines 1852-1860)
+                            from vbc.domain.events import ActionMessage
+                            if added > 0:
+                                self.event_bus.publish(ActionMessage(message=f"Refreshed: +{added} new files"))
+                                self.logger.info(f"Refresh: added {added} new files to queue")
+                            else:
+                                self.event_bus.publish(ActionMessage(message="Refreshed: no changes"))
+                                self.logger.info("Refresh: no changes detected")
+
+                    # Submit more files to maintain queue
+                    submit_batch()
+
+                    # Exit if shutdown requested and no more in flight
+                    if self._shutdown_requested and not in_flight:
+                        self.logger.info("Shutdown requested, exiting processing loop")
+                        break
+
+                # After all futures done, give UI one more refresh cycle
+                import time
+                time.sleep(1.5)
+                self.logger.info("All files processed, exiting")
+
+            except KeyboardInterrupt:
+                # User pressed Ctrl+C - graceful shutdown like old vbc.py (lines 1980-1997)
+                self.logger.info("Ctrl+C detected - stopping new tasks and interrupting active jobs...")
+                from vbc.domain.events import ActionMessage
+                self.event_bus.publish(ActionMessage(message="Ctrl+C - interrupting active compressions..."))
+
+                # Signal all workers to stop immediately
+                self._shutdown_event.set()
+
+                # Stop accepting new tasks
+                self._shutdown_requested = True
+
+                # Cancel all pending futures (not yet started)
+                for future in list(in_flight.keys()):
+                    if not future.done():
+                        future.cancel()
+
+                # Wait for currently running tasks to see shutdown_event (max 10 seconds)
+                self.logger.info("Waiting for active ffmpeg processes to terminate (max 10s)...")
+                import time
+                time.sleep(10)
+
+                # Force shutdown after timeout
+                executor.shutdown(wait=False, cancel_futures=True)
+                self.logger.info("Shutdown complete")
+
+                # Re-raise to propagate to main
+                raise

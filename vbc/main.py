@@ -110,7 +110,8 @@ def compress(
                 logger.info("ExifTool terminated")
 
     except KeyboardInterrupt:
-        typer.echo("\nInterrupted by user")
+        # Ctrl+C was already handled by orchestrator - just exit gracefully
+        typer.secho("\n✓ Compression stopped by user (Ctrl+C)", fg=typer.colors.YELLOW)
         raise typer.Exit(code=130)
 
     except Exception as e:

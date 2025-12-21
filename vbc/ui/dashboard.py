@@ -110,7 +110,13 @@ class Dashboard:
                         eta_seconds = avg_time_per_file * remaining
                         eta_str = self.format_time(eta_seconds)
 
+            # Get last action message (like old vbc.py line 1343-1344)
+            last_action = self.state.get_last_action()
+
         content = f"ETA: {eta_str} | Throughput: {throughput_str}"
+        if last_action:
+            # Highlight action messages in bright red for visibility
+            content += f" | [bright_red]{last_action}[/bright_red]"
         return Panel(content, border_style="green")
 
     def _generate_processing_panel(self) -> Panel:
@@ -186,11 +192,25 @@ class Dashboard:
                         self.format_time(job.duration_seconds or 0),
                         warn_icon
                     )
+                elif job.status == JobStatus.INTERRUPTED:
+                    # Interrupted job (Ctrl+C) - show in bright red
+                    table.add_row(
+                        "✗",
+                        job.source_file.path.name[:40],
+                        self.format_resolution(job.source_file.metadata),
+                        self.format_fps(job.source_file.metadata),
+                        self.format_size(job.source_file.size_bytes),
+                        "",
+                        f"[bright_red]INTERRUPTED[/bright_red]",
+                        "",
+                        self.format_time(job.duration_seconds or 0),
+                        "⚠"
+                    )
                 else:
                     # Failed job - show status instead of compression info
                     status_text = job.status.value if hasattr(job.status, 'value') else str(job.status)
                     table.add_row(
-                        "✓",
+                        "✗",
                         job.source_file.path.name[:40],
                         self.format_resolution(job.source_file.metadata),
                         self.format_fps(job.source_file.metadata),
@@ -236,6 +256,7 @@ class Dashboard:
             summary = (
                 f"✓ {self.state.completed_count} success  "
                 f"✗ {self.state.failed_count} errors  "
+                f"⚡ {self.state.interrupted_count} interrupted  "
                 f"⚠ {self.state.hw_cap_count} hw_cap  "
                 f"📋 {self.state.min_ratio_skip_count} ratio  "
                 f"⊘ {self.state.skipped_count} skipped"

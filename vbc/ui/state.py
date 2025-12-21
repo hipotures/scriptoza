@@ -18,6 +18,7 @@ class UIState:
         self.hw_cap_count = 0
         self.cam_skipped_count = 0
         self.min_ratio_skip_count = 0  # Files copied instead of compressed (ratio too low)
+        self.interrupted_count = 0  # Files interrupted by Ctrl+C
 
         # Discovery counters (files skipped before processing)
         self.files_to_process = 0
@@ -44,6 +45,10 @@ class UIState:
         self.current_threads = 0
         self.shutdown_requested = False
         self.processing_start_time: Optional[datetime] = None
+
+        # User action feedback (like old vbc.py)
+        self.last_action: str = ""
+        self.last_action_time: Optional[datetime] = None
 
     @property
     def space_saved_bytes(self) -> int:
@@ -91,3 +96,19 @@ class UIState:
         with self._lock:
             self.skipped_count += 1
             self.remove_active_job(job)
+
+    def set_last_action(self, action: str):
+        """Set last action message with timestamp (like old vbc.py)."""
+        with self._lock:
+            self.last_action = action
+            self.last_action_time = datetime.now()
+
+    def get_last_action(self) -> str:
+        """Get last action message (clears after 60 seconds, like old vbc.py)."""
+        with self._lock:
+            if self.last_action and self.last_action_time:
+                elapsed = (datetime.now() - self.last_action_time).total_seconds()
+                if elapsed > 60:  # Clear after 1 minute
+                    self.last_action = ""
+                    self.last_action_time = None
+            return self.last_action

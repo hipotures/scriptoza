@@ -10,6 +10,7 @@ class JobStatus(str, Enum):
     SKIPPED = "SKIPPED"
     FAILED = "FAILED"
     HW_CAP_LIMIT = "HW_CAP_LIMIT"
+    INTERRUPTED = "INTERRUPTED"  # Ctrl+C during processing
 
 class VideoMetadata(BaseModel):
     width: int

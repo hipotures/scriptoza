@@ -3,7 +3,8 @@ from vbc.ui.state import UIState
 from vbc.domain.events import (
     DiscoveryStarted, DiscoveryFinished,
     JobStarted, JobCompleted, JobFailed,
-    JobProgressUpdated, HardwareCapabilityExceeded, QueueUpdated
+    JobProgressUpdated, HardwareCapabilityExceeded, QueueUpdated,
+    ActionMessage
 )
 from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown
 
@@ -26,11 +27,21 @@ class UIManager:
         self.bus.subscribe(ThreadControlEvent, self.on_thread_control)
         self.bus.subscribe(RequestShutdown, self.on_shutdown_request)
         self.bus.subscribe(QueueUpdated, self.on_queue_updated)
+        self.bus.subscribe(ActionMessage, self.on_action_message)
 
     def on_discovery_started(self, event: DiscoveryStarted):
         self.state.discovery_finished = False
 
     def on_discovery_finished(self, event: DiscoveryFinished):
+        # Debug: log when discovery counters are updated
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(
+            f"UI: Updating discovery counters: to_process={event.files_to_process}, "
+            f"already_compressed={event.already_compressed}, ignored_small={event.ignored_small}, "
+            f"ignored_err={event.ignored_err}"
+        )
+
         self.state.total_files_found = event.files_found
         self.state.files_to_process = event.files_to_process
         self.state.already_compressed_count = event.already_compressed
@@ -77,6 +88,7 @@ class UIManager:
     def on_job_failed(self, event: JobFailed):
         # Calculate duration
         from datetime import datetime
+        from vbc.domain.models import JobStatus
         filename = event.job.source_file.path.name
         if filename in self.state.job_start_times:
             start_time = self.state.job_start_times[filename]
@@ -87,6 +99,13 @@ class UIManager:
             with self.state._lock:
                 self.state.ignored_av1_count += 1
             # Don't add to failed jobs - just increment counter
+            self.state.remove_active_job(event.job)
+        # Check if it's INTERRUPTED (Ctrl+C)
+        elif event.job.status == JobStatus.INTERRUPTED:
+            with self.state._lock:
+                self.state.interrupted_count += 1
+            # Add to recent jobs to show in LAST COMPLETED
+            self.state.recent_jobs.appendleft(event.job)
             self.state.remove_active_job(event.job)
         else:
             self.state.add_failed_job(event.job)
@@ -103,3 +122,7 @@ class UIManager:
         with self.state._lock:
             # Store VideoFile objects (not just paths) to preserve metadata
             self.state.pending_files = list(event.pending_files)
+
+    def on_action_message(self, event: ActionMessage):
+        """Handle user action feedback messages (like old vbc.py)."""
+        self.state.set_last_action(event.message)

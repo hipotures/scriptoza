@@ -43,12 +43,15 @@ class KeyboardListener:
                     elif key in ('S', 's'):
                         self.event_bus.publish(RequestShutdown())
                     elif key in ('R', 'r'):
-                        from vbc.domain.events import RefreshRequested
+                        from vbc.domain.events import RefreshRequested, ActionMessage
                         self.event_bus.publish(RefreshRequested())
+                        # Immediate feedback (like old vbc.py line 787)
+                        self.event_bus.publish(ActionMessage(message="REFRESH requested"))
                     elif key == '\x03':
-                        # Ctrl+C should exit immediately, not gracefully
+                        # Ctrl+C detected in keyboard listener - restore terminal and exit thread
+                        # The real KeyboardInterrupt will be handled by main thread
                         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-                        raise KeyboardInterrupt()
+                        break  # Exit keyboard listener thread
         finally:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
