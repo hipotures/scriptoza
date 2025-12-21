@@ -21,6 +21,6 @@
     - [ ] Sub-task: Create `vbc/infrastructure/housekeeping.py` for `.tmp` cleanup
 - [x] Task: Implement Automatic Color Fix (142b091)
     - [ ] Sub-task: Port the multi-stage FFmpeg logic for fixing reserved color spaces
-- [ ] Task: Final Integration & CLI Flags
+- [x] Task: Final Integration - [~] Task: Final Integration & CLI Flags CLI Flags (b656f5f)
     - [ ] Sub-task: Add missing options (`--clean-errors`, `--skip-av1`, etc.) to `vbc/main.py`
 - [ ] Task: Conductor - User Manual Verification 'Compatibility & Housekeeping' (Protocol in workflow.md)
