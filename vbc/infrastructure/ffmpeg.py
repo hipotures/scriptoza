@@ -54,7 +54,9 @@ class FFmpegAdapter:
         elif rotate == 270:
             cmd.extend(["-vf", "transpose=2"])
 
-        cmd.append(str(job.output_path))
+        # Write to .tmp file during compression (renamed to .mp4 on success)
+        tmp_path = job.output_path.with_suffix('.tmp')
+        cmd.append(str(tmp_path))
         return cmd
 
     def compress(self, job: CompressionJob, config: GeneralConfig, rotate: Optional[int] = None):
@@ -100,10 +102,16 @@ class FFmpegAdapter:
                 
         process.wait()
 
+        # Get tmp file path
+        tmp_path = job.output_path.with_suffix('.tmp')
+
         # Check for hardware capability error (code 187 or text match)
         if hw_cap_error or process.returncode == 187:
             job.status = JobStatus.HW_CAP_LIMIT
             job.error_message = "Hardware is lacking required capabilities"
+            # Cleanup tmp file on error
+            if tmp_path.exists():
+                tmp_path.unlink()
             self.event_bus.publish(HardwareCapabilityExceeded(job=job))
             if config.debug and start_time:
                 elapsed = time.monotonic() - start_time
@@ -120,11 +128,17 @@ class FFmpegAdapter:
         elif process.returncode != 0:
             job.status = JobStatus.FAILED
             job.error_message = f"ffmpeg exited with code {process.returncode}"
+            # Cleanup tmp file on error
+            if tmp_path.exists():
+                tmp_path.unlink()
             self.event_bus.publish(JobFailed(job=job, error_message=job.error_message))
             if config.debug and start_time:
                 elapsed = time.monotonic() - start_time
                 self.logger.info(f"FFMPEG_END: {filename} status=failed code={process.returncode} elapsed={elapsed:.2f}s")
         else:
+            # Success - rename .tmp to final .mp4
+            if tmp_path.exists():
+                tmp_path.rename(job.output_path)
             job.status = JobStatus.COMPLETED
             if config.debug and start_time:
                 elapsed = time.monotonic() - start_time
