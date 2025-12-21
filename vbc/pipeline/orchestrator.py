@@ -102,6 +102,16 @@ class Orchestrator:
             output_path = output_dir / rel_path
             output_path.parent.mkdir(parents=True, exist_ok=True)
             
+            err_path = output_path.with_suffix(output_path.suffix + ".err")
+            
+            # Check for existing error markers
+            if err_path.exists():
+                if self.config.general.clean_errors:
+                    err_path.unlink()
+                else:
+                    self.event_bus.publish(JobFailed(job=CompressionJob(source_file=video_file, status=JobStatus.SKIPPED), error_message="Existing error marker found"))
+                    return
+
             job = CompressionJob(source_file=video_file, output_path=output_path)
             
             # 3. Compress
@@ -111,7 +121,10 @@ class Orchestrator:
             
             if job.status == JobStatus.COMPLETED:
                 self.event_bus.publish(JobCompleted(job=job))
-            elif job.status == JobStatus.FAILED:
+            elif job.status in (JobStatus.FAILED, JobStatus.HW_CAP_LIMIT):
+                # Write error marker
+                with open(err_path, "w") as f:
+                    f.write(job.error_message or "Unknown error")
                 self.event_bus.publish(JobFailed(job=job, error_message=job.error_message or "Unknown error"))
                 
         except Exception as e:
