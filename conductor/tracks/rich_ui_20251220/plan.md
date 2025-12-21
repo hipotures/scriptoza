@@ -15,11 +15,11 @@
 - [ ] Task: Conductor - User Manual Verification 'Rich Dashboard Implementation' (Protocol in workflow.md)
 
 ## Phase 3: Runtime Controls & Orchestrator Sync
-- [ ] Task: Implement Keyboard Listener
+- [~] Task: Implement Keyboard Listener
     - [ ] Sub-task: Implement `vbc/ui/keyboard.py` using `termios`/`select`
-- [ ] Task: Enable Dynamic Thread Control
+- [~] Task: Enable Dynamic Thread Control
     - [ ] Sub-task: Update `vbc/pipeline/orchestrator.py` to support dynamic thread adjustment
     - [ ] Sub-task: Integrate keyboard events with Orchestrator via `EventBus`
-- [ ] Task: Final Integration in CLI
+- [x] Task: Final Integration in CLI (0e37a7a)
     - [ ] Sub-task: Enable Rich UI in `vbc/main.py`
 - [ ] Task: Conductor - User Manual Verification 'Runtime Controls & Orchestrator Sync' (Protocol in workflow.md)
