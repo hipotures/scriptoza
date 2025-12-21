@@ -14,20 +14,20 @@ general:
   skip_av1: false
   strip_unicode_display: true
   use_exif: true
-  
-  # Filtrowanie po kamerze (lista nazw z dynamic_cq lub fragmentow modelu/producenta)
-  # Jesli lista jest pusta, przetwarzane sa wszystkie pliki.
-  # Przyklad: ["DJI OsmoPocket3", "ILCE-7RM5"]
+
+  # Camera filtering (list of names from dynamic_cq or fragments of model/vendor).
+  # If empty, all files are processed.
+  # Example: ["DJI OsmoPocket3", "ILCE-7RM5"]
   filter_cameras: []
 
   # Minimum compression ratio (0.0-1.0, e.g., 0.1 = 10% savings required, 0.0 = disabled)
   # If compression is below this threshold, the original file will be copied to output instead
   min_compression_ratio: 0.1
 
-  # Mapowanie modeli do jakości. 
+  # Model to quality mapping.
   dynamic_cq:
-    "DJI OsmoPocket3": 35
-    "DC-GH7": 45
+    "DJI OsmoPocket3": 45
+    "DC-GH7": 35
     "ILCE-7RM5": 35
 
 autorotate:
