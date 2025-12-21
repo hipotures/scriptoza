@@ -31,8 +31,9 @@ def test_concurrency_threads():
         
         orchestrator.run(Path("/tmp"))
         
-        # Verify executor was initialized with correct max_workers
-        MockExecutor.assert_called_with(max_workers=4)
+        # Verify executor was initialized with large pool (16)
+        # Actual concurrency controlled via internal _thread_lock
+        MockExecutor.assert_called_with(max_workers=16)
         
         # Verify submit was called for each file
         # When using 'with MockExecutor() as executor', the instance returned by __enter__ is what counts
