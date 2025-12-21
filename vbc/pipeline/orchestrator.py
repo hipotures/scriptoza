@@ -127,7 +127,8 @@ class Orchestrator:
                 rel_path = vf.path.relative_to(input_dir)
             except ValueError:
                 rel_path = vf.path.name
-            output_path = output_dir / rel_path
+            # Always output as .mp4 (lowercase), regardless of input extension
+            output_path = output_dir / rel_path.with_suffix('.mp4')
             err_path = output_path.with_suffix(output_path.suffix + ".err")
 
             # Check for error markers FIRST (before timestamp check)
@@ -201,9 +202,10 @@ class Orchestrator:
                 rel_path = video_file.path.relative_to(input_dir)
             except ValueError:
                 rel_path = video_file.path.name
-                
+
             output_dir = input_dir.with_name(f"{input_dir.name}_out")
-            output_path = output_dir / rel_path
+            # Always output as .mp4 (lowercase), regardless of input extension
+            output_path = output_dir / rel_path.with_suffix('.mp4')
             output_path.parent.mkdir(parents=True, exist_ok=True)
             
             err_path = output_path.with_suffix(output_path.suffix + ".err")
