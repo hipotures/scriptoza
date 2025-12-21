@@ -9,7 +9,7 @@
 - [ ] Task: Conductor - User Manual Verification 'UI State & Event Mapping' (Protocol in workflow.md)
 
 ## Phase 2: Rich Dashboard Implementation
-- [ ] Task: Recreate Dashboard Panels
+- [x] Task: Recreate Dashboard Panels (8dd78d9)
     - [ ] Sub-task: Implement `vbc/ui/dashboard.py` with `rich.Live` layout
     - [ ] Sub-task: Port panel rendering logic from original script
 - [ ] Task: Conductor - User Manual Verification 'Rich Dashboard Implementation' (Protocol in workflow.md)
