@@ -1,8 +1,0 @@
-{
-  "track_id": "infra_adapters_20251220",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2025-12-20T13:30:00Z",
-  "updated_at": "2025-12-20T13:30:00Z",
-  "description": "Implement Infrastructure Adapters (FFmpeg, ExifTool, FileScanner)"
-}
