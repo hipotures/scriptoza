@@ -31,3 +31,15 @@ def test_event_bus_multiple_subscribers():
     
     assert results["a"] is True
     assert results["b"] is True
+
+def test_event_bus_decorator_subscribe():
+    bus = EventBus()
+    received = []
+    
+    @bus.subscribe(MockEvent)
+    def on_event(event: MockEvent):
+        received.append(event)
+        
+    bus.publish(MockEvent(message="decorator"))
+    assert len(received) == 1
+    assert received[0].message == "decorator"

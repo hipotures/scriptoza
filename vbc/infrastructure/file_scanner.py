@@ -7,12 +7,12 @@ class FileScanner:
     """Recursively scans for video files in a directory."""
     
     def __init__(self, extensions: List[str], min_size_bytes: int = 0):
-        self.extensions = [ext.lower() for ext in extensions]
+        self.extensions = [(ext if ext.startswith(".") else f".{ext}").lower() for ext in extensions]
         self.min_size_bytes = min_size_bytes
 
     def scan(self, root_dir: Path) -> Generator[VideoFile, None, None]:
         """Scans the directory and yields VideoFile objects."""
-        for root, dirs, files in os.walk(root_dir):
+        for root, dirs, files in os.walk(str(root_dir)):
             root_path = Path(root)
             
             # Skip output directories (ending in _out)

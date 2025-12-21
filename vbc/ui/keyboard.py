@@ -23,34 +23,30 @@ class KeyboardListener:
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
-    def _get_key(self) -> Optional[str]:
-        """Reads a single key from stdin in raw mode."""
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(sys.stdin.fileno())
-            rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
-            if rlist:
-                return sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        return None
-
     def _run(self):
         """Main loop for the listener thread."""
-        while not self._stop_event.is_set():
-            key = self._get_key()
-            if key:
-                key = key.upper()
-                if key == 'S':
-                    self.event_bus.publish(RequestShutdown())
-                elif key in ('.', '>'):
-                    self.event_bus.publish(ThreadControlEvent(change=1))
-                elif key in (',', '<'):
-                    self.event_bus.publish(ThreadControlEvent(change=-1))
-                elif key == '\x03': # Ctrl+C
-                    self.event_bus.publish(RequestShutdown())
-                    break
+        if not sys.stdin.isatty():
+            return
+
+        old_settings = termios.tcgetattr(sys.stdin)
+        try:
+            tty.setcbreak(sys.stdin.fileno())
+
+            while not self._stop_event.is_set():
+                if sys.stdin in select.select([sys.stdin], [], [], 0.1)[0]:
+                    key = sys.stdin.read(1)
+
+                    if key in ('.', '>'):
+                        self.event_bus.publish(ThreadControlEvent(change=1))
+                    elif key in (',', '<'):
+                        self.event_bus.publish(ThreadControlEvent(change=-1))
+                    elif key in ('S', 's'):
+                        self.event_bus.publish(RequestShutdown())
+                    elif key == '\x03':
+                        self.event_bus.publish(RequestShutdown())
+                        break
+        finally:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
     def start(self):
         """Starts the listener thread."""

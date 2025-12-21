@@ -1,6 +1,8 @@
 import threading
+from datetime import datetime
+from pathlib import Path
 from collections import deque
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from vbc.domain.models import CompressionJob
 
 class UIState:
@@ -15,6 +17,14 @@ class UIState:
         self.skipped_count = 0
         self.hw_cap_count = 0
         self.cam_skipped_count = 0
+        self.min_ratio_skip_count = 0  # Files copied instead of compressed (ratio too low)
+
+        # Discovery counters (files skipped before processing)
+        self.files_to_process = 0
+        self.already_compressed_count = 0
+        self.ignored_small_count = 0
+        self.ignored_err_count = 0
+        self.ignored_av1_count = 0
         
         # Bytes tracking
         self.total_input_bytes = 0
@@ -23,12 +33,17 @@ class UIState:
         # Job lists
         self.active_jobs: List[CompressionJob] = []
         self.recent_jobs = deque(maxlen=5)
-        
+        self.pending_files: List[Any] = []  # VideoFile objects waiting to be submitted
+
+        # Job timing tracking
+        self.job_start_times: Dict[str, datetime] = {}  # filename -> start time
+
         # Global Status
         self.discovery_finished = False
         self.total_files_found = 0
         self.current_threads = 0
         self.shutdown_requested = False
+        self.processing_start_time: Optional[datetime] = None
 
     @property
     def space_saved_bytes(self) -> int:
@@ -46,17 +61,23 @@ class UIState:
         with self._lock:
             if job not in self.active_jobs:
                 self.active_jobs.append(job)
+                # Track start time
+                self.job_start_times[job.source_file.path.name] = datetime.now()
 
     def remove_active_job(self, job: CompressionJob):
         with self._lock:
             if job in self.active_jobs:
                 self.active_jobs.remove(job)
+            # Clean up start time
+            self.job_start_times.pop(job.source_file.path.name, None)
 
     def add_completed_job(self, job: CompressionJob, output_size: int):
         with self._lock:
             self.completed_count += 1
             self.total_input_bytes += job.source_file.size_bytes
             self.total_output_bytes += output_size
+            # Store output size in job for display
+            job.output_size_bytes = output_size
             self.recent_jobs.appendleft(job)
             self.remove_active_job(job)
 

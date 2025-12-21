@@ -19,9 +19,9 @@ class ExifToolAdapter:
     def extract_metadata(self, file: VideoFile) -> VideoMetadata:
         """Extracts metadata from a video file using ExifTool."""
         if not self.et.running:
-            self.et.start()
+            self.et.run()
             
-        metadata_list = self.et.get_metadata_batch([str(file.path)])
+        metadata_list = self.et.execute_json(str(file.path))
         if not metadata_list:
             raise ValueError(f"Could not extract metadata for {file.path}")
             
@@ -30,14 +30,27 @@ class ExifToolAdapter:
         width = self._get_tag(data, ["QuickTime:ImageWidth", "Track1:ImageWidth", "ImageWidth"])
         height = self._get_tag(data, ["QuickTime:ImageHeight", "Track1:ImageHeight", "ImageHeight"])
         fps = self._get_tag(data, ["QuickTime:VideoFrameRate", "VideoFrameRate"])
-        codec = self._get_tag(data, ["QuickTime:HandlerDescription", "CompressorName"])
+        # Get video codec ID (avc1=h264, hvc1=hevc, etc), not HandlerDescription which can be "Sound"
+        codec_raw = self._get_tag(data, ["QuickTime:CompressorID", "CompressorID", "VideoCodec", "CompressorName"])
+
+        # Map codec IDs to user-friendly names
+        codec_map = {
+            "avc1": "h264",
+            "hvc1": "hevc",
+            "hev1": "hevc",
+            "av01": "av1",
+            "vp09": "vp9",
+            "vp08": "vp8"
+        }
+        codec = codec_map.get(str(codec_raw).lower(), str(codec_raw)) if codec_raw else "unknown"
+
         camera = self._get_tag(data, ["QuickTime:Model", "Model", "CameraModelName"])
         bitrate = self._get_tag(data, ["QuickTime:AvgBitrate", "AvgBitrate"])
-        
+
         return VideoMetadata(
             width=int(width) if width else 0,
             height=int(height) if height else 0,
-            codec=str(codec) if codec else "unknown",
+            codec=codec,
             fps=float(fps) if fps else 0.0,
             camera_model=str(camera) if camera else None,
             bitrate_kbps=float(bitrate) / 1000 if bitrate else None
@@ -46,7 +59,7 @@ class ExifToolAdapter:
     def copy_metadata(self, source: Path, target: Path):
         """Copies EXIF/XMP tags from source to target."""
         if not self.et.running:
-            self.et.start()
+            self.et.run()
             
         # Standard command for deep EXIF/XMP copy
         cmd = [

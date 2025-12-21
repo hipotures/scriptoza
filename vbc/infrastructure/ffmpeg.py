@@ -90,13 +90,16 @@ class FFmpegAdapter:
                 # self.event_bus.publish(JobProgressUpdated(job=job, progress_percent=...))
                 
         process.wait()
-        
-        if hw_cap_error:
+
+        # Check for hardware capability error (code 187 or text match)
+        if hw_cap_error or process.returncode == 187:
             job.status = JobStatus.HW_CAP_LIMIT
+            job.error_message = "Hardware is lacking required capabilities"
             self.event_bus.publish(HardwareCapabilityExceeded(job=job))
         elif color_error:
-            # Re-run with color fix remux
+            # Re-run with color fix remux (recursive call sets final status)
             self._apply_color_fix(job, config, rotate)
+            # Status is now set by recursive compress() call, don't override
         elif process.returncode != 0:
             job.status = JobStatus.FAILED
             job.error_message = f"ffmpeg exited with code {process.returncode}"

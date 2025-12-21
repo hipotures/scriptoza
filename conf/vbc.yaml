@@ -8,6 +8,7 @@ general:
     - flv
     - webm
     - mov
+    - mkv
   min_size_bytes: 1048576
   clean_errors: false
   skip_av1: false

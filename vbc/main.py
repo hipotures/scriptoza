@@ -1,7 +1,11 @@
 import typer
 import threading
+import warnings
 from pathlib import Path
 from typing import Optional, List
+
+# Silence all warnings (especially from pyexiftool) to prevent UI glitches
+warnings.filterwarnings("ignore")
 from vbc.config.loader import load_config
 from vbc.infrastructure.event_bus import EventBus
 from vbc.infrastructure.file_scanner import FileScanner
@@ -14,7 +18,9 @@ from vbc.ui.state import UIState
 from vbc.ui.manager import UIManager
 from vbc.ui.dashboard import Dashboard
 from vbc.ui.keyboard import KeyboardListener, ThreadControlEvent, RequestShutdown
-from vbc.domain.events import HardwareCapabilityExceeded
+from vbc.domain.events import (
+    HardwareCapabilityExceeded, JobStarted, JobCompleted, JobFailed, DiscoveryFinished
+)
 
 app = typer.Typer(help="VBC (Video Batch Compression) - Modular Version")
 
@@ -58,17 +64,6 @@ def compress(
                 housekeeper.cleanup_error_markers(output_dir)
         
         ui_manager = UIManager(bus, ui_state)
-        
-        @bus.subscribe(ThreadControlEvent)
-        def on_thread_change(e: ThreadControlEvent):
-            with ui_state._lock:
-                new_val = ui_state.current_threads + e.change
-                ui_state.current_threads = max(1, min(16, new_val))
-
-        @bus.subscribe(RequestShutdown)
-        def on_shutdown(e: RequestShutdown):
-            with ui_state._lock:
-                ui_state.shutdown_requested = True
 
         # Components
         scanner = FileScanner(
@@ -92,13 +87,15 @@ def compress(
         dashboard = Dashboard(ui_state)
         
         keyboard.start()
-        with dashboard.start():
+        with dashboard:
             orchestrator.run(input_dir)
             
         keyboard.stop()
-        typer.echo("\nProcessing complete.")
         
     except Exception as e:
+        with open("error.log", "a") as f:
+            import traceback
+            traceback.print_exc(file=f)
         typer.secho(f"Fatal Error: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 

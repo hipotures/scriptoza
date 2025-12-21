@@ -1,11 +1,11 @@
-import os
 from vbc.infrastructure.event_bus import EventBus
 from vbc.ui.state import UIState
 from vbc.domain.events import (
-    DiscoveryStarted, DiscoveryFinished, 
-    JobStarted, JobCompleted, JobFailed, 
-    JobProgressUpdated, HardwareCapabilityExceeded
+    DiscoveryStarted, DiscoveryFinished,
+    JobStarted, JobCompleted, JobFailed,
+    JobProgressUpdated, HardwareCapabilityExceeded, QueueUpdated
 )
+from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown
 
 class UIManager:
     """Subscribes to EventBus and updates UIState."""
@@ -23,32 +23,76 @@ class UIManager:
         self.bus.subscribe(JobFailed, self.on_job_failed)
         self.bus.subscribe(JobProgressUpdated, self.on_job_progress)
         self.bus.subscribe(HardwareCapabilityExceeded, self.on_hw_cap_exceeded)
+        self.bus.subscribe(ThreadControlEvent, self.on_thread_control)
+        self.bus.subscribe(RequestShutdown, self.on_shutdown_request)
+        self.bus.subscribe(QueueUpdated, self.on_queue_updated)
 
     def on_discovery_started(self, event: DiscoveryStarted):
         self.state.discovery_finished = False
 
     def on_discovery_finished(self, event: DiscoveryFinished):
         self.state.total_files_found = event.files_found
+        self.state.files_to_process = event.files_to_process
+        self.state.already_compressed_count = event.already_compressed
+        self.state.ignored_small_count = event.ignored_small
+        self.state.ignored_err_count = event.ignored_err
+        self.state.ignored_av1_count = event.ignored_av1
         self.state.discovery_finished = True
 
+    def on_thread_control(self, event: ThreadControlEvent):
+        with self.state._lock:
+            new_val = self.state.current_threads + event.change
+            self.state.current_threads = max(1, min(16, new_val))
+
+    def on_shutdown_request(self, event: RequestShutdown):
+        with self.state._lock:
+            self.state.shutdown_requested = True
+
     def on_job_started(self, event: JobStarted):
+        # Track when first job starts
+        from datetime import datetime
+        if self.state.processing_start_time is None:
+            self.state.processing_start_time = datetime.now()
         self.state.add_active_job(event.job)
 
     def on_job_completed(self, event: JobCompleted):
-        # Determine output size for stats
         output_size = 0
         if event.job.output_path and event.job.output_path.exists():
             output_size = event.job.output_path.stat().st_size
-        
+
+        # Calculate duration
+        from datetime import datetime
+        filename = event.job.source_file.path.name
+        if filename in self.state.job_start_times:
+            start_time = self.state.job_start_times[filename]
+            event.job.duration_seconds = (datetime.now() - start_time).total_seconds()
+
+        # Check if this is a min_ratio_skip (original file kept)
+        if event.job.error_message and "kept original" in event.job.error_message:
+            with self.state._lock:
+                self.state.min_ratio_skip_count += 1
+
         self.state.add_completed_job(event.job, output_size)
 
     def on_job_failed(self, event: JobFailed):
+        # Calculate duration
+        from datetime import datetime
+        filename = event.job.source_file.path.name
+        if filename in self.state.job_start_times:
+            start_time = self.state.job_start_times[filename]
+            event.job.duration_seconds = (datetime.now() - start_time).total_seconds()
+
         self.state.add_failed_job(event.job)
 
     def on_hw_cap_exceeded(self, event: HardwareCapabilityExceeded):
         self.state.hw_cap_count += 1
+        # Don't add to recent_jobs - hw_cap is only counted, not shown in LAST COMPLETED
         self.state.remove_active_job(event.job)
 
     def on_job_progress(self, event: JobProgressUpdated):
-        # Progress logic if needed (state currently tracks active jobs which have progress info)
         pass
+
+    def on_queue_updated(self, event: QueueUpdated):
+        with self.state._lock:
+            # Store VideoFile objects (not just paths) to preserve metadata
+            self.state.pending_files = list(event.pending_files)

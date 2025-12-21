@@ -28,5 +28,6 @@ class CompressionJob(BaseModel):
     source_file: VideoFile
     status: JobStatus = JobStatus.PENDING
     output_path: Optional[Path] = None
+    output_size_bytes: Optional[int] = None
     error_message: Optional[str] = None
     duration_seconds: Optional[float] = None

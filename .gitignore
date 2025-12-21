@@ -29,9 +29,9 @@ tests/data/
 !photo/*.sh
 
 # Allow the new modular package
-!scriptoza/
-!scriptoza/**/
-!scriptoza/**/*.py
+!vbc/
+!vbc/**/
+!vbc/**/*.py
 
 # Allow conductor directory
 !conductor/
