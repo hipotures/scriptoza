@@ -55,8 +55,9 @@ class FFmpegAdapter:
             cmd.extend(["-vf", "transpose=2"])
 
         # Write to .tmp file during compression (renamed to .mp4 on success)
+        # Force mp4 format since .tmp extension doesn't indicate format
         tmp_path = job.output_path.with_suffix('.tmp')
-        cmd.append(str(tmp_path))
+        cmd.extend(["-f", "mp4", str(tmp_path)])
         return cmd
 
     def compress(self, job: CompressionJob, config: GeneralConfig, rotate: Optional[int] = None):
@@ -68,6 +69,9 @@ class FFmpegAdapter:
             self.logger.info(f"FFMPEG_START: {filename} (gpu={config.gpu}, cq={config.cq})")
 
         cmd = self._build_command(job, config, rotate)
+
+        if config.debug:
+            self.logger.debug(f"FFMPEG_CMD: {' '.join(cmd)}")
 
         # Use duration for progress calculation if available
         duration = job.source_file.metadata.bitrate_kbps if job.source_file.metadata else 0 # Placeholder for duration

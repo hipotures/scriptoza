@@ -129,7 +129,7 @@ class Orchestrator:
                 rel_path = vf.path.name
             # Always output as .mp4 (lowercase), regardless of input extension
             output_path = output_dir / rel_path.with_suffix('.mp4')
-            err_path = output_path.with_suffix(output_path.suffix + ".err")
+            err_path = output_path.with_suffix('.err')
 
             # Check for error markers FIRST (before timestamp check)
             if err_path.exists():
@@ -207,8 +207,8 @@ class Orchestrator:
             # Always output as .mp4 (lowercase), regardless of input extension
             output_path = output_dir / rel_path.with_suffix('.mp4')
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            err_path = output_path.with_suffix(output_path.suffix + ".err")
+
+            err_path = output_path.with_suffix('.err')
             
             if err_path.exists():
                 if self.config.general.clean_errors:
