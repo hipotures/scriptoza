@@ -73,10 +73,13 @@ class FFmpegAdapter:
         # Regex to parse 'time=00:00:00.00' from ffmpeg output
         time_regex = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
         hw_cap_error = False
+        color_error = False
         
         for line in process.stdout:
             if "Hardware is lacking required capabilities" in line:
                 hw_cap_error = True
+            if "is not a valid value for color_primaries" in line or "is not a valid value for color_trc" in line:
+                color_error = True
 
             match = time_regex.search(line)
             if match:
@@ -91,9 +94,48 @@ class FFmpegAdapter:
         if hw_cap_error:
             job.status = JobStatus.HW_CAP_LIMIT
             self.event_bus.publish(HardwareCapabilityExceeded(job=job))
+        elif color_error:
+            # Re-run with color fix remux
+            self._apply_color_fix(job, config, rotate)
         elif process.returncode != 0:
             job.status = JobStatus.FAILED
             job.error_message = f"ffmpeg exited with code {process.returncode}"
             self.event_bus.publish(JobFailed(job=job, error_message=job.error_message))
         else:
             job.status = JobStatus.COMPLETED
+
+    def _apply_color_fix(self, job: CompressionJob, config: GeneralConfig, rotate: Optional[int]):
+        """Special handling for FFmpeg 7.x 'reserved' color space bug."""
+        # 1. Create a remuxed file with metadata filters
+        color_fix_path = job.output_path.with_name(f"{job.output_path.stem}_colorfix.mp4")
+        
+        # Check if source is HEVC or H264 to apply correct bitstream filter
+        # For simplicity we try to apply hevc_metadata then fallback
+        remux_cmd = [
+            "ffmpeg", "-y", "-i", str(job.source_file.path),
+            "-c", "copy",
+            "-bsf:v", "hevc_metadata=color_primaries=1:color_trc=1:colorspace=1",
+            str(color_fix_path)
+        ]
+        
+        res = subprocess.run(remux_cmd, capture_output=True)
+        if res.returncode != 0:
+            # Try H264 variant
+            remux_cmd[5] = "h264_metadata=color_primaries=1:color_trc=1:colorspace=1"
+            res = subprocess.run(remux_cmd, capture_output=True)
+            
+        if res.returncode == 0:
+            # 2. Run compression using the colorfix file as input
+            original_path = job.source_file.path
+            job.source_file.path = color_fix_path
+            try:
+                self.compress(job, config, rotate)
+            finally:
+                # Cleanup and restore
+                job.source_file.path = original_path
+                if color_fix_path.exists():
+                    color_fix_path.unlink()
+        else:
+            job.status = JobStatus.FAILED
+            job.error_message = "Color fix remux failed"
+            self.event_bus.publish(JobFailed(job=job, error_message=job.error_message))
