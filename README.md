@@ -2,17 +2,68 @@
 
 Collection of useful scripts organized by category. Each category has its own directory with detailed documentation.
 
-## Categories
+## 🎬 VBC - Video Batch Compression
 
-### [Video](video/)
+**Modern, modular video compression tool with AV1/NVENC support.**
 
-- **vbc.py** (Video Batch Compression) - Batch video compression using AV1 with config file, auto-rotation, EXIF preservation, size/error skipping, and interactive UI (`<`/`>` keys for thread control)
-- **move_err_files.py** - Moves source MP4s (and their `.err` markers) for failed compressions to `/tmp/err`, preserving directory structure
-- **rename_video.py** - Universal video renaming tool (DJI, Panasonic, Sony) with standardized format: `YYYYMMDD_HHMMSS_WIDTHxHEIGHT_FPSfps_FILESIZE.ext`
-- **check_4k.py** - Scans MP4 tree and writes tab-separated 4K/non-4K lists with resolution, bitrate, and codec
-- **check_collisions.py** - Detects basename collisions (e.g., `X.mp4` vs `X.flv`) that would clash in output
-- **sort_video_qvr.sh** - Organizes QVR video files into `QVR/YYYYMMDD/` directory structure
-- **sort_video_sr.sh** - Organizes Screen Recording files into `SR/YYYYMMDD/` directory structure
+### Quick Start
+
+```bash
+# Compress videos with GPU acceleration
+uv run vbc/main.py /path/to/videos --gpu --threads 8
+
+# CPU mode with high quality
+uv run vbc/main.py /path/to/videos --cpu --cq 35
+```
+
+### Features
+
+- 🚀 **Multi-threaded**: Dynamic concurrency control (adjust with `<`/`>` keys)
+- 🎯 **Smart Compression**: Camera-specific quality settings, auto-rotation
+- 🎨 **Rich UI**: Real-time dashboard with 6 panels
+- 🔧 **Flexible**: YAML config + CLI overrides
+- 📦 **Deep Metadata**: Full EXIF/GPS preservation with ExifTool
+
+### Documentation
+
+**📚 [Full Documentation](docs/)** - Comprehensive guides and API reference
+
+- [Getting Started](docs/getting-started/installation.md) - Installation & quick start
+- [Configuration](docs/getting-started/configuration.md) - All settings explained
+- [Runtime Controls](docs/user-guide/runtime-controls.md) - Keyboard shortcuts
+- [Advanced Features](docs/user-guide/advanced.md) - Dynamic CQ, auto-rotation
+- [Architecture](docs/architecture/overview.md) - System design
+- [API Reference](docs/api/) - Auto-generated from code
+
+**🌐 Build docs:** `./serve-docs.sh` → http://127.0.0.1:8000
+
+### Architecture
+
+VBC uses **Clean Architecture** with event-driven design:
+
+```
+UI Layer (Rich dashboard, keyboard controls)
+    ↓ Events (EventBus)
+Pipeline Layer (Orchestrator, queue management)
+    ↓ Domain Models
+Infrastructure Layer (FFmpeg, ExifTool, FFprobe)
+```
+
+See [Architecture Overview](docs/architecture/overview.md) for details.
+
+---
+
+## Other Scripts
+
+### [Video](video/) - Legacy & Utilities
+
+- **vbc.py** *(legacy)* - Original monolithic version (use `vbc/` instead)
+- **move_err_files.py** - Moves failed compression sources to `/tmp/err`
+- **rename_video.py** - Universal video renaming (DJI, Panasonic, Sony)
+- **check_4k.py** - Scans MP4 tree for 4K/non-4K classification
+- **check_collisions.py** - Detects basename collisions
+- **sort_video_qvr.sh** - Organizes QVR files by date
+- **sort_video_sr.sh** - Organizes Screen Recordings by date
 
 ### [Photo](photo/)
 
