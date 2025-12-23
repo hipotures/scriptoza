@@ -3,8 +3,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from vbc.infrastructure.ffmpeg import FFmpegAdapter
-from vbc.domain.models import VideoFile, CompressionJob, JobStatus, VideoMetadata
-from vbc.domain.events import JobProgressUpdated
+from vbc.domain.models import VideoFile, CompressionJob, JobStatus
 from vbc.config.models import GeneralConfig
 
 def test_ffmpeg_command_generation_gpu():
@@ -50,7 +49,6 @@ def test_ffmpeg_compress_success():
     with patch("subprocess.Popen") as mock_popen:
         process_instance = mock_popen.return_value
         process_instance.stdout = ["frame= 100 fps=10.0 q=45.0 Lsize= 100kB time=00:00:05.00 bitrate= 100.0kbits/s speed=1.0x"]
-        process_instance.stderr = []
         process_instance.wait.return_value = 0
         process_instance.returncode = 0
         
@@ -68,7 +66,6 @@ def test_ffmpeg_compress_failure():
     with patch("subprocess.Popen") as mock_popen:
         process_instance = mock_popen.return_value
         process_instance.stdout = ["Error message from ffmpeg"]
-        process_instance.stderr = []
         process_instance.wait.return_value = 1
         process_instance.returncode = 1
         
@@ -77,29 +74,8 @@ def test_ffmpeg_compress_failure():
         adapter.compress(job, config)
         
         assert job.status == JobStatus.FAILED
-    assert "ffmpeg exited with code 1" in job.error_message
-    assert bus.publish.called
-
-
-def test_ffmpeg_progress_from_out_time_ms():
-    config = GeneralConfig(threads=4, cq=45, gpu=True)
-    metadata = VideoMetadata(width=1920, height=1080, codec="h264", fps=30.0, duration=10.0)
-    vf = VideoFile(path=Path("input.mp4"), size_bytes=1000, metadata=metadata)
-    job = CompressionJob(source_file=vf, output_path=Path("output.mp4"))
-
-    process_instance = MagicMock()
-    process_instance.stdout = ["out_time_ms=5000000\n", "progress=continue\n"]
-    process_instance.stderr = []
-    process_instance.wait.return_value = 0
-    process_instance.returncode = 0
-
-    bus = MagicMock()
-    with patch("subprocess.Popen", return_value=process_instance):
-        adapter = FFmpegAdapter(event_bus=bus)
-        adapter.compress(job, config)
-
-    published = [call.args[0] for call in bus.publish.call_args_list]
-    assert any(isinstance(event, JobProgressUpdated) and event.progress_percent > 0 for event in published)
+        assert "ffmpeg exited with code 1" in job.error_message
+        assert bus.publish.called
 
 
 def test_ffmpeg_compress_shutdown_event_interrupts(tmp_path):
@@ -116,7 +92,6 @@ def test_ffmpeg_compress_shutdown_event_interrupts(tmp_path):
 
     process_instance = MagicMock()
     process_instance.stdout = []
-    process_instance.stderr = []
     process_instance.poll.return_value = None
     process_instance.wait.return_value = 0
 
@@ -139,8 +114,7 @@ def test_ffmpeg_compress_hw_cap_error(tmp_path):
     tmp_output.write_bytes(b"tmp")
 
     process_instance = MagicMock()
-    process_instance.stdout = []
-    process_instance.stderr = ["Hardware is lacking required capabilities"]
+    process_instance.stdout = ["Hardware is lacking required capabilities"]
     process_instance.poll.return_value = None
     process_instance.wait.return_value = 0
     process_instance.returncode = 0
@@ -162,8 +136,7 @@ def test_ffmpeg_compress_color_error_triggers_fix(tmp_path):
     job = CompressionJob(source_file=vf, output_path=tmp_path / "output.mp4")
 
     process_instance = MagicMock()
-    process_instance.stdout = []
-    process_instance.stderr = ["is not a valid value for color_primaries"]
+    process_instance.stdout = ["is not a valid value for color_primaries"]
     process_instance.poll.return_value = None
     process_instance.wait.return_value = 0
     process_instance.returncode = 0
