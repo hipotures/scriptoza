@@ -411,7 +411,7 @@ class Orchestrator:
                     continue
 
             # Check if already compressed
-            if output_path.exists() and output_path.stat().st_mtime > vf.path.stat().st_mtime:
+            if output_path.exists() and output_path.stat().st_mtime >= vf.path.stat().st_mtime:
                 already_compressed += 1
                 continue
 
