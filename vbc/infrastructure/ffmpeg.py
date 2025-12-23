@@ -23,10 +23,14 @@ class FFmpegAdapter:
         cmd = [
             "ffmpeg",
             "-y", # Overwrite output files
+        ]
+        if config.gpu:
+            cmd.extend(["-vsync", "0"])
+        cmd.extend([
             "-fflags", "+genpts+igndts",
             "-avoid_negative_ts", "make_zero",
             "-i", str(input_path or job.source_file.path),
-        ]
+        ])
         
         # Video encoding settings
         if config.gpu:
@@ -34,7 +38,8 @@ class FFmpegAdapter:
                 "-c:v", "av1_nvenc",
                 "-cq", str(config.cq),
                 "-preset", "p7",
-                "-tune", "hq"
+                "-tune", "hq",
+                "-b:v", "0"
             ])
         else:
             cmd.extend([
