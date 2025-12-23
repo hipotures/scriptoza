@@ -23,6 +23,8 @@ class FFmpegAdapter:
         cmd = [
             "ffmpeg",
             "-y", # Overwrite output files
+            "-progress", "pipe:1",
+            "-nostats",
             "-i", str(input_path or job.source_file.path),
         ]
         
@@ -89,8 +91,10 @@ class FFmpegAdapter:
             bufsize=1
         )
         
-        # Regex to parse 'time=00:00:00.00' from ffmpeg output
+        # Regex to parse time from ffmpeg output
         time_regex = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+        out_time_regex = re.compile(r"out_time=(\d+):(\d+):(\d+\.\d+)")
+        out_time_ms_regex = re.compile(r"out_time_(?:ms|us)=(\d+)")
         hw_cap_error = False
         color_error = False
 
@@ -139,18 +143,33 @@ class FFmpegAdapter:
                 if line is None:
                     break
 
-                if "Hardware is lacking required capabilities" in line:
+                cleaned = line.strip()
+                if not cleaned:
+                    continue
+
+                if "Hardware is lacking required capabilities" in cleaned:
                     hw_cap_error = True
-                if "is not a valid value for color_primaries" in line or "is not a valid value for color_trc" in line:
+                if "is not a valid value for color_primaries" in cleaned or "is not a valid value for color_trc" in cleaned:
                     color_error = True
 
-                match = time_regex.search(line)
+                current_seconds = None
+                match = out_time_ms_regex.match(cleaned)
                 if match:
-                    h, m, s = map(float, match.groups())
-                    current_seconds = h * 3600 + m * 60 + s
-                    if total_duration > 0:
-                        progress_percent = min(100.0, (current_seconds / total_duration) * 100.0)
-                        self.event_bus.publish(JobProgressUpdated(job=job, progress_percent=progress_percent))
+                    current_seconds = float(match.group(1)) / 1_000_000.0
+                else:
+                    match = out_time_regex.match(cleaned)
+                    if match:
+                        h, m, s = map(float, match.groups())
+                        current_seconds = h * 3600 + m * 60 + s
+                    else:
+                        match = time_regex.search(cleaned)
+                        if match:
+                            h, m, s = map(float, match.groups())
+                            current_seconds = h * 3600 + m * 60 + s
+
+                if current_seconds is not None and total_duration > 0:
+                    progress_percent = min(100.0, (current_seconds / total_duration) * 100.0)
+                    self.event_bus.publish(JobProgressUpdated(job=job, progress_percent=progress_percent))
 
             process.wait()
         except KeyboardInterrupt:
