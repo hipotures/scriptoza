@@ -50,6 +50,7 @@ def test_ffmpeg_compress_success():
     with patch("subprocess.Popen") as mock_popen:
         process_instance = mock_popen.return_value
         process_instance.stdout = ["frame= 100 fps=10.0 q=45.0 Lsize= 100kB time=00:00:05.00 bitrate= 100.0kbits/s speed=1.0x"]
+        process_instance.stderr = []
         process_instance.wait.return_value = 0
         process_instance.returncode = 0
         
@@ -67,6 +68,7 @@ def test_ffmpeg_compress_failure():
     with patch("subprocess.Popen") as mock_popen:
         process_instance = mock_popen.return_value
         process_instance.stdout = ["Error message from ffmpeg"]
+        process_instance.stderr = []
         process_instance.wait.return_value = 1
         process_instance.returncode = 1
         
@@ -87,6 +89,7 @@ def test_ffmpeg_progress_from_out_time_ms():
 
     process_instance = MagicMock()
     process_instance.stdout = ["out_time_ms=5000000\n", "progress=continue\n"]
+    process_instance.stderr = []
     process_instance.wait.return_value = 0
     process_instance.returncode = 0
 
@@ -113,6 +116,7 @@ def test_ffmpeg_compress_shutdown_event_interrupts(tmp_path):
 
     process_instance = MagicMock()
     process_instance.stdout = []
+    process_instance.stderr = []
     process_instance.poll.return_value = None
     process_instance.wait.return_value = 0
 
@@ -135,7 +139,8 @@ def test_ffmpeg_compress_hw_cap_error(tmp_path):
     tmp_output.write_bytes(b"tmp")
 
     process_instance = MagicMock()
-    process_instance.stdout = ["Hardware is lacking required capabilities"]
+    process_instance.stdout = []
+    process_instance.stderr = ["Hardware is lacking required capabilities"]
     process_instance.poll.return_value = None
     process_instance.wait.return_value = 0
     process_instance.returncode = 0
@@ -157,7 +162,8 @@ def test_ffmpeg_compress_color_error_triggers_fix(tmp_path):
     job = CompressionJob(source_file=vf, output_path=tmp_path / "output.mp4")
 
     process_instance = MagicMock()
-    process_instance.stdout = ["is not a valid value for color_primaries"]
+    process_instance.stdout = []
+    process_instance.stderr = ["is not a valid value for color_primaries"]
     process_instance.poll.return_value = None
     process_instance.wait.return_value = 0
     process_instance.returncode = 0

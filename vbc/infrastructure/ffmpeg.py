@@ -86,7 +86,7 @@ class FFmpegAdapter:
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             universal_newlines=True,
             bufsize=1
         )
@@ -100,7 +100,7 @@ class FFmpegAdapter:
 
         output_queue: "queue.Queue[Optional[str]]" = queue.Queue()
 
-        def _reader():
+        def _reader_stdout():
             if not process.stdout:
                 output_queue.put(None)
                 return
@@ -108,8 +108,20 @@ class FFmpegAdapter:
                 output_queue.put(line)
             output_queue.put(None)
 
-        reader_thread = threading.Thread(target=_reader, daemon=True)
+        def _reader_stderr():
+            nonlocal hw_cap_error, color_error
+            if not process.stderr:
+                return
+            for line in process.stderr:
+                if "Hardware is lacking required capabilities" in line:
+                    hw_cap_error = True
+                if "is not a valid value for color_primaries" in line or "is not a valid value for color_trc" in line:
+                    color_error = True
+
+        reader_thread = threading.Thread(target=_reader_stdout, daemon=True)
         reader_thread.start()
+        stderr_thread = threading.Thread(target=_reader_stderr, daemon=True)
+        stderr_thread.start()
 
         try:
             while True:
@@ -147,17 +159,12 @@ class FFmpegAdapter:
                 if not cleaned:
                     continue
 
-                if "Hardware is lacking required capabilities" in cleaned:
-                    hw_cap_error = True
-                if "is not a valid value for color_primaries" in cleaned or "is not a valid value for color_trc" in cleaned:
-                    color_error = True
-
                 current_seconds = None
-                match = out_time_ms_regex.match(cleaned)
+                match = out_time_ms_regex.search(cleaned)
                 if match:
                     current_seconds = float(match.group(1)) / 1_000_000.0
                 else:
-                    match = out_time_regex.match(cleaned)
+                    match = out_time_regex.search(cleaned)
                     if match:
                         h, m, s = map(float, match.groups())
                         current_seconds = h * 3600 + m * 60 + s
@@ -172,6 +179,7 @@ class FFmpegAdapter:
                     self.event_bus.publish(JobProgressUpdated(job=job, progress_percent=progress_percent))
 
             process.wait()
+            stderr_thread.join(timeout=0.2)
         except KeyboardInterrupt:
             # User pressed Ctrl+C directly in this thread (shouldn't happen with daemon threads)
             self.logger.info(f"FFMPEG_INTERRUPTED: {filename} (KeyboardInterrupt)")
@@ -192,6 +200,7 @@ class FFmpegAdapter:
             job.error_message = "Interrupted by user (Ctrl+C)"
             raise
 
+        reader_thread.join(timeout=0.2)
         # Get tmp file path
         tmp_path = job.output_path.with_suffix('.tmp')
 
