@@ -78,9 +78,8 @@ class FFmpegAdapter:
         if config.debug:
             self.logger.debug(f"FFMPEG_CMD: {' '.join(cmd)}")
 
-        # Use duration for progress calculation if available
-        duration = job.source_file.metadata.bitrate_kbps if job.source_file.metadata else 0 # Placeholder for duration
-        # Real duration should come from ffprobe/exiftool. Using a simple placeholder for now.
+        # Use duration for progress calculation
+        total_duration = job.source_file.metadata.duration if job.source_file.metadata else 0.0
 
         process = subprocess.Popen(
             cmd,
@@ -147,11 +146,11 @@ class FFmpegAdapter:
 
                 match = time_regex.search(line)
                 if match:
-                    # Calculate progress if duration is known (simplified)
-                    # For now, just emit that something happened or parse actual seconds
                     h, m, s = map(float, match.groups())
                     current_seconds = h * 3600 + m * 60 + s
-                    # self.event_bus.publish(JobProgressUpdated(job=job, progress_percent=...))
+                    if total_duration > 0:
+                        progress_percent = min(100.0, (current_seconds / total_duration) * 100.0)
+                        self.event_bus.publish(JobProgressUpdated(job=job, progress_percent=progress_percent))
 
             process.wait()
         except KeyboardInterrupt:

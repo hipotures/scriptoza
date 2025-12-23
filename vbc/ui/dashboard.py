@@ -80,6 +80,8 @@ class _Overlay:
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
+from rich.progress_bar import ProgressBar
+from rich.columns import Columns
 from vbc.ui.state import UIState
 from vbc.domain.models import JobStatus
 
@@ -254,13 +256,14 @@ class Dashboard:
             if not self.state.active_jobs:
                 return Panel("No files processing", title="CURRENTLY PROCESSING", border_style="yellow")
 
-            table = Table(show_header=False, box=None, padding=(0, 1))
+            # Main table for the processing panel
+            table = Table(show_header=False, box=None, padding=(0, 1), expand=True)
             table.add_column("", width=1, style="yellow")
             table.add_column("File", style="yellow", width=40, no_wrap=True, overflow="ellipsis")
             table.add_column("Res", width=3, justify="right", style="cyan")
             table.add_column("FPS", width=6, justify="right", style="cyan")
             table.add_column("Size", justify="right")
-            table.add_column("Time", justify="right")
+            table.add_column("Progress", justify="left", no_wrap=True, ratio=1) # Ratio=1 makes it expand
 
             spinner_frames = "●○◉◎"
             spinner_rotating = "◐◓◑◒"
@@ -268,12 +271,39 @@ class Dashboard:
                 use_spinner = spinner_rotating if (job.rotation_angle or 0) > 0 else spinner_frames
                 spinner_char = use_spinner[(self._spinner_frame + idx) % len(use_spinner)]
 
-                # Calculate elapsed time
+                # Calculate elapsed time and ETA
                 filename = self._sanitize_filename(job.source_file.path.name)
                 elapsed = 0.0
                 start_key = job.source_file.path.name
                 if start_key in self.state.job_start_times:
                     elapsed = (datetime.now() - self.state.job_start_times[start_key]).total_seconds()
+
+                percentage = job.progress_percent
+                eta_str = "0:00:00"
+                if 0 < percentage < 100:
+                    total_est = elapsed / (percentage / 100.0)
+                    remaining = max(0, total_est - elapsed)
+                    h, r = divmod(int(remaining), 3600)
+                    m, s = divmod(r, 60)
+                    eta_str = f"{h}:{m:02d}:{s:02d}"
+                elif percentage >= 100:
+                    eta_str = "0:00:00"
+                else:
+                    eta_str = "--:--:--"
+
+                # Use a nested grid that also expands to fill the cell
+                progress_grid = Table.grid(padding=(0, 1), expand=True)
+                progress_grid.add_column(ratio=1) # Bar column takes remaining space in grid
+                progress_grid.add_column(no_wrap=True) # Percentage
+                progress_grid.add_column(no_wrap=True) # Dot
+                progress_grid.add_column(no_wrap=True) # ETA
+                
+                progress_grid.add_row(
+                    ProgressBar(total=100, completed=percentage, width=None), # width=None to expand
+                    f"[cyan]{percentage:>5.1f}%[/]",
+                    "•",
+                    f"[yellow]{eta_str}[/]"
+                )
 
                 table.add_row(
                     spinner_char,
@@ -281,7 +311,7 @@ class Dashboard:
                     self.format_resolution(job.source_file.metadata),
                     self.format_fps(job.source_file.metadata),
                     self.format_size(job.source_file.size_bytes),
-                    self.format_time(elapsed)
+                    progress_grid
                 )
 
         return Panel(table, title="CURRENTLY PROCESSING", border_style="yellow")
@@ -438,7 +468,7 @@ class Dashboard:
                 display = self.create_display()
                 with self._ui_lock:
                     self._live.update(display)
-            time.sleep(1.0)
+            time.sleep(0.5)
 
     def start(self):
         """Starts the Live display and refresh thread."""

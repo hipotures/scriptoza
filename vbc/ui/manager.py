@@ -138,7 +138,13 @@ class UIManager:
         self.state.remove_active_job(event.job)
 
     def on_job_progress(self, event: JobProgressUpdated):
-        pass
+        with self.state._lock:
+            # Find the active job by source filename (more robust than full path)
+            target_name = event.job.source_file.path.name
+            for job in self.state.active_jobs:
+                if job.source_file.path.name == target_name:
+                    job.progress_percent = event.progress_percent
+                    break
 
     def on_queue_updated(self, event: QueueUpdated):
         with self.state._lock:

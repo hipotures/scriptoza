@@ -38,3 +38,4 @@ class CompressionJob(BaseModel):
     error_message: Optional[str] = None
     duration_seconds: Optional[float] = None
     rotation_angle: Optional[int] = None
+    progress_percent: float = 0.0
