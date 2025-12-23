@@ -133,7 +133,8 @@ class Dashboard:
         """Remove non-ASCII characters for display."""
         if not self.state.strip_unicode_display:
             return filename
-        return "".join(c for c in filename if ord(c) < 128)
+        sanitized = "".join(c for c in filename if ord(c) < 128)
+        return sanitized.lstrip()
 
     def _generate_menu_panel(self) -> Panel:
         return Panel(

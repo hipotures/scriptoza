@@ -41,6 +41,7 @@ def test_dashboard_format_helpers():
 
     state.strip_unicode_display = True
     assert dashboard._sanitize_filename("cafe\u00e9") == "cafe"
+    assert dashboard._sanitize_filename("\U0001F3A5 2023-12-09") == "2023-12-09"
     state.strip_unicode_display = False
     assert dashboard._sanitize_filename("cafe\u00e9") == "cafe\u00e9"
 
