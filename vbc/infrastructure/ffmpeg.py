@@ -23,6 +23,8 @@ class FFmpegAdapter:
         cmd = [
             "ffmpeg",
             "-y", # Overwrite output files
+            "-fflags", "+genpts+igndts",
+            "-avoid_negative_ts", "make_zero",
             "-i", str(input_path or job.source_file.path),
         ]
         
