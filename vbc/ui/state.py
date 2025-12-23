@@ -48,6 +48,8 @@ class UIState:
         self.finished = False
         self.strip_unicode_display = True
         self.show_config = False
+        self.show_info = False
+        self.info_message = ""
         self.config_lines: List[str] = []
         self.processing_start_time: Optional[datetime] = None
 

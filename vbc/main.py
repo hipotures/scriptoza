@@ -154,6 +154,14 @@ def compress(
         try:
             with dashboard:
                 orchestrator.run(input_dir)
+                if ui_state.discovery_finished and ui_state.files_to_process == 0:
+                    with ui_state._lock:
+                        ui_state.info_message = (
+                            "No files to process.\n\n"
+                            "Check input path and filters (extensions, min size, camera filter)."
+                        )
+                        ui_state.show_info = True
+                    threading.Event().wait(2.0)
         finally:
             keyboard.stop()
             # Cleanup ExifTool

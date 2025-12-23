@@ -121,6 +121,17 @@ def test_dashboard_create_display_overlay():
     assert isinstance(display, Group)
 
 
+def test_dashboard_create_display_info_overlay():
+    state = UIState()
+    state.show_info = True
+    state.info_message = "No files to process."
+    dashboard = Dashboard(state)
+
+    display = dashboard.create_display()
+    assert isinstance(display, dashboard_module._Overlay)
+    assert "NOTICE" in str(display.overlay.title)
+
+
 def test_dashboard_start_stop(monkeypatch):
     state = UIState()
     dashboard = Dashboard(state)

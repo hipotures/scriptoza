@@ -163,6 +163,21 @@ class Dashboard:
             expand=False
         )
 
+    def _generate_info_overlay(self) -> Panel:
+        with self.state._lock:
+            message = self.state.info_message.strip() or "No files to process."
+        width = self.console.size.width
+        panel_width = max(40, int(width * 0.6))
+        panel_width = min(panel_width, max(20, width - 4))
+        return Panel(
+            Align.center(message),
+            title="NOTICE",
+            border_style="yellow",
+            width=panel_width,
+            style="white on black",
+            expand=False
+        )
+
     def _generate_status_panel(self) -> Panel:
         with self.state._lock:
             saved_gb = self.state.space_saved_bytes / (1024**3)
@@ -438,20 +453,7 @@ class Dashboard:
 
     def create_display(self) -> Group:
         """Creates display with all 7 panels."""
-        if self.state.show_config:
-            overlay = self._generate_config_overlay()
-            base = Group(
-                self._generate_menu_panel(),
-                self._generate_status_panel(),
-                self._generate_progress_panel(),
-                self._generate_processing_panel(),
-                self._generate_recent_panel(),
-                self._generate_queue_panel(),
-                self._generate_summary_panel()
-            )
-            return _Overlay(base, overlay, overlay.width or int(self.console.size.width * 0.6))
-
-        return Group(
+        base = Group(
             self._generate_menu_panel(),
             self._generate_status_panel(),
             self._generate_progress_panel(),
@@ -460,6 +462,15 @@ class Dashboard:
             self._generate_queue_panel(),
             self._generate_summary_panel()
         )
+
+        if self.state.show_info:
+            overlay = self._generate_info_overlay()
+            return _Overlay(base, overlay, overlay.width or int(self.console.size.width * 0.6))
+        if self.state.show_config:
+            overlay = self._generate_config_overlay()
+            return _Overlay(base, overlay, overlay.width or int(self.console.size.width * 0.6))
+
+        return base
 
     def _refresh_loop(self):
         """Background thread to update Live display."""
