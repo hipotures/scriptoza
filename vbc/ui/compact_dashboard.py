@@ -17,7 +17,7 @@ from vbc.ui.state import UIState
 from vbc.domain.models import JobStatus
 
 # Layout Constants
-TOP_BAR_LINES = 4  # Status, Gap, KPI, Hint
+TOP_BAR_LINES = 3  # Status, Gap, KPI
 FOOTER_LINES = 1   # Health counters
 MIN_2COL_W = 110   # Breakpoint for 2-column layout
 
@@ -347,21 +347,16 @@ class CompactDashboard:
             else:
                 status = "[bright_cyan]ACTIVE[/]"
             
-            paused = "" # Add pause logic if exists in state
+            # 1. Prepare KPI variables
             active_threads = len(self.state.active_jobs)
-            l1 = f"{indicator} {status} • Threads: {active_threads}/{self.state.current_threads}{paused}"
+            paused = "" # Logic for paused could be added here
             
-            # L2: Empty line (separator)
-            l2 = ""
-
-            # L3: KPI
             eta_str = "--:--"
             throughput_str = "0.0 MB/s"
             
             if self.state.processing_start_time and self.state.completed_count > 0:
                 elapsed = (datetime.now() - self.state.processing_start_time).total_seconds()
                 if elapsed > 0:
-                    # ETA
                     total = self.state.files_to_process
                     done = self.state.completed_count + self.state.failed_count
                     rem = total - done
@@ -369,20 +364,19 @@ class CompactDashboard:
                         avg = elapsed / done
                         eta_str = self.format_global_eta(avg * rem)
                     
-                    # Throughput
                     tp = self.state.total_input_bytes / elapsed
                     throughput_str = f"{tp / 1024 / 1024:.1f} MB/s"
             
             saved = self.format_size(self.state.space_saved_bytes)
             ratio = self.state.compression_ratio
-            l3 = f"ETA: {eta_str} • {throughput_str} • {saved} saved ({ratio:.1f}%)"
-            
-            # L4: Hint
-            l4 = "[dim]‹/› threads | S stop | R refresh | C config | L legend[/]"
-            
-            left_content = f"{l1}\n{l2}\n{l3}\n{l4}"
 
-            # GPU Metrics (Right Side)
+            # 2. Build Left Content (Fixed 3 lines)
+            l1 = f"{indicator} {status} • Threads: {active_threads}/{self.state.current_threads}{paused}"
+            l2 = f"ETA: {eta_str} • {throughput_str} • {saved} saved ({ratio:.1f}%)"
+            l3 = "[dim]‹/› threads | S stop | R refresh | C config | L legend[/]"
+            left_content = f"{l1}\n{l2}\n{l3}"
+
+            # 3. GPU Metrics (Right Side)
             if self.state.gpu_data:
                 g = self.state.gpu_data
                 
@@ -412,17 +406,12 @@ class CompactDashboard:
                 gu_col = _c(gu_val, 30, 60)
                 mu_col = _c(mu_val, 30, 60)
 
-                # Format strings
-                # L1: device name
+                # Format GPU lines
                 gl1 = f"[dim]{g.get('device_name', 'GPU')}[/]"
-                # L2: Empty
-                gl2 = ""
-                # L3: Consolidated metrics
+                gl2 = "" # Second line empty as requested
                 gl3 = f"[{t_col}]{g.get('temp', '??')}[/] | [{f_col}]fan {g.get('fan_speed', '??')}[/] | [{p_col}]pwr {g.get('power_draw', '??')}[/] | [{gu_col}]gpu {g.get('gpu_util', '??')}[/] | [{mu_col}]mem {g.get('mem_util', '??')}[/]"
-                # L4: Empty
-                gl4 = ""
                 
-                gpu_content = f"{gl1}\n{gl2}\n{gl3}\n{gl4}"
+                gpu_content = f"{gl1}\n{gl2}\n{gl3}"
 
                 # Create Grid for two columns
                 grid = Table.grid(expand=True)
