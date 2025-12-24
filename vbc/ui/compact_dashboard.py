@@ -446,12 +446,19 @@ class CompactDashboard:
             
             health_text = " • ".join(parts) if parts else "[green]Health: OK[/]"
             
-            # Left side: Last Action
+            # Left side: Last Action with fading
             action_text = ""
             if self.state.last_action and self.state.last_action_time:
                 age = (datetime.now() - self.state.last_action_time).total_seconds()
-                if age < 10: # 10s TTL
-                    action_text = f"[dim]{self.state.last_action}[/]"
+                if age < 15:
+                    if age < 5:
+                        style = "white"        # Stage 1: Bright
+                    elif age < 10:
+                        style = "grey70"       # Stage 2: Dim
+                    else:
+                        style = "grey30"       # Stage 3: Fading out
+                    
+                    action_text = f"[{style}]{self.state.last_action}[/]"
 
             grid = Table.grid(expand=True)
             grid.add_column(width=1) # Left padding
