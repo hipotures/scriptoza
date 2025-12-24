@@ -66,6 +66,9 @@ class Orchestrator:
         self.event_bus.publish(ActionMessage(message="SHUTDOWN requested"))
 
     def _on_thread_control(self, event: ThreadControlEvent):
+        if self._shutdown_requested:
+            return
+
         old_val = self._current_max_threads
         with self._thread_lock:
             new_val = self._current_max_threads + event.change
