@@ -448,8 +448,8 @@ class CompactDashboard:
             parts = []
             if err > 0: parts.append(f"[red]err:{err}[/]")
             if hw > 0: parts.append(f"[yellow]hw_cap:{hw}[/]")
-            if kept > 0: parts.append(f"[grey70]kept:{kept}[/]")
-            if small > 0: parts.append(f"[grey70]ign_size:{small}[/]")
+            if kept > 0: parts.append(f"[dim white]kept:{kept}[/]")
+            if small > 0: parts.append(f"[dim white]small:{small}[/]")
             
             if not parts:
                 return "[green]Health: OK[/]"
