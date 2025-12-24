@@ -17,7 +17,7 @@ from vbc.ui.state import UIState
 from vbc.domain.models import JobStatus
 
 # Layout Constants
-TOP_BAR_LINES = 3  # Status + KPI + Hint
+TOP_BAR_LINES = 4  # Status, Gap, KPI, Hint
 FOOTER_LINES = 1   # Health counters
 MIN_2COL_W = 110   # Breakpoint for 2-column layout
 
@@ -335,9 +335,9 @@ class CompactDashboard:
         """Status, KPI, Hints + GPU Metrics."""
         with self.state._lock:
             # L1: Status + Threads
+            indicator = "[green]●[/]"
             if self.state.finished:
                 status = "[green]FINISHED[/]"
-                indicator = "[green]●[/]"
             elif self.state.interrupt_requested:
                 status = "[bright_red]INTERRUPTED[/]"
                 indicator = "[red]![/]"
@@ -346,13 +346,15 @@ class CompactDashboard:
                 indicator = "[yellow]◐[/]"
             else:
                 status = "[bright_cyan]ACTIVE[/]"
-                indicator = "[green]●[/]"
             
             paused = "" # Add pause logic if exists in state
             active_threads = len(self.state.active_jobs)
             l1 = f"{indicator} {status} • Threads: {active_threads}/{self.state.current_threads}{paused}"
             
-            # L2: KPI
+            # L2: Empty line (separator)
+            l2 = ""
+
+            # L3: KPI
             eta_str = "--:--"
             throughput_str = "0.0 MB/s"
             
@@ -373,12 +375,12 @@ class CompactDashboard:
             
             saved = self.format_size(self.state.space_saved_bytes)
             ratio = self.state.compression_ratio
-            l2 = f"ETA: {eta_str} • {throughput_str} • {saved} saved ({ratio:.1f}%)"
+            l3 = f"ETA: {eta_str} • {throughput_str} • {saved} saved ({ratio:.1f}%)"
             
-            # L3: Hint
-            l3 = "[dim]‹/› threads | S stop | R refresh | C config | L legend[/]"
+            # L4: Hint
+            l4 = "[dim]‹/› threads | S stop | R refresh | C config | L legend[/]"
             
-            left_content = f"{l1}\n{l2}\n{l3}"
+            left_content = f"{l1}\n{l2}\n{l3}\n{l4}"
 
             # GPU Metrics (Right Side)
             if self.state.gpu_data:
@@ -413,12 +415,14 @@ class CompactDashboard:
                 # Format strings
                 # L1: device name
                 gl1 = f"[dim]{g.get('device_name', 'GPU')}[/]"
-                # L2: temp | fan speed
-                gl2 = f"[{t_col}]temp {g.get('temp', '??')}[/] | [{f_col}]fan speed {g.get('fan_speed', '??')}[/]"
-                # L3: power draw | gpu util | mem util
-                gl3 = f"[{p_col}]power draw {g.get('power_draw', '??')}[/] | [{gu_col}]gpu util {g.get('gpu_util', '??')}[/] | [{mu_col}]mem util {g.get('mem_util', '??')}[/]"
+                # L2: Empty
+                gl2 = ""
+                # L3: Consolidated metrics
+                gl3 = f"[{t_col}]{g.get('temp', '??')}[/] | [{f_col}]fan {g.get('fan_speed', '??')}[/] | [{p_col}]pwr {g.get('power_draw', '??')}[/] | [{gu_col}]gpu {g.get('gpu_util', '??')}[/] | [{mu_col}]mem {g.get('mem_util', '??')}[/]"
+                # L4: Empty
+                gl4 = ""
                 
-                gpu_content = f"{gl1}\n{gl2}\n{gl3}"
+                gpu_content = f"{gl1}\n{gl2}\n{gl3}\n{gl4}"
 
                 # Create Grid for two columns
                 grid = Table.grid(expand=True)
