@@ -263,13 +263,7 @@ class CompactDashboard:
             
             bar = ProgressBar(total=100, completed=int(pct), width=15)
             l3_grid = Table.grid(padding=(0, 1))
-            l3_grid.add_column(width=2) # Indentation spacer
-            l3_grid.add_column()        # Bar
-            l3_grid.add_column()        # Percentage
-            l3_grid.add_column()        # Dot
-            l3_grid.add_column()        # ETA
-            
-            l3_grid.add_row("", bar, f"{pct:>5.1f}%", "•", eta_str)
+            l3_grid.add_row(" ", bar, f"{pct:>5.1f}%", "•", eta_str)
             
             g = Group(l1, l2, l3_grid)
             return g
