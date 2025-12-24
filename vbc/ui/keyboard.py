@@ -19,6 +19,10 @@ class ToggleConfig(Event):
     """Event emitted when user toggles config display (Key 'C')."""
     pass
 
+class ToggleLegend(Event):
+    """Event emitted when user toggles legend display (Key 'L')."""
+    pass
+
 class HideConfig(Event):
     """Event emitted when user closes config display (Esc)."""
     pass
@@ -61,6 +65,9 @@ class KeyboardListener:
                         self.event_bus.publish(ActionMessage(message="REFRESH requested"))
                     elif key in ('C', 'c'):
                         self.event_bus.publish(ToggleConfig())
+                    elif key in ('L', 'l'):
+                        from vbc.ui.keyboard import ToggleLegend
+                        self.event_bus.publish(ToggleLegend())
                     elif key == '\x1b':
                         self.event_bus.publish(HideConfig())
                     elif key == '\x03':

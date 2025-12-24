@@ -7,7 +7,7 @@ from vbc.domain.events import (
     JobProgressUpdated, HardwareCapabilityExceeded, QueueUpdated,
     ActionMessage, ProcessingFinished
 )
-from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown, InterruptRequested, ToggleConfig, HideConfig
+from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown, InterruptRequested, ToggleConfig, ToggleLegend, HideConfig
 
 class UIManager:
     """Subscribes to EventBus and updates UIState."""
@@ -29,6 +29,7 @@ class UIManager:
         self.bus.subscribe(RequestShutdown, self.on_shutdown_request)
         self.bus.subscribe(InterruptRequested, self.on_interrupt_request)
         self.bus.subscribe(ToggleConfig, self.on_toggle_config)
+        self.bus.subscribe(ToggleLegend, self.on_toggle_legend)
         self.bus.subscribe(HideConfig, self.on_hide_config)
         self.bus.subscribe(QueueUpdated, self.on_queue_updated)
         self.bus.subscribe(ActionMessage, self.on_action_message)
@@ -74,10 +75,19 @@ class UIManager:
     def on_toggle_config(self, event: ToggleConfig):
         with self.state._lock:
             self.state.show_config = not self.state.show_config
+            if self.state.show_config:
+                self.state.show_legend = False
+
+    def on_toggle_legend(self, event: ToggleLegend):
+        with self.state._lock:
+            self.state.show_legend = not self.state.show_legend
+            if self.state.show_legend:
+                self.state.show_config = False
 
     def on_hide_config(self, event: HideConfig):
         with self.state._lock:
             self.state.show_config = False
+            self.state.show_legend = False
 
     def on_job_started(self, event: JobStarted):
         # Track when first job starts

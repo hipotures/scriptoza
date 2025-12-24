@@ -376,7 +376,7 @@ class CompactDashboard:
             l2 = f"ETA: {eta_str} • {throughput_str} • {saved} saved ({ratio:.1f}%)"
             
             # L3: Hint
-            l3 = "[dim]‹/› threads | S stop | R refresh | C config[/]"
+            l3 = "[dim]‹/› threads | S stop | R refresh | C config | L legend[/]"
             
             content = f"{l1}\n{l2}\n{l3}"
             
@@ -499,6 +499,25 @@ class CompactDashboard:
         w = self.console.size.width
         pw = min(max(40, int(w * 0.6)), max(20, w - 4))
         return Panel(content, title="CONFIG", border_style="cyan", width=pw, style="white on black")
+
+    def _generate_legend_overlay(self) -> Panel:
+        """Dashboard status legend."""
+        legend = [
+            "[red]fail[/]   : Błędy bieżącej sesji (FFmpeg crash, brak miejsca)",
+            "[red]err[/]    : Błędy historyczne (znaleziono plik .err na dysku)",
+            "[yellow]hw_cap[/] : Brak wolnych slotów na karcie graficznej (NVENC)",
+            "[yellow]skip[/]   : Pominięte (już w AV1 lub brak dopasowania kamery)",
+            "[dim white]kept[/]   : Zachowano oryginał (kompresja nie dała zysku)",
+            "[dim white]small[/]  : Zignorowano (plik mniejszy niż próg min-size)",
+            "[dim white]av1[/]    : Pominięte (wykryto kodek AV1)",
+            "[dim white]cam[/]    : Pominięte (model kamery nie pasuje do filtra)",
+            "",
+            "[green]✓[/] : Sukces | [red]✗[/] : Błąd | [dim]≡[/] : Zachowano | [red]⚡[/] : Przerwano"
+        ]
+        content = "\n".join(legend)
+        w = self.console.size.width
+        pw = min(max(65, int(w * 0.6)), max(20, w - 4))
+        return Panel(content, title="LEGEND", border_style="cyan", width=pw, style="white on black")
 
     # --- Main Layout Engine ---
 
@@ -643,6 +662,8 @@ class CompactDashboard:
         # Overlays
         if self.state.show_config:
             return _Overlay(layout, self._generate_config_overlay(), overlay_width=80)
+        elif self.state.show_legend:
+            return _Overlay(layout, self._generate_legend_overlay(), overlay_width=80)
         elif self.state.show_info:
              info = Panel(Align.center(self.state.info_message), title="NOTICE", border_style="yellow", width=60)
              return _Overlay(layout, info, overlay_width=60)
