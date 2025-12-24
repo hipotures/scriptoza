@@ -606,7 +606,7 @@ class CompactDashboard:
                  layout["middle"]["activity"].update(self._generate_activity_panel(h_activity))
 
         # Footer
-        layout["bottom"].update(Panel(self._generate_footer(), border_style="dim", box=None))
+        layout["bottom"].update(Align.center(self._generate_footer(), vertical="middle"))
 
         # Overlays
         if self.state.show_config:
