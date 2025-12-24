@@ -343,7 +343,7 @@ class CompactDashboard:
                 indicator = "[yellow]◐[/]"
             elif self.state.interrupt_requested:
                 status = "[bright_red]INTERRUPTED[/]"
-                indicator = "[red]![/]'"
+                indicator = "[red]![/]"
             else:
                 status = "[bright_cyan]ACTIVE[/]"
                 indicator = "[green]●[/]"
