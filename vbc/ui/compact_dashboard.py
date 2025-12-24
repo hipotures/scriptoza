@@ -437,10 +437,10 @@ class CompactDashboard:
             kept = self.state.min_ratio_skip_count
             small = self.state.ignored_small_count
             
-            # Check flash on start (5s)
+            # Check flash on start (5s after discovery finishes)
             show_zeros = False
-            if self.state.processing_start_time:
-                 if (datetime.now() - self.state.processing_start_time).total_seconds() < 5:
+            if self.state.discovery_finished and self.state.discovery_finished_time:
+                 if (datetime.now() - self.state.discovery_finished_time).total_seconds() < 5:
                      show_zeros = True
             
             parts = []

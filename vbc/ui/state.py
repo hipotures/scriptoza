@@ -41,6 +41,7 @@ class UIState:
 
         # Global Status
         self.discovery_finished = False
+        self.discovery_finished_time: Optional[datetime] = None
         self.total_files_found = 0
         self.current_threads = 0
         self.shutdown_requested = False

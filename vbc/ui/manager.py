@@ -1,3 +1,4 @@
+from datetime import datetime
 from vbc.infrastructure.event_bus import EventBus
 from vbc.ui.state import UIState
 from vbc.domain.events import (
@@ -53,6 +54,7 @@ class UIManager:
         self.state.ignored_err_count = event.ignored_err
         self.state.ignored_av1_count = event.ignored_av1
         self.state.discovery_finished = True
+        self.state.discovery_finished_time = datetime.now()
 
     def on_thread_control(self, event: ThreadControlEvent):
         with self.state._lock:
