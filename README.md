@@ -55,15 +55,17 @@ See [Architecture Overview](docs/architecture/overview.md) for details.
 
 ## Other Scripts
 
-### [Video](video/) - Legacy & Utilities
+### [Video](video/) - Video Utilities
 
-- **vbc.py** *(legacy)* - Original monolithic version (use `vbc/` instead)
-- **move_err_files.py** - Moves failed compression sources to `/tmp/err`
 - **rename_video.py** - Universal video renaming (DJI, Panasonic, Sony)
 - **check_4k.py** - Scans MP4 tree for 4K/non-4K classification
 - **check_collisions.py** - Detects basename collisions
 - **sort_video_qvr.sh** - Organizes QVR files by date
 - **sort_video_sr.sh** - Organizes Screen Recordings by date
+
+**VBC Utilities** (moved to `vbc/utils/`):
+- **move_err_files.py** - Moves failed compression sources
+- **copy_failed_videos.py** - Copies failed compression sources
 
 ### [Photo](photo/)
 
