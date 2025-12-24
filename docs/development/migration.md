@@ -1,5 +1,7 @@
 # Migration from Legacy VBC
 
+> **Note:** The legacy `video/vbc.py` script has been removed from the repository as of December 2024. This guide is preserved for historical reference.
+
 This guide helps users migrate from the legacy `video/vbc.py` monolithic script to the new modular `vbc/` architecture.
 
 ## TL;DR

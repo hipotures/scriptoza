@@ -327,23 +327,7 @@ $ cat /videos_out/video.err
 Hardware is lacking required capabilities
 ```
 
-## Compatibility
-
-### Legacy Script
-
-VBC replaces the legacy `video/vbc.py` script with full feature parity:
-
-```bash
-# Old
-python video/vbc.py /videos --threads 8 --cq 45
-
-# New (equivalent)
-uv run vbc/main.py /videos --threads 8 --cq 45
-```
-
-All CLI arguments are compatible.
-
-### Shell Completion
+## Shell Completion
 
 **Bash:**
 ```bash
