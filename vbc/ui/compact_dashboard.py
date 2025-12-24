@@ -454,9 +454,11 @@ class CompactDashboard:
                     action_text = f"[dim]{self.state.last_action}[/]"
 
             grid = Table.grid(expand=True)
+            grid.add_column(width=1) # Left padding
             grid.add_column(justify="left", ratio=1)
             grid.add_column(justify="right", ratio=1)
-            grid.add_row(action_text, health_text)
+            grid.add_column(width=1) # Right padding
+            grid.add_row("", action_text, health_text, "")
             
             return grid
 
