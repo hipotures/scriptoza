@@ -70,16 +70,18 @@ def render_sparkline(
     """
     samples = list(history)[-spark_len:]  # Last N samples (oldest → newest)
 
-    # Left pad with None if not enough samples
-    if len(samples) < spark_len:
-        samples = [None] * (spark_len - len(samples)) + samples
-
+    # Don't pad - show only existing samples (grows from left to right)
     chars = []
     for val in samples:
         bin_idx = bin_value(val, min_val, max_val)
         chars.append(SPARKLINE_MISSING if bin_idx < 0 else SPARKLINE_BLOCKS[bin_idx])
 
-    return "".join(chars)
+    # Right-pad with spaces to maintain fixed width
+    result = "".join(chars)
+    if len(result) < spark_len:
+        result = result + " " * (spark_len - len(result))
+
+    return result
 
 
 class _Overlay:
@@ -376,11 +378,22 @@ class CompactDashboard:
         return f"? {filename}"
 
     def _render_queue_item(self, file, level: str) -> RenderableType:
-        """Render queue item (always 1 line)."""
+        """Render queue item (always 1 line) with aligned columns."""
         filename = self._sanitize_filename(file.path.name, max_len=30)
         size = self.format_size(file.size_bytes)
         fps = self.format_fps(file.metadata)
-        return f"[dim]»[/] {filename}  [dim]{size}  {fps}[/]"
+
+        # Use grid for proper column alignment
+        grid = Table.grid(padding=0)
+        grid.add_column()  # Symbol + filename (flex)
+        grid.add_column(width=9, justify="right")  # Size (fixed)
+        grid.add_column(width=6, justify="right")  # FPS (fixed)
+        grid.add_row(
+            f"[dim]»[/] {filename}",
+            f"[dim]{size}[/]",
+            f"[dim]{fps}[/]" if fps else ""
+        )
+        return grid
 
     # --- Panel Generators ---
 
@@ -499,7 +512,7 @@ class CompactDashboard:
                     spark_len = max(1, gpu_panel_w)
 
                     spark = render_sparkline(history, spark_len, min_val, max_val)
-                    gl3 = spark
+                    gl3 = f"[dim cyan]{spark}[/]"  # Dim cyan like panel borders
 
                 gpu_content = f"{gl1}\n{gl2}\n{gl3}"
 
@@ -571,11 +584,15 @@ class CompactDashboard:
             av1 = self.state.ignored_av1_count
             cam = self.state.cam_skipped_count
             
-            # Check flash on start (5s after discovery finishes)
+            # Show all stats (including zeros) on start or when legend is active
             show_zeros = False
             if self.state.discovery_finished and self.state.discovery_finished_time:
                  if (datetime.now() - self.state.discovery_finished_time).total_seconds() < 5:
                      show_zeros = True
+
+            # Also show all stats when legend is active
+            if self.state.show_legend:
+                show_zeros = True
             
             parts = []
             

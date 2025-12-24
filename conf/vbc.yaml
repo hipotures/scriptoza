@@ -32,3 +32,6 @@ general:
 
 autorotate:
   'QVR_\d{8}_\d{6}\.mp4': 180
+
+gpu_config:
+  sample_interval_s: 10.0
