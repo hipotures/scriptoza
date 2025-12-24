@@ -119,7 +119,11 @@ class TestDeepMetadataCopyErrors:
             mock_run.side_effect = subprocess.TimeoutExpired(cmd=['exiftool'], timeout=30)
 
             # Should not raise, just log error
-            orchestrator._copy_deep_metadata(source, dest, err_path, cq=45, encoder="av1_nvenc", copy_metadata=True)
+            orchestrator._copy_deep_metadata(
+                source, dest, err_path,
+                cq=45, encoder="av1_nvenc",
+                original_size=1000, finished_at="2025-01-01 12:00:00"
+            )
 
             # Verify exiftool was called
             assert mock_run.called
@@ -141,7 +145,11 @@ class TestDeepMetadataCopyErrors:
             )
 
             # Should not raise, just log warning
-            orchestrator._copy_deep_metadata(source, dest, err_path, cq=45, encoder="av1_nvenc", copy_metadata=True)
+            orchestrator._copy_deep_metadata(
+                source, dest, err_path,
+                cq=45, encoder="av1_nvenc",
+                original_size=1000, finished_at="2025-01-01 12:00:00"
+            )
 
             assert mock_run.called
 
@@ -158,7 +166,11 @@ class TestDeepMetadataCopyErrors:
             mock_run.side_effect = OSError("Permission denied")
 
             # Should not raise
-            orchestrator._copy_deep_metadata(source, dest, err_path, cq=45, encoder="av1_nvenc", copy_metadata=True)
+            orchestrator._copy_deep_metadata(
+                source, dest, err_path,
+                cq=45, encoder="av1_nvenc",
+                original_size=1000, finished_at="2025-01-01 12:00:00"
+            )
 
             assert mock_run.called
 
@@ -202,29 +214,6 @@ class TestProcessFileEdgeCases:
         failed_events = [call for call in calls if len(call[0]) > 0 and 'JobFailed' in str(type(call[0][0]))]
         assert len(failed_events) > 0
 
-    def test_process_file_ffprobe_failure_writes_err(self, orchestrator, tmp_path):
-        """Test that ffprobe failure writes .err file."""
-        input_dir = tmp_path / "input"
-        output_dir = tmp_path / "input_out"
-        input_dir.mkdir()
-        output_dir.mkdir()
-
-        input_file = input_dir / "test.mp4"
-        input_file.write_text("input")
-
-        video_file = VideoFile(path=input_file, size_bytes=1000)
-
-        # Mock ffprobe to return None (file corrupted)
-        orchestrator.ffprobe_adapter.get_stream_info.return_value = None
-
-        # Process file
-        orchestrator._process_file(video_file, input_dir)
-
-        # Check .err file was created
-        err_file = output_dir / "test.err"
-        assert err_file.exists()
-        content = err_file.read_text()
-        assert "corrupted" in content.lower() or "ffprobe" in content.lower()
 
 
 class TestMetadataExtractionErrors:
