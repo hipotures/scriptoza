@@ -302,8 +302,12 @@ class CompactDashboard:
         return table
 
     def _render_active_job(self, job, level: str) -> RenderableType:
-        """Render active job based on density level."""
-        filename = self._sanitize_filename(job.source_file.path.name, max_len=40)
+        """Render active job based on density level with dynamic width."""
+        # Calculate panel width for left column
+        term_w = self.console.size.width
+        panel_w = max(40, (term_w // 2) - 4)  # Left panel width
+        filename_max = max(30, panel_w - 15)  # Reserve ~15 for spinner and spacing
+        filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
         spinner_chars = "●◐◓◑◒"
         spinner = spinner_chars[(self._spinner_frame + hash(filename)) % 5]
         
@@ -353,8 +357,12 @@ class CompactDashboard:
             return f"{spinner} {filename}  {pct:.1f}%  {eta_str}"
 
     def _render_activity_item(self, job, level: str) -> RenderableType:
-        """Render activity feed item."""
-        filename = self._sanitize_filename(job.source_file.path.name, max_len=30)
+        """Render activity feed item with dynamic width."""
+        # Calculate panel width for right column
+        term_w = self.console.size.width
+        panel_w = max(40, (term_w // 2) - 4)  # Right panel width
+        filename_max = max(25, panel_w - 20)  # Reserve ~20 for icon, size, spacing
+        filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
         
         if job.status == JobStatus.COMPLETED:
             icon = "[green]✓[/]"
@@ -398,16 +406,24 @@ class CompactDashboard:
         return f"? {filename}"
 
     def _render_queue_item(self, file, level: str) -> RenderableType:
-        """Render queue item (always 1 line) with aligned columns."""
-        filename = self._sanitize_filename(file.path.name, max_len=30)
+        """Render queue item (always 1 line) with dynamic filename width."""
         size = self.format_size(file.size_bytes)
         fps = self.format_fps(file.metadata)
 
-        # Use grid for proper column alignment
-        grid = Table.grid(padding=0)
-        grid.add_column()  # Symbol + filename (flex)
-        grid.add_column(width=9, justify="right")  # Size (fixed)
-        grid.add_column(width=6, justify="right")  # FPS (fixed)
+        # Calculate available width for filename (panel_width ≈ term_width // 2 - 4)
+        term_w = self.console.size.width
+        panel_w = max(40, (term_w // 2) - 4)  # Minimum 40 chars
+
+        # Reserve space for: "» " (2) + size (9) + " " (1) + fps (6) + spacing (2) = ~20
+        reserved = 20
+        filename_max = max(20, panel_w - reserved)
+        filename = self._sanitize_filename(file.path.name, max_len=filename_max)
+
+        # Use grid with padding between columns
+        grid = Table.grid(padding=(0, 1), expand=True)  # 1 space padding between columns
+        grid.add_column(ratio=1)  # Filename (flex)
+        grid.add_column(justify="right", width=9)  # Size (fixed 9 chars)
+        grid.add_column(justify="right", width=6)  # FPS (fixed 6 chars)
         grid.add_row(
             f"[dim]»[/] {filename}",
             f"[dim]{size}[/]",
