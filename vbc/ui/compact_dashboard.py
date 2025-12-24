@@ -349,7 +349,8 @@ class CompactDashboard:
                 indicator = "[green]●[/]"
             
             paused = "" # Add pause logic if exists in state
-            l1 = f"{indicator} {status} • Threads: {self.state.current_threads}{paused}"
+            active_threads = len(self.state.active_jobs)
+            l1 = f"{indicator} {status} • Threads: {active_threads}/{self.state.current_threads}{paused}"
             
             # L2: KPI
             eta_str = "--:--"
