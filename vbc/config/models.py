@@ -1,6 +1,15 @@
 from typing import List, Dict, Optional
 from pydantic import BaseModel, Field, field_validator
 
+class GpuConfig(BaseModel):
+    """GPU monitoring and sparkline configuration."""
+    enabled: bool = True
+    refresh_rate: int = Field(default=5, ge=1)
+    sample_interval_s: float = Field(default=5.0, ge=0.1)
+    history_window_s: float = Field(default=300.0, ge=10.0)  # 5 min
+    nvtop_device_index: int = Field(default=0, ge=0)
+    nvtop_device_name: Optional[str] = None  # Override index
+
 class GeneralConfig(BaseModel):
     threads: int = Field(default=4, gt=0)
     cq: Optional[int] = Field(default=45, ge=0, le=63)
@@ -34,3 +43,4 @@ class AutoRotateConfig(BaseModel):
 class AppConfig(BaseModel):
     general: GeneralConfig
     autorotate: AutoRotateConfig = Field(default_factory=AutoRotateConfig)
+    gpu_config: GpuConfig = Field(default_factory=GpuConfig)

@@ -57,9 +57,17 @@ class UIState:
 
         self.last_action: str = ""
         self.last_action_time: Optional[datetime] = None
-        
+
         # GPU Metrics
         self.gpu_data: Optional[Dict[str, Any]] = None
+
+        # GPU Sparkline
+        self.gpu_sparkline_metric_idx: int = 0  # 0=temp, 1=fan, 2=pwr, 3=gpu, 4=mem
+        self.gpu_history_temp: deque = deque(maxlen=60)
+        self.gpu_history_pwr: deque = deque(maxlen=60)
+        self.gpu_history_gpu: deque = deque(maxlen=60)
+        self.gpu_history_mem: deque = deque(maxlen=60)
+        self.gpu_history_fan: deque = deque(maxlen=60)
 
     @property
     def space_saved_bytes(self) -> int:

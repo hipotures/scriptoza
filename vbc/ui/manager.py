@@ -7,7 +7,7 @@ from vbc.domain.events import (
     JobProgressUpdated, HardwareCapabilityExceeded, QueueUpdated,
     ActionMessage, ProcessingFinished
 )
-from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown, InterruptRequested, ToggleConfig, ToggleLegend, HideConfig
+from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown, InterruptRequested, ToggleConfig, ToggleLegend, HideConfig, RotateGpuMetric
 
 class UIManager:
     """Subscribes to EventBus and updates UIState."""
@@ -30,6 +30,7 @@ class UIManager:
         self.bus.subscribe(InterruptRequested, self.on_interrupt_request)
         self.bus.subscribe(ToggleConfig, self.on_toggle_config)
         self.bus.subscribe(ToggleLegend, self.on_toggle_legend)
+        self.bus.subscribe(RotateGpuMetric, self.on_rotate_gpu_metric)
         self.bus.subscribe(HideConfig, self.on_hide_config)
         self.bus.subscribe(QueueUpdated, self.on_queue_updated)
         self.bus.subscribe(ActionMessage, self.on_action_message)
@@ -83,6 +84,15 @@ class UIManager:
             self.state.show_legend = not self.state.show_legend
             if self.state.show_legend:
                 self.state.show_config = False
+
+    def on_rotate_gpu_metric(self, event: RotateGpuMetric):
+        """Rotate GPU sparkline metric (temp → fan → pwr → gpu → mem)."""
+        metric_names = ["Temperature", "Fan Speed", "Power Draw", "GPU Utilization", "Memory Utilization"]
+
+        with self.state._lock:
+            self.state.gpu_sparkline_metric_idx = (self.state.gpu_sparkline_metric_idx + 1) % 5
+            current_name = metric_names[self.state.gpu_sparkline_metric_idx]
+            self.state.set_last_action(f"GPU Graph: {current_name}")
 
     def on_hide_config(self, event: HideConfig):
         with self.state._lock:

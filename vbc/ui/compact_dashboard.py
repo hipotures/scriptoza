@@ -3,6 +3,7 @@ import threading
 import time
 from datetime import datetime
 from typing import Optional, List, Tuple, Any
+from collections import deque
 from rich.live import Live
 from rich.console import Console, Group, RenderableType
 from rich.panel import Panel
@@ -27,6 +28,58 @@ PROGRESS_MAX = 3   # 3 lines total: Header, Bar, Gap/Action
 ACTIVE_MIN = 1
 ACTIVITY_MIN = 1
 QUEUE_MIN = 1
+
+# GPU Sparkline Constants
+SPARKLINE_BLOCKS = "▁▂▃▄▅▆▇█"
+SPARKLINE_MISSING = "·"
+
+# Metric configs: (label, history_attr, min_val, max_val)
+# Order matches GL2 display: temp | fan | pwr | gpu | mem
+SPARKLINE_CONFIGS = [
+    ("Temp", "gpu_history_temp", 35.0, 70.0),   # 0: 35°C=▁, 70°C=█
+    ("Fan",  "gpu_history_fan",  0.0, 100.0),   # 1: 0%=▁, 100%=█
+    ("Pwr",  "gpu_history_pwr",  100.0, 400.0), # 2: 100W=▁, 400W=█
+    ("GPU",  "gpu_history_gpu",  0.0, 100.0),   # 3: 0%=▁, 100%=█
+    ("Mem",  "gpu_history_mem",  0.0, 100.0),   # 4: 0%=▁, 100%=█
+]
+
+def bin_value(val: Optional[float], min_val: float, max_val: float) -> int:
+    """Map value to 0..7 for sparkline block char. -1 for None."""
+    if val is None:
+        return -1
+    if val <= min_val:
+        return 0
+    if val >= max_val:
+        return 7
+    ratio = (val - min_val) / (max_val - min_val)
+    return min(7, int(ratio * 8))
+
+def render_sparkline(
+    history: deque,
+    spark_len: int,
+    min_val: float,
+    max_val: float
+) -> str:
+    """
+    Render sparkline with newest on right, missing as ·.
+
+    Args:
+        history: deque of Optional[float]
+        spark_len: Target length of sparkline
+        min_val, max_val: Binning range
+    """
+    samples = list(history)[-spark_len:]  # Last N samples (oldest → newest)
+
+    # Left pad with None if not enough samples
+    if len(samples) < spark_len:
+        samples = [None] * (spark_len - len(samples)) + samples
+
+    chars = []
+    for val in samples:
+        bin_idx = bin_value(val, min_val, max_val)
+        chars.append(SPARKLINE_MISSING if bin_idx < 0 else SPARKLINE_BLOCKS[bin_idx])
+
+    return "".join(chars)
 
 
 class _Overlay:
@@ -373,7 +426,7 @@ class CompactDashboard:
             # 2. Build Left Content (Fixed 3 lines)
             l1 = f"{indicator} {status} • Threads: {active_threads}/{self.state.current_threads}{paused}"
             l2 = f"ETA: {eta_str} • {throughput_str} • {saved} saved ({ratio:.1f}%)"
-            l3 = "[dim]‹/› threads | S stop | R refresh | C config | L legend[/]"
+            l3 = "[dim]‹/› threads | S stop | R refresh | C config | L legend | G graph[/]"
             left_content = f"{l1}\n{l2}\n{l3}"
 
             # 3. GPU Metrics (Right Side)
@@ -408,9 +461,46 @@ class CompactDashboard:
 
                 # Format GPU lines
                 gl1 = f"[dim]{g.get('device_name', 'GPU')}[/]"
-                gl2 = "" # Second line empty as requested
-                gl3 = f"[{t_col}]{g.get('temp', '??')}[/] | [{f_col}]fan {g.get('fan_speed', '??')}[/] | [{p_col}]pwr {g.get('power_draw', '??')}[/] | [{gu_col}]gpu {g.get('gpu_util', '??')}[/] | [{mu_col}]mem {g.get('mem_util', '??')}[/]"
-                
+
+                # GL2: Current metrics with reverse highlighting for selected metric
+                with self.state._lock:
+                    metric_idx = self.state.gpu_sparkline_metric_idx
+
+                # Build GL2 with conditional reverse for active metric
+                # metric_idx: 0=temp, 1=fan, 2=pwr, 3=gpu, 4=mem
+                temp_str = f"[{t_col}]{g.get('temp', '??')}[/]"
+                fan_str = f"[{f_col}]fan {g.get('fan_speed', '??')}[/]"
+                pwr_str = f"[{p_col}]pwr {g.get('power_draw', '??')}[/]"
+                gpu_str = f"[{gu_col}]gpu {g.get('gpu_util', '??')}[/]"
+                mem_str = f"[{mu_col}]mem {g.get('mem_util', '??')}[/]"
+
+                # Apply reverse to selected metric (order: temp → fan → pwr → gpu → mem)
+                if metric_idx == 0:
+                    temp_str = f"[reverse]{temp_str}[/]"
+                elif metric_idx == 1:
+                    fan_str = f"[reverse]{fan_str}[/]"
+                elif metric_idx == 2:
+                    pwr_str = f"[reverse]{pwr_str}[/]"
+                elif metric_idx == 3:
+                    gpu_str = f"[reverse]{gpu_str}[/]"
+                elif metric_idx == 4:
+                    mem_str = f"[reverse]{mem_str}[/]"
+
+                gl2 = f"{temp_str} | {fan_str} | {pwr_str} | {gpu_str} | {mem_str}"
+
+                # GL3: Sparkline (without label)
+                with self.state._lock:
+                    label, hist_attr, min_val, max_val = SPARKLINE_CONFIGS[metric_idx]
+                    history = getattr(self.state, hist_attr)
+
+                    # Calculate sparkline length (full width, no label)
+                    term_w = self.console.size.width
+                    gpu_panel_w = max(20, (term_w // 2) - 4)
+                    spark_len = max(1, gpu_panel_w)
+
+                    spark = render_sparkline(history, spark_len, min_val, max_val)
+                    gl3 = spark
+
                 gpu_content = f"{gl1}\n{gl2}\n{gl3}"
 
                 # Create Grid for two columns
@@ -554,7 +644,18 @@ class CompactDashboard:
             "[dim white]av1[/]    : Skipped (detected AV1 codec)",
             "[dim white]cam[/]    : Skipped (camera model doesn't match filter)",
             "",
-            "[green]✓[/] : Success | [red]✗[/] : Error | [dim]≡[/] : Kept | [red]⚡[/] : Interrupted"
+            "[green]✓[/] : Success | [red]✗[/] : Error | [dim]≡[/] : Kept | [red]⚡[/] : Interrupted",
+            "",
+            "[bold cyan]GPU Graph (Key: G)[/]",
+            "  [dim]Rotate metric:[/] temp → fan → pwr → gpu → mem",
+            "  [dim]Scales:[/]",
+            "    temp: 35°C..70°C (5°C/bin), ≥70°C = max",
+            "    pwr:  100W..400W linear, ≥400W = max",
+            "    %:    0..100% linear",
+            "  [dim]Symbols:[/]",
+            "    ▁▂▃▄▅▆▇█ = low..high value",
+            "    · = missing sample",
+            "  [dim]Time:[/] left=older, right=newer (5min window)",
         ]
         content = "\n".join(legend)
         w = self.console.size.width

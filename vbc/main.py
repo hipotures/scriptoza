@@ -159,9 +159,41 @@ def compress(
         keyboard = KeyboardListener(bus)
         
         gpu_monitor = None
-        if config.general.gpu:
+        # GPU config migration: use new gpu_config if available, fallback to general.gpu
+        if hasattr(config, 'gpu_config'):
+            gpu_cfg = config.gpu_config
+        elif config.general.gpu:
+            # Backwards compatibility: use old config
+            from vbc.config.models import GpuConfig
+            gpu_cfg = GpuConfig(
+                enabled=config.general.gpu,
+                refresh_rate=config.general.gpu_refresh_rate
+            )
+        else:
+            gpu_cfg = None
+
+        if gpu_cfg and gpu_cfg.enabled:
             from vbc.infrastructure.gpu_monitor import GpuMonitor
-            gpu_monitor = GpuMonitor(ui_state, refresh_rate=config.general.gpu_refresh_rate)
+            from collections import deque
+            import math
+
+            # Calculate dynamic maxlen for history
+            maxlen = math.ceil(gpu_cfg.history_window_s / gpu_cfg.sample_interval_s)
+            maxlen = max(60, min(2000, maxlen))  # Clamp to [60, 2000]
+
+            # Update UIState deques with calculated maxlen
+            ui_state.gpu_history_temp = deque(maxlen=maxlen)
+            ui_state.gpu_history_pwr = deque(maxlen=maxlen)
+            ui_state.gpu_history_gpu = deque(maxlen=maxlen)
+            ui_state.gpu_history_mem = deque(maxlen=maxlen)
+            ui_state.gpu_history_fan = deque(maxlen=maxlen)
+
+            gpu_monitor = GpuMonitor(
+                ui_state,
+                refresh_rate=int(gpu_cfg.sample_interval_s),
+                device_index=gpu_cfg.nvtop_device_index,
+                device_name=gpu_cfg.nvtop_device_name
+            )
             gpu_monitor.start()
 
         if ui_style == "compact":

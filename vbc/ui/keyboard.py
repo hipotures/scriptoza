@@ -27,6 +27,10 @@ class HideConfig(Event):
     """Event emitted when user closes config display (Esc)."""
     pass
 
+class RotateGpuMetric(Event):
+    """Event emitted when user rotates GPU sparkline metric (Key 'G')."""
+    pass
+
 class ThreadControlEvent(Event):
     """Event emitted to adjust thread count (Keys '<' or '>')."""
     change: int # +1 or -1
@@ -68,6 +72,8 @@ class KeyboardListener:
                     elif key in ('L', 'l'):
                         from vbc.ui.keyboard import ToggleLegend
                         self.event_bus.publish(ToggleLegend())
+                    elif key in ('G', 'g'):
+                        self.event_bus.publish(RotateGpuMetric())
                     elif key == '\x1b':
                         self.event_bus.publish(HideConfig())
                     elif key == '\x03':
