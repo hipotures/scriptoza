@@ -58,6 +58,8 @@ class UIManager:
 
     def on_thread_control(self, event: ThreadControlEvent):
         with self.state._lock:
+            if self.state.shutdown_requested:
+                return
             new_val = self.state.current_threads + event.change
             self.state.current_threads = max(1, min(16, new_val))
 
