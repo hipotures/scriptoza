@@ -436,6 +436,8 @@ class CompactDashboard:
             hw = self.state.hw_cap_count
             kept = self.state.min_ratio_skip_count
             small = self.state.ignored_small_count
+            av1 = self.state.ignored_av1_count
+            cam = self.state.cam_skipped_count
             
             # Check flash on start (5s after discovery finishes)
             show_zeros = False
@@ -456,6 +458,8 @@ class CompactDashboard:
             add(skipped, "skip", "yellow")
             add(kept, "kept", "dim white")
             add(small, "small", "dim white")
+            add(av1, "av1", "dim white")
+            add(cam, "cam", "dim white")
             
             health_text = " • ".join(parts) if parts else "[green]Health: OK[/]"
             
