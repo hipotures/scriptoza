@@ -695,6 +695,11 @@ class CompactDashboard:
         if self._refresh_thread:
             self._refresh_thread.join(timeout=1.0)
         if self._live:
+            # Final update to show INTERRUPTED/FINISHED state
+            try:
+                self._live.update(self.create_display())
+            except:
+                pass
             self._live.stop()
 
     def __enter__(self):
