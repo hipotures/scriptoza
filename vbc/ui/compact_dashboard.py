@@ -447,11 +447,11 @@ class CompactDashboard:
             parts = []
             if err > 0: parts.append(f"[red]err:{err}[/]")
             if hw > 0: parts.append(f"[yellow]hw_cap:{hw}[/]")
-            if kept > 0: parts.append(f"[dim]kept:{kept}[/]")
-            if small > 0: parts.append(f"[dim]ign_size:{small}[/]")
+            if kept > 0: parts.append(f"[grey70]kept:{kept}[/]")
+            if small > 0: parts.append(f"[grey70]ign_size:{small}[/]")
             
             if not parts:
-                return "[dim]Health: OK[/]"
+                return "[green]Health: OK[/]"
             return " • ".join(parts)
 
     def _generate_config_overlay(self) -> Panel:
