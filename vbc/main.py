@@ -72,7 +72,11 @@ def compress(
         logger.info(f"Config: threads={config.general.threads}, cq={config.general.cq}, gpu={config.general.gpu}, debug={config.general.debug}")
 
         bus = EventBus()
-        ui_state = UIState()
+
+        # UI config with backwards compatibility
+        activity_feed_max = config.ui.activity_feed_max_items if hasattr(config, 'ui') else 5
+
+        ui_state = UIState(activity_feed_max_items=activity_feed_max)
         ui_state.current_threads = config.general.threads
         ui_state.strip_unicode_display = config.general.strip_unicode_display
 
@@ -198,7 +202,9 @@ def compress(
 
         if ui_style == "compact":
             from vbc.ui.compact_dashboard import CompactDashboard
-            dashboard = CompactDashboard(ui_state)
+            panel_scale = config.ui.panel_height_scale if hasattr(config, 'ui') else 0.7
+            max_active = config.ui.active_jobs_max_display if hasattr(config, 'ui') else 8
+            dashboard = CompactDashboard(ui_state, panel_height_scale=panel_scale, max_active_jobs=max_active)
         else:
             dashboard = Dashboard(ui_state)
 

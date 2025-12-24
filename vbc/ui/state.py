@@ -7,10 +7,10 @@ from vbc.domain.models import CompressionJob
 
 class UIState:
     """Thread-safe state manager for the interactive UI."""
-    
-    def __init__(self):
+
+    def __init__(self, activity_feed_max_items: int = 5):
         self._lock = threading.RLock()
-        
+
         # Counters
         self.completed_count = 0
         self.failed_count = 0
@@ -26,14 +26,14 @@ class UIState:
         self.ignored_small_count = 0
         self.ignored_err_count = 0
         self.ignored_av1_count = 0
-        
+
         # Bytes tracking
         self.total_input_bytes = 0
         self.total_output_bytes = 0
-        
+
         # Job lists
         self.active_jobs: List[CompressionJob] = []
-        self.recent_jobs = deque(maxlen=5)
+        self.recent_jobs = deque(maxlen=activity_feed_max_items)
         self.pending_files: List[Any] = []  # VideoFile objects waiting to be submitted
 
         # Job timing tracking

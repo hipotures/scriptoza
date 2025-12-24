@@ -40,7 +40,14 @@ class AutoRotateConfig(BaseModel):
                 raise ValueError(f"Invalid rotation angle {angle} for pattern {pattern}. Must be 0, 90, 180, or 270.")
         return v
 
+class UiConfig(BaseModel):
+    """UI display configuration."""
+    activity_feed_max_items: int = Field(default=5, ge=1, le=20)
+    active_jobs_max_display: int = Field(default=8, ge=1, le=16)  # Max threads to reserve space for
+    panel_height_scale: float = Field(default=0.7, ge=0.3, le=1.0)  # 0.7 = 30% reduction
+
 class AppConfig(BaseModel):
     general: GeneralConfig
     autorotate: AutoRotateConfig = Field(default_factory=AutoRotateConfig)
     gpu_config: GpuConfig = Field(default_factory=GpuConfig)
+    ui: UiConfig = Field(default_factory=UiConfig)

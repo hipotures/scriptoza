@@ -1,6 +1,7 @@
 import re
 import threading
 import time
+import unicodedata
 from datetime import datetime
 from typing import Optional, List, Tuple, Any
 from collections import deque
@@ -53,6 +54,21 @@ def bin_value(val: Optional[float], min_val: float, max_val: float) -> int:
         return 7
     ratio = (val - min_val) / (max_val - min_val)
     return min(7, int(ratio * 8))
+
+def is_wide_char(char: str) -> bool:
+    """Check if Unicode character is wide (takes 2 terminal columns)."""
+    if not char:
+        return False
+    # East Asian Width categories: F(ull), W(ide) = 2 cols, others = 1 col
+    width = unicodedata.east_asian_width(char[0])
+    return width in ('F', 'W')
+
+def format_icon(icon: str) -> str:
+    """Format icon with appropriate spacing (wide chars don't need trailing space)."""
+    if is_wide_char(icon):
+        return icon  # No space needed (e.g., ⚡)
+    else:
+        return f"{icon} "  # Add space (e.g., ✓ )
 
 def render_sparkline(
     history: deque,
@@ -156,8 +172,10 @@ class _Overlay:
 class CompactDashboard:
     """Adaptive UI implementation with dynamic density control."""
 
-    def __init__(self, state: UIState):
+    def __init__(self, state: UIState, panel_height_scale: float = 0.7, max_active_jobs: int = 8):
         self.state = state
+        self.panel_height_scale = panel_height_scale  # UI scale factor
+        self.max_active_jobs = max_active_jobs  # Max jobs to reserve space for
         self.console = Console()
         self._live: Optional[Live] = None
         self._refresh_thread: Optional[threading.Thread] = None
@@ -349,6 +367,7 @@ class CompactDashboard:
             s_in = self.format_size(in_s)
             s_out = self.format_size(out_s)
             
+            # ✓ is 1-column, needs space
             if level == "A": # 2 lines
                 l1 = f"{icon} {filename}"
                 l2 = f"  [green]{s_in}→{s_out} ({ratio:.1f}%) • {dur}[/]"
@@ -372,8 +391,9 @@ class CompactDashboard:
             return f"{icon} {filename}  [red]err[/]"
             
         elif job.status == JobStatus.INTERRUPTED:
+             # ⚡ is 2-column wide, no space needed
              icon = "[red]⚡[/]"
-             return f"{icon} {filename} [red]INTERRUPTED[/]"
+             return f"{icon}{filename} [red]INTERRUPTED[/]"
              
         return f"? {filename}"
 
@@ -700,22 +720,23 @@ class CompactDashboard:
             
         fixed_h = top_h + foot_h
         h_work = max(0, h - fixed_h)
-        
+        # Scale applied inside panel sizing, not to h_work
+
         # 2. Determine Mode
         is_2col = w >= MIN_2COL_W
-        
+
         # 3. Allocation
-        
+
         # Defaults
         h_progress = 0
         h_active = 0
         h_activity = 0
         h_queue = 0
-        
+
         layout = Layout()
         layout.split_column(
-            Layout(name="top", size=top_h),      # Top status bar
-            Layout(name="middle"),            # Main content
+            Layout(name="top", size=top_h),        # Top status bar
+            Layout(name="middle"),                 # Main content (flex)
             Layout(name="bottom", size=foot_h)     # Bottom status
         )
         
@@ -726,26 +747,28 @@ class CompactDashboard:
                 Layout(name="right")     # Activity Feed + Queue
             )
             
-            # Left: Progress + Active
-            # Progress gets min, grows to max if space
-            h_progress_frame = min(PROGRESS_MAX + 2, h_work // 3) # Try to fit MAX
-            h_progress_frame = PROGRESS_MAX + 2
-            if h_progress_frame > h_work: h_progress_frame = h_work
-            
-            h_active_frame = h_work - h_progress_frame
-            if h_active_frame < (ACTIVE_MIN + 2):
-                # Shrink progress
-                h_progress_frame = max(PROGRESS_MIN + 2, h_work - (ACTIVE_MIN + 2))
-                h_active_frame = h_work - h_progress_frame
-            
-            # Right: Activity + Queue
-            # Activity > Queue
-            h_activity_frame = h_work // 2
-            h_queue_frame = h_work - h_activity_frame
-            
+            # Left column: Progress (fixed) + Active (fixed for 8 jobs)
+            h_progress_frame = PROGRESS_MAX + 2  # 3 + 2 = 5
+            h_active_frame = (self.max_active_jobs * 3) + 2  # 8 × 3 + 2 = 26
+            h_left_total = h_progress_frame + h_active_frame  # 5 + 26 = 31
+
+            # CRITICAL: Clamp to available h_work
+            if h_left_total > h_work:
+                h_left_total = h_work
+                h_active_frame = max(ACTIVE_MIN + 2, h_work - h_progress_frame)
+                h_progress_frame = h_work - h_active_frame
+
+            # Right column: Activity (fixed) + Queue (adjusts to match left column height)
+            max_activity_items = self.state.recent_jobs.maxlen
+            h_activity_frame = (max_activity_items * 2) + 2  # N × 2 + 2
+
+            # Queue adjusts so right column height = left column height
+            h_queue_frame = h_left_total - h_activity_frame
+
+            # Hide queue if too small
             if h_queue_frame < (QUEUE_MIN + 2):
-                h_queue_frame = 0 # Hide queue
-                h_activity_frame = h_work
+                h_queue_frame = 0
+                # Don't expand activity - keep it fixed, right column will be shorter
             
             # Update Layouts
             layout["left"].split_column(
@@ -796,7 +819,7 @@ class CompactDashboard:
 
         # 4. Generate Content
         layout["top"].update(self._generate_top_bar())
-        
+
         # Middle components
         def safe_update(name, content):
             try:

@@ -72,7 +72,7 @@ class Orchestrator:
         old_val = self._current_max_threads
         with self._thread_lock:
             new_val = self._current_max_threads + event.change
-            self._current_max_threads = max(1, min(16, new_val))
+            self._current_max_threads = max(1, min(8, new_val))
             self._thread_lock.notify_all()
         # Publish feedback message (like old vbc.py lines 769, 776)
         from vbc.domain.events import ActionMessage
