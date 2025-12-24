@@ -33,16 +33,13 @@ tests/
 │   ├── test_ui_manager.py          # Event→UI integration tests
 │   ├── test_keyboard.py            # Keyboard event tests
 │   └── test_dashboard.py           # Dashboard initialization tests
-├── integration/             # Integration tests (10 tests)
-│   ├── test_orchestrator.py        # Pipeline flow tests
-│   ├── test_concurrency.py         # Thread management tests
-│   ├── test_error_markers.py       # Error file handling tests
-│   ├── test_hw_cap.py              # Hardware capability tests
-│   ├── test_skipping.py            # Skip logic tests (AV1, min ratio)
-│   └── test_color_fix.py           # FFmpeg 7.x color space tests
-└── legacy_vbc/              # Archived legacy tests
-    ├── conftest.py          # Old fixtures
-    └── test_vbc.py          # Monolithic vbc.py tests (E2E)
+└── integration/             # Integration tests (10 tests)
+    ├── test_orchestrator.py        # Pipeline flow tests
+    ├── test_concurrency.py         # Thread management tests
+    ├── test_error_markers.py       # Error file handling tests
+    ├── test_hw_cap.py              # Hardware capability tests
+    ├── test_skipping.py            # Skip logic tests (AV1, min ratio)
+    └── test_color_fix.py           # FFmpeg 7.x color space tests
 ```
 
 ## Running Tests

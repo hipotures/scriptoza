@@ -83,6 +83,6 @@ Python scripts may require external dependencies:
 - Check for missing imports at script startup with helpful error message
 
 Current dependencies:
-- `vbc.py`: `rich`, `pyyaml`, `pyexiftool` (requires system `exiftool`)
+- `vbc/main.py`: `rich`, `pyyaml`, `pyexiftool`, `typer` (requires system `exiftool`)
 - `rename_video.py`: `exiftool` system binary
 - git push after every commit
