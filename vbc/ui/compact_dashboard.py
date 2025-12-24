@@ -23,7 +23,7 @@ MIN_2COL_W = 110   # Breakpoint for 2-column layout
 
 # Panel content min/max heights (lines within frame)
 PROGRESS_MIN = 2   # Done/Total + bar
-PROGRESS_MAX = 4   # + stats + last action
+PROGRESS_MAX = 2   # Compact mode
 ACTIVE_MIN = 1
 ACTIVITY_MIN = 1
 QUEUE_MIN = 1
@@ -395,24 +395,16 @@ class CompactDashboard:
             if total > 0:
                 pct = (done / total) * 100
                 
-            header = f"Done: {done}/{total} ({pct:.1f}%)"
+            # Header combined with non-zero stats
+            stats = []
+            if failed > 0: stats.append(f"[red]Failed: {failed}[/]")
+            if skipped > 0: stats.append(f"[yellow]Skipped: {skipped}[/]")
+            stats_str = f" • {' • '.join(stats)}" if stats else ""
+            
+            header = f"Done: {done}/{total} ({pct:.1f}%){stats_str}"
             bar = ProgressBar(total=total, completed=done, width=None)
             
             rows = [header, bar]
-            
-            # Additional lines if space allows
-            if h_lines >= 3:
-                rows.append(f"Failed: {failed} • Skipped: {skipped}")
-                
-            if h_lines >= 4:
-                # Last action with TTL check
-                action = ""
-                if self.state.last_action and self.state.last_action_time:
-                    age = (datetime.now() - self.state.last_action_time).total_seconds()
-                    if age < 10: # 10s TTL
-                        action = f"[dim]Last: {self.state.last_action}[/]"
-                rows.append(action)
-
             content = Group(*rows)
             
         return Panel(content, title="PROGRESS", border_style="cyan")
@@ -438,22 +430,35 @@ class CompactDashboard:
             table = self._render_list(files, h_lines, levels, self._render_queue_item)
             return Panel(table, title="QUEUE", border_style="cyan")
             
-    def _generate_footer(self) -> str:
+    def _generate_footer(self) -> RenderableType:
         with self.state._lock:
             err = self.state.ignored_err_count
             hw = self.state.hw_cap_count
             kept = self.state.min_ratio_skip_count
             small = self.state.ignored_small_count
             
+            # Right side: Health counters
             parts = []
             if err > 0: parts.append(f"[red]err:{err}[/]")
             if hw > 0: parts.append(f"[yellow]hw_cap:{hw}[/]")
             if kept > 0: parts.append(f"[dim white]kept:{kept}[/]")
             if small > 0: parts.append(f"[dim white]small:{small}[/]")
             
-            if not parts:
-                return "[green]Health: OK[/]"
-            return " • ".join(parts)
+            health_text = " • ".join(parts) if parts else "[green]Health: OK[/]"
+            
+            # Left side: Last Action
+            action_text = ""
+            if self.state.last_action and self.state.last_action_time:
+                age = (datetime.now() - self.state.last_action_time).total_seconds()
+                if age < 10: # 10s TTL
+                    action_text = f"[dim]{self.state.last_action}[/]"
+
+            grid = Table.grid(expand=True)
+            grid.add_column(justify="left", ratio=1)
+            grid.add_column(justify="right", ratio=1)
+            grid.add_row(action_text, health_text)
+            
+            return grid
 
     def _generate_config_overlay(self) -> Panel:
         # Same as before
@@ -607,7 +612,7 @@ class CompactDashboard:
                  layout["middle"]["activity"].update(self._generate_activity_panel(h_activity))
 
         # Footer
-        layout["bottom"].update(Align.center(self._generate_footer(), vertical="middle"))
+        layout["bottom"].update(self._generate_footer())
 
         # Overlays
         if self.state.show_config:
