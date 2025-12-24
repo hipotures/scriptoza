@@ -23,7 +23,7 @@ MIN_2COL_W = 110   # Breakpoint for 2-column layout
 
 # Panel content min/max heights (lines within frame)
 PROGRESS_MIN = 2   # Done/Total + bar
-PROGRESS_MAX = 2   # Compact mode
+PROGRESS_MAX = 3   # 3 lines total: Header, Bar, Gap/Action
 ACTIVE_MIN = 1
 ACTIVITY_MIN = 1
 QUEUE_MIN = 1
@@ -404,7 +404,7 @@ class CompactDashboard:
             header = f"Done: {done}/{total} ({pct:.1f}%){stats_str}"
             bar = ProgressBar(total=total, completed=done, width=None)
             
-            rows = [header, bar]
+            rows = [header, bar, ""] # Added empty 3rd line for padding
             content = Group(*rows)
             
         return Panel(content, title="PROGRESS", border_style="cyan")
