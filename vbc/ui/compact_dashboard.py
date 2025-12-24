@@ -395,13 +395,8 @@ class CompactDashboard:
             if total > 0:
                 pct = (done / total) * 100
                 
-            # Header combined with non-zero stats
-            stats = []
-            if failed > 0: stats.append(f"[red]Failed: {failed}[/]")
-            if skipped > 0: stats.append(f"[yellow]Skipped: {skipped}[/]")
-            stats_str = f" • {' • '.join(stats)}" if stats else ""
-            
-            header = f"Done: {done}/{total} ({pct:.1f}%){stats_str}"
+            # Header (clean, stats moved to footer)
+            header = f"Done: {done}/{total} ({pct:.1f}%)"
             bar = ProgressBar(total=total, completed=done, width=None)
             
             rows = [header, bar, ""] # Added empty 3rd line for padding
@@ -432,17 +427,35 @@ class CompactDashboard:
             
     def _generate_footer(self) -> RenderableType:
         with self.state._lock:
+            # Session stats
+            failed = self.state.failed_count
+            skipped = self.state.skipped_count
+            
+            # Persistent/Discovery stats
             err = self.state.ignored_err_count
             hw = self.state.hw_cap_count
             kept = self.state.min_ratio_skip_count
             small = self.state.ignored_small_count
             
-            # Right side: Health counters
+            # Check flash on start (5s)
+            show_zeros = False
+            if self.state.processing_start_time:
+                 if (datetime.now() - self.state.processing_start_time).total_seconds() < 5:
+                     show_zeros = True
+            
             parts = []
-            if err > 0: parts.append(f"[red]err:{err}[/]")
-            if hw > 0: parts.append(f"[yellow]hw_cap:{hw}[/]")
-            if kept > 0: parts.append(f"[dim white]kept:{kept}[/]")
-            if small > 0: parts.append(f"[dim white]small:{small}[/]")
+            
+            # Helper to add part
+            def add(val, label, style):
+                if val > 0 or show_zeros:
+                    parts.append(f"[{style}]{label}:{val}[/]")
+
+            add(failed, "fail", "red")
+            add(err, "err", "red")
+            add(hw, "hw_cap", "yellow")
+            add(skipped, "skip", "yellow")
+            add(kept, "kept", "dim white")
+            add(small, "small", "dim white")
             
             health_text = " • ".join(parts) if parts else "[green]Health: OK[/]"
             
