@@ -157,6 +157,12 @@ def compress(
         )
         
         keyboard = KeyboardListener(bus)
+        
+        gpu_monitor = None
+        if config.general.gpu:
+            from vbc.infrastructure.gpu_monitor import GpuMonitor
+            gpu_monitor = GpuMonitor(ui_state, refresh_rate=config.general.gpu_refresh_rate)
+            gpu_monitor.start()
 
         if ui_style == "compact":
             from vbc.ui.compact_dashboard import CompactDashboard
@@ -178,6 +184,8 @@ def compress(
                     threading.Event().wait(2.0)
         finally:
             keyboard.stop()
+            if gpu_monitor:
+                gpu_monitor.stop()
             # Cleanup ExifTool
             if exif.et.running:
                 exif.et.terminate()

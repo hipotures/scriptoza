@@ -332,18 +332,18 @@ class CompactDashboard:
     # --- Panel Generators ---
 
     def _generate_top_bar(self) -> Panel:
-        """Status, KPI, Hints."""
+        """Status, KPI, Hints + GPU Metrics."""
         with self.state._lock:
             # L1: Status + Threads
             if self.state.finished:
                 status = "[green]FINISHED[/]"
                 indicator = "[green]●[/]"
-            elif self.state.shutdown_requested:
-                status = "[yellow]SHUTTING DOWN[/]"
-                indicator = "[yellow]◐[/]"
             elif self.state.interrupt_requested:
                 status = "[bright_red]INTERRUPTED[/]"
                 indicator = "[red]![/]"
+            elif self.state.shutdown_requested:
+                status = "[yellow]SHUTTING DOWN[/]"
+                indicator = "[yellow]◐[/]"
             else:
                 status = "[bright_cyan]ACTIVE[/]"
                 indicator = "[green]●[/]"
@@ -378,7 +378,56 @@ class CompactDashboard:
             # L3: Hint
             l3 = "[dim]‹/› threads | S stop | R refresh | C config | L legend[/]"
             
-            content = f"{l1}\n{l2}\n{l3}"
+            left_content = f"{l1}\n{l2}\n{l3}"
+
+            # GPU Metrics (Right Side)
+            if self.state.gpu_data:
+                g = self.state.gpu_data
+                
+                def _p(s):
+                    m = re.search(r"(\d+\.?\d*)", str(s))
+                    return float(m.group(1)) if m else 0.0
+
+                def _c(val, norm, high, op_le=False):
+                    if op_le: # <= norm
+                        if val <= norm: return "green"
+                    else: # < norm
+                        if val < norm: return "green"
+                    if val > high: return "red"
+                    return "yellow"
+
+                # Parse values
+                t_val = _p(g.get("temp", "0"))
+                f_val = _p(g.get("fan_speed", "0"))
+                p_val = _p(g.get("power_draw", "0"))
+                gu_val = _p(g.get("gpu_util", "0"))
+                mu_val = _p(g.get("mem_util", "0"))
+
+                # Colors
+                t_col = _c(t_val, 55, 65)
+                f_col = _c(f_val, 50, 75, op_le=True)
+                p_col = _c(p_val, 250, 380)
+                gu_col = _c(gu_val, 30, 60)
+                mu_col = _c(mu_val, 30, 60)
+
+                # Format strings
+                # L1: device name
+                gl1 = f"[dim]{g.get('device_name', 'GPU')}[/]"
+                # L2: temp | fan speed
+                gl2 = f"[{t_col}]temp {g.get('temp', '??')}[/] | [{f_col}]fan speed {g.get('fan_speed', '??')}[/]"
+                # L3: power draw | gpu util | mem util
+                gl3 = f"[{p_col}]power draw {g.get('power_draw', '??')}[/] | [{gu_col}]gpu util {g.get('gpu_util', '??')}[/] | [{mu_col}]mem util {g.get('mem_util', '??')}[/]"
+                
+                gpu_content = f"{gl1}\n{gl2}\n{gl3}"
+
+                # Create Grid for two columns
+                grid = Table.grid(expand=True)
+                grid.add_column(ratio=1) # Left
+                grid.add_column(justify="right") # Right
+                grid.add_row(left_content, gpu_content)
+                content = grid
+            else:
+                content = left_content
             
         return Panel(content, border_style="cyan", title="VBC")
 
@@ -503,16 +552,16 @@ class CompactDashboard:
     def _generate_legend_overlay(self) -> Panel:
         """Dashboard status legend."""
         legend = [
-            "[red]fail[/]   : Błędy bieżącej sesji (FFmpeg crash, brak miejsca)",
-            "[red]err[/]    : Błędy historyczne (znaleziono plik .err na dysku)",
-            "[yellow]hw_cap[/] : Brak wolnych slotów na karcie graficznej (NVENC)",
-            "[yellow]skip[/]   : Pominięte (już w AV1 lub brak dopasowania kamery)",
-            "[dim white]kept[/]   : Zachowano oryginał (kompresja nie dała zysku)",
-            "[dim white]small[/]  : Zignorowano (plik mniejszy niż próg min-size)",
-            "[dim white]av1[/]    : Pominięte (wykryto kodek AV1)",
-            "[dim white]cam[/]    : Pominięte (model kamery nie pasuje do filtra)",
+            "[red]fail[/]   : Current session errors (FFmpeg crash, no space)",
+            "[red]err[/]    : Historic errors (existing .err file found on disk)",
+            "[yellow]hw_cap[/] : Out of hardware encoder slots (NVENC sessions)",
+            "[yellow]skip[/]   : Skipped (already AV1 or camera filter mismatch)",
+            "[dim white]kept[/]   : Original kept (compression gain below threshold)",
+            "[dim white]small[/]  : Ignored (file smaller than min-size threshold)",
+            "[dim white]av1[/]    : Skipped (detected AV1 codec)",
+            "[dim white]cam[/]    : Skipped (camera model doesn't match filter)",
             "",
-            "[green]✓[/] : Sukces | [red]✗[/] : Błąd | [dim]≡[/] : Zachowano | [red]⚡[/] : Przerwano"
+            "[green]✓[/] : Success | [red]✗[/] : Error | [dim]≡[/] : Kept | [red]⚡[/] : Interrupted"
         ]
         content = "\n".join(legend)
         w = self.console.size.width

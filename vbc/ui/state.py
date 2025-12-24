@@ -55,9 +55,11 @@ class UIState:
         self.config_lines: List[str] = []
         self.processing_start_time: Optional[datetime] = None
 
-        # User action feedback (like old vbc.py)
         self.last_action: str = ""
         self.last_action_time: Optional[datetime] = None
+        
+        # GPU Metrics
+        self.gpu_data: Optional[Dict[str, Any]] = None
 
     @property
     def space_saved_bytes(self) -> int:

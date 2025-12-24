@@ -6,6 +6,7 @@ class GeneralConfig(BaseModel):
     cq: Optional[int] = Field(default=45, ge=0, le=63)
     prefetch_factor: int = Field(default=1, ge=1)
     gpu: bool = True
+    gpu_refresh_rate: int = Field(default=5, ge=1)
     copy_metadata: bool = True
     use_exif: bool = True
     filter_cameras: List[str] = Field(default_factory=list)
