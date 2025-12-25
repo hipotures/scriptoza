@@ -133,20 +133,18 @@ def main():
 
     # Context usage
     ctx_usage = data.get('context_window', {}).get('current_usage')
-    ctx_text = ''
+    total = 0
     if ctx_usage:
         total = (
             ctx_usage.get('input_tokens', 0) +
             ctx_usage.get('cache_creation_input_tokens', 0) +
             ctx_usage.get('cache_read_input_tokens', 0)
         )
-        ctx_text = f"Ctx: {format_k(total)}"
+    ctx_text = f"Ctx: {format_k(total)}"
 
     # Output tokens
     out_tokens = data.get('context_window', {}).get('total_output_tokens', 0)
-    out_text = ''
-    if out_tokens > 0:
-        out_text = f"Out: {format_k(out_tokens)}"
+    out_text = f"Out: {format_k(out_tokens)}"
 
     # Working directory
     cwd = data.get('workspace', {}).get('current_dir', '')
@@ -173,8 +171,8 @@ def main():
     c1r2 = Text(f" cwd: {cwd_short} ", style="white on red")
 
     # Column 2 (middle) - BEZ separatorów najpierw
-    c2r1 = Text(f" {ctx_text} ", style="black on yellow") if ctx_text else Text("")
-    c2r2 = Text(f" {out_text} ", style="black on yellow") if out_text else Text("")
+    c2r1 = Text(f" {ctx_text} ", style="black on yellow")
+    c2r2 = Text(f" {out_text} ", style="black on yellow")
 
     # Column 3 (right) - BEZ separatorów najpierw
     c3r1 = Text(f" {branch} ", style="white on blue") if branch else Text("")
@@ -187,10 +185,8 @@ def main():
 
     pad_to(c1r1, col1_w, "on red")
     pad_to(c1r2, col1_w, "on red")
-    if ctx_text:
-        pad_to(c2r1, col2_w, "on yellow")
-    if out_text:
-        pad_to(c2r2, col2_w, "on yellow")
+    pad_to(c2r1, col2_w, "on yellow")
+    pad_to(c2r2, col2_w, "on yellow")
     if branch:
         pad_to(c3r1, col3_w, "on blue")
     if stats:
