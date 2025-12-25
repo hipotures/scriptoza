@@ -22,7 +22,6 @@ def setup_logging():
     fh.setLevel(logging.INFO)
     fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     
-    # Konsola tylko WARNING i ERROR
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(logging.WARNING)
     ch.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
@@ -110,7 +109,7 @@ def main():
 
     with Progress(
         TextColumn("[bold blue]{task.completed}/{task.total}"),
-        TextColumn("[bold magenta]({task.fields[nn]}/{task.fields[ww]})"),
+        TextColumn("[bold magenta]({task.fields[new]} new / {task.fields[skip]} skip)"),
         BarColumn(bar_width=None),
         TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
         TextColumn("•"),
@@ -119,7 +118,7 @@ def main():
         expand=True
     ) as progress:
         
-        task = progress.add_task("Processing", total=stats['total'], nn=0, ww=0)
+        task = progress.add_task("Processing", total=stats['total'], new=0, skip=0)
         
         for filepath in sorted(mp4_files):
             filename = os.path.basename(filepath)
@@ -129,6 +128,8 @@ def main():
                 if os.path.getsize(filepath) == 0:
                     logging.info(f"Skipping empty: {filename}")
                     stats['skipped_empty'] += 1
+                    # Treat empty as skipped for the counter
+                    progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'])
                     progress.advance(task)
                     continue
             except Exception as e:
@@ -142,7 +143,7 @@ def main():
             if existing:
                 logging.info(f"Skipping (has tags): {filename}")
                 stats['skipped_has_tags'] += 1
-                progress.update(task, ww=stats['skipped_has_tags'])
+                progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'])
                 progress.advance(task)
                 continue
 
@@ -173,7 +174,7 @@ def main():
                     stats['skipped_error'] += 1
                     sys.exit(1)
             
-            progress.update(task, nn=stats['tagged'])
+            progress.update(task, new=stats['tagged'])
             progress.advance(task)
 
     report = f"""
@@ -183,8 +184,8 @@ VBC TAG FIX REPORT
 Log file: {log_file}
 Config:   {config_path}
 Total MP4 files found:      {stats['total']}
-Files to be/tagged (NN):    {stats['tagged']}
-Files already tagged (WW):  {stats['skipped_has_tags']}
+Files newly tagged:         {stats['tagged']}
+Files already tagged:       {stats['skipped_has_tags']}
 Empty files skipped:        {stats['skipped_empty']}
 Errors:                     {stats['skipped_error']}
 ----------------------------------------
