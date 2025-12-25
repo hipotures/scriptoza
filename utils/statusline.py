@@ -158,7 +158,9 @@ def main():
     console = Console(force_terminal=True, legacy_windows=False)
 
     # --- Build 2-line status without "black gaps" ---
-    SEP = ""  # jeśli masz Nerd Font / Powerline; jak nie, zamień na "▶"
+    SEP_RIGHT = "\ue0b0"  # Right separator (between sections)
+    SEP_LEFT = "\ue0b2"   # Left separator (start of line)
+    SEP_END = "\ue0b0"    # End separator (end of line)
 
     def pad_to(t: Text, width: int, style: str) -> Text:
         missing = width - t.cell_len
@@ -167,24 +169,33 @@ def main():
         return t
 
     # Column 1 (left)
-    c1r1 = Text(f" Model: {model} ", style="white on red")
-    c1r1.append(SEP, style="yellow on red")  # przejście do żółtego
+    c1r1 = Text()
+    c1r1.append(SEP_LEFT, style="red on black")  # Lewy separator (czarne tło -> czerwone)
+    c1r1.append(f" Model: {model} ", style="white on red")
+    c1r1.append(SEP_RIGHT, style="yellow on red")  # przejście do żółtego
 
-    c1r2 = Text(f" cwd: {cwd_short} ", style="white on red")
-    c1r2.append(SEP, style="yellow on red")  # przejście do żółtego
+    c1r2 = Text()
+    c1r2.append(SEP_LEFT, style="red on black")  # Lewy separator (czarne tło -> czerwone)
+    c1r2.append(f" cwd: {cwd_short} ", style="white on red")
+    c1r2.append(SEP_RIGHT, style="yellow on red")  # przejście do żółtego
 
     # Column 2 (middle)
     c2r1 = Text(f" {ctx_text} ", style="black on yellow") if ctx_text else Text("")
     if ctx_text:
-        c2r1.append(SEP, style="blue on yellow")  # przejście do niebieskiego
+        c2r1.append(SEP_RIGHT, style="blue on yellow")  # przejście do niebieskiego
 
     c2r2 = Text(f" {out_text} ", style="black on yellow") if out_text else Text("")
     if out_text:
-        c2r2.append(SEP, style="blue on yellow")
+        c2r2.append(SEP_RIGHT, style="blue on yellow")
 
     # Column 3 (right)
     c3r1 = Text(f" {branch} ", style="white on blue") if branch else Text("")
+    if branch:
+        c3r1.append(SEP_END, style="black on blue")  # Prawy separator na końcu
+
     c3r2 = Text(f" {stats} ", style="white on blue") if stats else Text("")
+    if stats:
+        c3r2.append(SEP_END, style="black on blue")  # Prawy separator na końcu
 
     # Align columns by padding WITH BACKGROUND style (no black gaps)
     col1_w = max(c1r1.cell_len, c1r2.cell_len)
