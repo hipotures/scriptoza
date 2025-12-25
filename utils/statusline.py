@@ -140,11 +140,16 @@ def main():
             ctx_usage.get('cache_creation_input_tokens', 0) +
             ctx_usage.get('cache_read_input_tokens', 0)
         )
-    ctx_text = f"Ctx: {format_k(total)}"
+    ctx_val = format_k(total)
 
     # Output tokens
     out_tokens = data.get('context_window', {}).get('total_output_tokens', 0)
-    out_text = f"Out: {format_k(out_tokens)}"
+    out_val = format_k(out_tokens)
+
+    # Right-align values in middle column
+    max_val_width = max(len(ctx_val), len(out_val))
+    ctx_text = f"Ctx: {ctx_val:>{max_val_width}}"
+    out_text = f"Out: {out_val:>{max_val_width}}"
 
     # Working directory
     cwd = data.get('workspace', {}).get('current_dir', '')
