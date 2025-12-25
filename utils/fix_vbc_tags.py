@@ -112,7 +112,7 @@ def main():
 
     # Step 2: Processing with Rich Progress
     with Progress(
-        TextColumn("[bold blue]{task.description}"),
+        TextColumn("[bold blue]{task.completed}/{task.total}"),
         BarColumn(bar_width=None),
         TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
         TextColumn("•"),
@@ -125,7 +125,6 @@ def main():
         
         for filepath in sorted(mp4_files):
             filename = os.path.basename(filepath)
-            progress.update(task, description=f"Processing: [cyan]{filename[:30]}...")
             
             existing = get_existing_tags(filepath, config_path)
             if existing:
