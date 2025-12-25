@@ -168,34 +168,17 @@ def main():
             t.append(" " * missing, style=style)
         return t
 
-    # Column 1 (left)
-    c1r1 = Text()
-    c1r1.append(SEP_LEFT, style="red on black")  # Lewy separator (czarne tło -> czerwone)
-    c1r1.append(f" Model: {model} ", style="white on red")
-    c1r1.append(SEP_RIGHT, style="yellow on red")  # przejście do żółtego
+    # Column 1 (left) - BEZ separatorów najpierw
+    c1r1 = Text(f" Model: {model} ", style="white on red")
+    c1r2 = Text(f" cwd: {cwd_short} ", style="white on red")
 
-    c1r2 = Text()
-    c1r2.append(SEP_LEFT, style="red on black")  # Lewy separator (czarne tło -> czerwone)
-    c1r2.append(f" cwd: {cwd_short} ", style="white on red")
-    c1r2.append(SEP_RIGHT, style="yellow on red")  # przejście do żółtego
-
-    # Column 2 (middle)
+    # Column 2 (middle) - BEZ separatorów najpierw
     c2r1 = Text(f" {ctx_text} ", style="black on yellow") if ctx_text else Text("")
-    if ctx_text:
-        c2r1.append(SEP_RIGHT, style="blue on yellow")  # przejście do niebieskiego
-
     c2r2 = Text(f" {out_text} ", style="black on yellow") if out_text else Text("")
-    if out_text:
-        c2r2.append(SEP_RIGHT, style="blue on yellow")
 
-    # Column 3 (right)
+    # Column 3 (right) - BEZ separatorów najpierw
     c3r1 = Text(f" {branch} ", style="white on blue") if branch else Text("")
-    if branch:
-        c3r1.append(SEP_END, style="black on blue")  # Prawy separator na końcu
-
     c3r2 = Text(f" {stats} ", style="white on blue") if stats else Text("")
-    if stats:
-        c3r2.append(SEP_END, style="black on blue")  # Prawy separator na końcu
 
     # Align columns by padding WITH BACKGROUND style (no black gaps)
     col1_w = max(c1r1.cell_len, c1r2.cell_len)
@@ -213,8 +196,35 @@ def main():
     if stats:
         pad_to(c3r2, col3_w, "on blue")
 
-    row1 = Text(); row1.append_text(c1r1); row1.append_text(c2r1); row1.append_text(c3r1)
-    row2 = Text(); row2.append_text(c1r2); row2.append_text(c2r2); row2.append_text(c3r2)
+    # TERAZ dodaj separatory (po paddingu)
+    # Separator między czerwonym a żółtym - trójkąt musi być na czerwonym tle
+    c1r1.append(SEP_RIGHT, style="red on yellow")  # trójkąt czerwony na żółtym tle
+    c1r2.append(SEP_RIGHT, style="red on yellow")
+
+    if ctx_text:
+        # Separator między żółtym a niebieskim - trójkąt musi być na żółtym tle
+        c2r1.append(SEP_RIGHT, style="yellow on blue")  # trójkąt żółty na niebieskim tle
+    if out_text:
+        c2r2.append(SEP_RIGHT, style="yellow on blue")
+
+    # Złóż wiersze z separatorami skrajnymi
+    # Row 1
+    row1 = Text()
+    row1.append(SEP_LEFT, style="red")  # Lewy separator
+    row1.append_text(c1r1)
+    row1.append_text(c2r1)
+    row1.append_text(c3r1)
+    if branch:
+        row1.append(SEP_END, style="blue")  # Prawy separator
+
+    # Row 2
+    row2 = Text()
+    row2.append(SEP_LEFT, style="red")  # Lewy separator
+    row2.append_text(c1r2)
+    row2.append_text(c2r2)
+    row2.append_text(c3r2)
+    if stats:
+        row2.append(SEP_END, style="blue")  # Prawy separator
 
     # Print
     with console.capture() as capture:
