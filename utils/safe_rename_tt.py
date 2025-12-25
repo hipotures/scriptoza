@@ -4,6 +4,7 @@ import sys
 import logging
 import argparse
 import tempfile
+import time
 from datetime import datetime
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn, SpinnerColumn
 
@@ -52,6 +53,41 @@ def extract_datetime(filename):
 
     return None
 
+def set_file_times(filepath, dt_str):
+    """
+    Set file modification and access times based on datetime string.
+
+    Args:
+        filepath: Path to the file
+        dt_str: Datetime string in format YYYYMMDD_HHMMSS
+
+    Returns:
+        True if times were set successfully, False otherwise
+    """
+    try:
+        # Parse datetime string: YYYYMMDD_HHMMSS
+        year = int(dt_str[0:4])
+        month = int(dt_str[4:6])
+        day = int(dt_str[6:8])
+        hour = int(dt_str[9:11])
+        minute = int(dt_str[11:13])
+        second = int(dt_str[13:15])
+
+        # Create datetime object in local time (not UTC)
+        # This assumes the datetime in filename represents local time
+        dt = datetime(year, month, day, hour, minute, second)
+
+        # Convert local time to Unix timestamp
+        timestamp = time.mktime(dt.timetuple())
+
+        # Set both access time and modification time
+        os.utime(filepath, (timestamp, timestamp))
+
+        return True
+    except (ValueError, OSError) as e:
+        logging.warning(f"Failed to set times for {os.path.basename(filepath)}: {e}")
+        return False
+
 def main():
     parser = argparse.ArgumentParser(description='Safe file renamer for TT_out structure (relational mp4 + companions).')
     parser.add_argument('root_dir', help='Root directory (e.g., .../TT_out/)')
@@ -86,7 +122,8 @@ def main():
         'skipped_correct': 0,
         'skipped_error': 0,
         'no_date_found': 0,
-        'processed': 0
+        'processed': 0,
+        'times_updated': 0
     }
 
     if stats['total'] == 0:
@@ -166,6 +203,12 @@ def main():
                     if filename == new_filename:
                         logging.info(f"Correct: {filename}")
                         stats['skipped_correct'] += 1
+
+                        # Set file times even if filename is already correct
+                        if not dry_run and dt_str:
+                            if set_file_times(full_path, dt_str):
+                                stats['times_updated'] += 1
+
                         stats['processed'] += 1
                         progress.update(task, skip=stats['skipped_correct'] + stats['no_date_found'] + stats['skipped_error'])
                         progress.advance(task)
@@ -187,6 +230,12 @@ def main():
                             os.rename(full_path, new_full_path)
                             logging.info(f"RENAMED: {filename} -> {new_filename}")
                             stats['renamed'] += 1
+
+                            # Set file times after successful rename
+                            if dt_str:
+                                if set_file_times(new_full_path, dt_str):
+                                    stats['times_updated'] += 1
+
                         except Exception as e:
                             progress.console.print(f"[bold red]ERROR renaming {filename}: {e}")
                             logging.error(f"FAILED {full_path}: {e}")
@@ -210,6 +259,7 @@ Files to be/renamed (new):  {stats['renamed']}
 Files already correct:      {stats['skipped_correct']}
 Files with no date found:   {stats['no_date_found']}
 Errors/Conflicts (skip):    {stats['skipped_error']}
+File times updated:         {stats['times_updated']}
 ----------------------------------------
 Sum check:
 {stats['processed']} == {stats['renamed'] + stats['skipped_correct'] + stats['no_date_found'] + stats['skipped_error']}
