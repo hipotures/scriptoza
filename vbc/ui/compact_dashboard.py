@@ -302,25 +302,26 @@ class CompactDashboard:
         return table
 
     def _render_active_job(self, job, level: str) -> RenderableType:
-        """Render active job based on density level with dynamic width."""
-        # Calculate panel width for left column
+        """Render active job with dynamic layout based on available width."""
+        # Calculate panel width based on layout mode
         term_w = self.console.size.width
-        panel_w = max(40, (term_w // 2) - 4)  # Left panel width
-        filename_max = max(30, panel_w - 15)  # Reserve ~15 for spinner and spacing
-        filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+        if term_w >= MIN_2COL_W:
+            panel_w = max(40, (term_w // 2) - 4)  # 2-column mode: half width
+        else:
+            panel_w = max(40, term_w - 4)  # 1-column mode: full width
+
         spinner_chars = "●◐◓◑◒"
-        spinner = spinner_chars[(self._spinner_frame + hash(filename)) % 5]
-        
+
         # Metadata
         meta = job.source_file.metadata
         dur_sec = meta.duration if meta else 0
         dur = self.format_time(dur_sec)
         fps = self.format_fps(meta)
         size = self.format_size(job.source_file.size_bytes)
-        
+
         # Progress
         pct = job.progress_percent or 0.0
-        
+
         # ETA calculation
         eta_str = "--:--"
         start_key = job.source_file.path.name
@@ -330,40 +331,98 @@ class CompactDashboard:
                 eta_seconds = (elapsed / pct) * (100 - pct)
                 eta_str = self.format_time(eta_seconds)
 
-        if level == "A": # 3 lines
-            # L1: ● filename
-            # L2: dur 01:02 • 30fps • in 762.4MB
-            # L3: [====] 37.9% • 03:26
-            
-            l1 = f"[green]{spinner}[/] {filename}"
-            l2 = f"  [dim]dur {dur} • {fps} • in {size}[/]"
-            
-            bar = ProgressBar(total=100, completed=int(pct), width=15)
-            l3_grid = Table.grid(padding=(0, 1))
-            l3_grid.add_row(" ", bar, f"{pct:>5.1f}%", "•", eta_str)
-            
-            g = Group(l1, l2, l3_grid)
-            return g
-            
-        elif level == "B": # 2 lines
-            # L1: ● filename
-            # L2: 37.9% • 03:26 • 762.4MB • 30fps
-            l1 = f"{spinner} {filename}"
-            l2 = f"{pct:>5.1f}% • {eta_str} • {size} • {fps}"
-            return Group(l1, l2)
-            
-        else: # C: 1 line
-            # ● filename  37.9%  03:26
-            return f"{spinner} {filename}  {pct:.1f}%  {eta_str}"
+        # Build 3 elements: name, metadata, progress bar
+        filename_max = max(30, panel_w - 3)  # Uniform truncation for both modes
+        filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+        spinner = spinner_chars[(self._spinner_frame + hash(filename)) % 5]
+
+        name_line = f"[green]{spinner}[/] {filename}"
+        meta_text = f"dur {dur} • {fps} • in {size}"
+
+        # Calculate widths for layout decision
+        # panel_w already accounts for borders/spacing, use directly
+        usable_width = panel_w
+
+        # Calculate actual widths (visible characters, not markup)
+        name_width = len(filename) + 3  # spinner + space
+        meta_width = len(meta_text)  # actual metadata text length
+
+        # Progress components: bar + percent + bullet + eta
+        pct_width = 5  # "100.0%" (without leading space)
+        bullet_width = 1  # "•"
+        eta_width = 5  # "00:00"
+        bar_min_width = 15  # Minimum bar width
+
+        # Grid has 6 columns, so 5 spaces between them
+        column_spacing = 5
+
+        # Fixed columns (everything except bar)
+        fixed_columns = name_width + meta_width + pct_width + bullet_width + eta_width
+
+        # Calculate available space for progress bar
+        bar_available = usable_width - fixed_columns - column_spacing
+
+        # Decide layout based on available width
+        # Option 1: Everything in 1 line (name + meta + progress)
+        if bar_available >= bar_min_width:
+            # 1 line: spinner filename • dur ... • fps • size [===] 8.4% • 07:46
+            bar = ProgressBar(total=100, completed=int(pct), width=bar_available)
+            l1_grid = Table.grid(padding=(0, 1))
+            l1_grid.add_row(
+                f"[green]{spinner}[/] {filename}",
+                f"[dim]{meta_text}[/]",
+                bar,
+                f"{pct:>5.1f}%",
+                "•",
+                eta_str
+            )
+            return l1_grid
+        # Option 2: Name + meta on L1 (meta right-aligned), progress on L2
+        else:
+            # Check if name + meta fits on L1
+            if (name_width + meta_width + 1) <= usable_width:  # +1 for separator
+                # 2 lines: name + meta (right-aligned) | progress bar
+                # L1: use grid with name on left, meta on right
+                l1_grid = Table.grid(padding=(0, 1), expand=True)
+                l1_grid.add_column(ratio=1)  # Name (flex)
+                l1_grid.add_column(justify="right")  # Meta (right-aligned)
+                l1_grid.add_row(
+                    f"[green]{spinner}[/] {filename}",
+                    f"[dim]{meta_text}[/]"
+                )
+
+                # L2: full-width progress bar
+                # L2: bar + pct + bullet + eta
+                fixed_l2 = pct_width + bullet_width + eta_width
+                column_spacing_l2 = 3  # 4 columns = 3 spaces
+                bar_available_l2 = usable_width - fixed_l2 - column_spacing_l2
+                bar = ProgressBar(total=100, completed=int(pct), width=bar_available_l2)
+                l2_grid = Table.grid(padding=(0, 1))
+                l2_grid.add_row(bar, f"{pct:>5.1f}%", "•", eta_str)
+                return Group(l1_grid, l2_grid)
+            else:
+                # 3 lines: name | metadata | progress
+                # L3: " " + bar + pct + bullet + eta
+                indent_width_l3 = 1  # " "
+                fixed_l3 = indent_width_l3 + pct_width + bullet_width + eta_width
+                column_spacing_l3 = 3  # 4 columns = 3 spaces
+                bar_available_l3 = usable_width - fixed_l3 - column_spacing_l3
+                bar = ProgressBar(total=100, completed=int(pct), width=max(bar_min_width, bar_available_l3))
+
+                l2 = f"  [dim]{meta_text}[/]"
+                l3_grid = Table.grid(padding=(0, 1))
+                l3_grid.add_row(" ", bar, f"{pct:>5.1f}%", "•", eta_str)
+                return Group(name_line, l2, l3_grid)
 
     def _render_activity_item(self, job, level: str) -> RenderableType:
         """Render activity feed item with dynamic width."""
-        # Calculate panel width for right column
+        # Calculate panel width based on layout mode
         term_w = self.console.size.width
-        panel_w = max(40, (term_w // 2) - 4)  # Right panel width
-        filename_max = max(25, panel_w - 20)  # Reserve ~20 for icon, size, spacing
-        filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
-        
+        if term_w >= MIN_2COL_W:
+            panel_w = max(40, (term_w // 2) - 4)  # 2-column mode: half width
+        else:
+            panel_w = max(40, term_w - 4)  # 1-column mode: full width
+
         if job.status == JobStatus.COMPLETED:
             icon = "[green]✓[/]"
             in_s = job.source_file.size_bytes
@@ -371,38 +430,59 @@ class CompactDashboard:
             diff = in_s - out_s
             ratio = (diff / in_s) * 100 if in_s > 0 else 0
             dur = self.format_time(job.duration_seconds)
-            
+
             s_in = self.format_size(in_s)
             s_out = self.format_size(out_s)
-            
+
             # ✓ is 1-column, needs space
             if level == "A": # 2 lines
+                # L1: ✓ filename (only icon + space needed, ~3 chars)
+                # L2: size → size (ratio%) • duration
+                filename_max = max(25, panel_w - 3)  # Reserve only for icon + space
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
                 l1 = f"{icon} {filename}"
-                l2 = f"  [green]{s_in}→{s_out} ({ratio:.1f}%) • {dur}[/]"
+                l2 = f"  [green]{s_in} → {s_out} ({ratio:.1f}%) • {dur}[/]"
                 return Group(l1, l2)
             else: # B: 1 line
+                # ✓ filename  -ratio%  duration (icon + stats inline, ~20 chars)
+                filename_max = max(20, panel_w - 20)  # Reserve for icon + stats
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
                 return f"{icon} {filename}  [green]-{ratio:.1f}%  {dur}[/]"
-                
+
         elif job.status == JobStatus.SKIPPED:
             # Kept original logic usually means ratio check or similar
             icon = "[dim]≡[/]"
             reason = "kept"
             if level == "A":
+                filename_max = max(25, panel_w - 3)
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
                 return Group(f"{icon} {filename}", f"  [dim]{reason} (below threshold)[/]")
-            return f"{icon} {filename}  [dim]{reason}[/]"
+            else:
+                filename_max = max(20, panel_w - 15)
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+                return f"{icon} {filename}  [dim]{reason}[/]"
 
         elif job.status == JobStatus.FAILED:
             icon = "[red]✗[/]"
             err = job.error_message or "error"
             if level == "A":
+                filename_max = max(25, panel_w - 3)
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
                 return Group(f"{icon} {filename}", f"  [red]{err}[/]")
-            return f"{icon} {filename}  [red]err[/]"
-            
+            else:
+                filename_max = max(20, panel_w - 15)
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+                return f"{icon} {filename}  [red]err[/]"
+
         elif job.status == JobStatus.INTERRUPTED:
              # ⚡ is 2-column wide, no space needed
              icon = "[red]⚡[/]"
+             filename_max = max(25, panel_w - 15)
+             filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
              return f"{icon}{filename} [red]INTERRUPTED[/]"
-             
+
+        filename_max = max(25, panel_w - 3)
+        filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
         return f"? {filename}"
 
     def _render_queue_item(self, file, level: str) -> RenderableType:
@@ -410,9 +490,12 @@ class CompactDashboard:
         size = self.format_size(file.size_bytes)
         fps = self.format_fps(file.metadata)
 
-        # Calculate available width for filename (panel_width ≈ term_width // 2 - 4)
+        # Calculate available width for filename based on layout mode
         term_w = self.console.size.width
-        panel_w = max(40, (term_w // 2) - 4)  # Minimum 40 chars
+        if term_w >= MIN_2COL_W:
+            panel_w = max(40, (term_w // 2) - 4)  # 2-column mode: half width
+        else:
+            panel_w = max(40, term_w - 4)  # 1-column mode: full width
 
         # Reserve space for: "» " (2) + size (9) + " " (1) + fps (6) + spacing (2) = ~20
         reserved = 20
@@ -588,14 +671,21 @@ class CompactDashboard:
     def _generate_active_jobs_panel(self, h_lines: int) -> Panel:
         with self.state._lock:
             jobs = self.state.active_jobs
-            levels = [("A", 3), ("B", 2), ("C", 1)]
+            # Dynamic layout: can be 2-3 lines per job depending on width
+            # Reserve 3 lines per job for worst case, but actual rendering is dynamic
+            levels = [("dynamic", 3), ("compact", 2)]
             table = self._render_list(jobs, h_lines, levels, self._render_active_job)
             return Panel(table, title="ACTIVE JOBS", border_style="cyan")
 
     def _generate_activity_panel(self, h_lines: int) -> Panel:
         with self.state._lock:
             jobs = list(self.state.recent_jobs) # already sorted roughly
-            levels = [("A", 2), ("B", 1)]
+            # In narrow mode (1-column), use more compact levels
+            term_w = self.console.size.width
+            if term_w >= MIN_2COL_W:
+                levels = [("A", 2), ("B", 1)]  # 2-column: both levels
+            else:
+                levels = [("B", 1)]  # 1-column: only 1-line format
             table = self._render_list(jobs, h_lines, levels, self._render_activity_item)
             return Panel(table, title="ACTIVITY FEED", border_style="cyan")
 
