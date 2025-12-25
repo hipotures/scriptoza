@@ -28,6 +28,12 @@ tests/data/
 !photo/*.py
 !photo/*.sh
 
+# Allow utils directory and its contents
+!utils/
+!utils/README.md
+!utils/*.py
+!utils/*.sh
+
 # Allow the new modular package
 !vbc/
 !vbc/**/

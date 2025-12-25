@@ -67,6 +67,10 @@ See [Architecture Overview](docs/architecture/overview.md) for details.
 - **move_err_files.py** - Moves failed compression sources
 - **copy_failed_videos.py** - Copies failed compression sources
 
+### [Utils](utils/) - General Utilities
+
+- **safe_rename_tt.py** - Safe, multi-format date-based renamer for TikTok downloads. Uses parent directory as prefix, supports dry-run by default, and prevents overwriting.
+
 ### [Photo](photo/)
 
 - **rename_photo.py** - Universal photo renaming tool (Sony RAW/JPG, Panasonic JPG) with standardized format: `YYYYMMDD_HHMMSS_MMM.ext` (with milliseconds)
