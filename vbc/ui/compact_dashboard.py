@@ -673,25 +673,66 @@ class CompactDashboard:
         return Panel(content, border_style="cyan", title="VBC")
 
     def _generate_progress(self, h_lines: int) -> Panel:
-        """Progress bar + counters."""
+        """Progress bar + counters (size-based progress)."""
         with self.state._lock:
+            # Liczby plików (header - bez zmian)
             total = self.state.files_to_process
             done = self.state.completed_count
             failed = self.state.failed_count
             skipped = self.state.skipped_count
-            
-            # Always show Global Bar (Line 1-2)
+
+            # Oblicz całkowity rozmiar i przetworzony rozmiar
+            total_size_bytes = 0
+            processed_size_bytes = 0
+
+            # Pending files
+            for file in self.state.pending_files:
+                total_size_bytes += file.size_bytes
+
+            # Active jobs
+            for job in self.state.active_jobs:
+                total_size_bytes += job.source_file.size_bytes
+
+            # Completed files
+            processed_size_bytes = self.state.total_input_bytes
+            total_size_bytes += processed_size_bytes
+
+            # Progress % (oparty na rozmiarach, nie liczbie plików)
             pct = 0.0
-            if total > 0:
-                pct = (done / total) * 100
-                
-            # Header (clean, stats moved to footer)
-            header = f"Done: {done}/{total} ({pct:.1f}%)"
-            bar = ProgressBar(total=total, completed=done, width=None)
-            
-            rows = [header, bar, ""] # Added empty 3rd line for padding
+            if total_size_bytes > 0:
+                pct = (processed_size_bytes / total_size_bytes) * 100
+
+            # Elapsed time
+            elapsed_str = "--:--"
+            if self.state.processing_start_time:
+                elapsed = (datetime.now() - self.state.processing_start_time).total_seconds()
+                elapsed_str = self.format_time(elapsed)
+
+            # Header (liczby plików - zostają bez zmian)
+            header = f"Done: {done}/{total}"
+
+            # Progress bar (skalowany do 0-10000 aby uniknąć problemów z dużymi liczbami)
+            if total_size_bytes > 0:
+                scaled_total = 10000
+                scaled_processed = int((processed_size_bytes / total_size_bytes) * 10000)
+            else:
+                scaled_total = 100
+                scaled_processed = 0
+
+            bar = ProgressBar(total=scaled_total, completed=scaled_processed, width=None)
+
+            # Format rozmiarów
+            processed_str = self.format_size(processed_size_bytes)
+            total_str = self.format_size(total_size_bytes)
+            sizes_str = f"{processed_str}/{total_str}"
+
+            # Bar + rozmiary + bullet + procent + bullet + czas
+            bar_grid = Table.grid(padding=(0, 1))
+            bar_grid.add_row(bar, sizes_str, "•", f"{pct:.1f}%", "•", elapsed_str)
+
+            rows = [header, bar_grid, ""]
             content = Group(*rows)
-            
+
         return Panel(content, title="PROGRESS", border_style="cyan")
 
     def _generate_active_jobs_panel(self, h_lines: int) -> Panel:
