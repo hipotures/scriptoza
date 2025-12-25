@@ -156,7 +156,7 @@ def main():
 
     # Right-align values in column 2 (In/Out)
     max_val_width_col2 = max(len(in_val), len(out_val))
-    in_text = f"In: {in_val:>{max_val_width_col2}}"
+    in_text = f"In:  {in_val:>{max_val_width_col2}}"
     out_text = f"Out: {out_val:>{max_val_width_col2}}"
 
     # Right-align values in column 3 (Ctx/Cost)
@@ -185,8 +185,8 @@ def main():
         return t
 
     # Column 1 (left) - Model/cwd
-    c1r1 = Text(f" Model: {model} ", style="white on red")
-    c1r2 = Text(f" cwd: {cwd_short} ", style="white on red")
+    c1r1 = Text(f" {model} ", style="white on red")
+    c1r2 = Text(f" {cwd_short} ", style="white on red")
 
     # Column 2 (In/Out) - yellow
     c2r1 = Text(f" {in_text} ", style="black on yellow")
