@@ -22,6 +22,7 @@ def setup_logging():
     fh.setLevel(logging.INFO)
     fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     
+    # Konsola tylko WARNING i ERROR
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(logging.WARNING)
     ch.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
@@ -32,7 +33,6 @@ def setup_logging():
     return log_filepath
 
 def get_file_dates(filepath):
-    """Returns the latest of creation or modification time in ExifTool format."""
     try:
         stat = os.stat(filepath)
         mtime = datetime.fromtimestamp(stat.st_mtime)
@@ -49,7 +49,6 @@ def get_file_dates(filepath):
         return datetime.now().strftime('%Y:%m:%d %H:%M:%S') + "+01:00"
 
 def get_existing_tags(filepath, config_path):
-    """Returns VBC tags if they exist."""
     try:
         cmd = ["exiftool"]
         if config_path:
@@ -65,7 +64,7 @@ def get_existing_tags(filepath, config_path):
     return None
 
 def main():
-    parser = argparse.ArgumentParser(description='Fix/Add missing VBC tags to MP4 files with progress bar.')
+    parser = argparse.ArgumentParser(description='Fix/Add missing VBC tags to MP4 files.')
     parser.add_argument('root_dir', help='Directory to scan recursively')
     parser.add_argument('--no-dry-run', action='store_true', help='Actually write tags to files.')
     args = parser.parse_args()
@@ -83,7 +82,6 @@ def main():
         logging.error(f"Directory does not exist: {root_path}")
         sys.exit(1)
 
-    # Find ExifTool config
     script_dir = Path(__file__).resolve().parent
     config_path = script_dir.parent / "conf" / "exiftool.conf"
     if not config_path.exists():
@@ -98,8 +96,7 @@ def main():
         'skipped_error': 0
     }
 
-    # Step 1: Discovery
-    logging.info("Scanning directory...")
+    # Discovery
     mp4_files = []
     for root, dirs, files in os.walk(root_path):
         for filename in files:
@@ -111,7 +108,6 @@ def main():
         logging.warning("No MP4 files found.")
         sys.exit(0)
 
-    # Step 2: Processing with Rich Progress
     with Progress(
         TextColumn("[bold blue]{task.completed}/{task.total}"),
         TextColumn("[bold magenta]({task.fields[nn]}/{task.fields[ww]})"),
@@ -123,39 +119,35 @@ def main():
         expand=True
     ) as progress:
         
-        task = progress.add_task(
-            "Fixing tags...", 
-            total=stats['total'], 
-            nn=0, # to be tagged
-            ww=0  # already tagged
-        )
+        task = progress.add_task("Processing", total=stats['total'], nn=0, ww=0)
         
         for filepath in sorted(mp4_files):
             filename = os.path.basename(filepath)
             
-            # Skip empty files
+            # 1. Check size
             try:
                 if os.path.getsize(filepath) == 0:
-                    logging.info(f"Skipping empty file: {filename}")
+                    logging.info(f"Skipping empty: {filename}")
                     stats['skipped_empty'] += 1
                     progress.advance(task)
                     continue
             except Exception as e:
-                logging.error(f"Error checking size of {filename}: {e}")
+                logging.error(f"Size error {filename}: {e}")
                 stats['skipped_error'] += 1
                 progress.advance(task)
                 continue
 
+            # 2. Check existing tags
             existing = get_existing_tags(filepath, config_path)
             if existing:
-                logging.info(f"Skipping (already has tags): {filename}")
+                logging.info(f"Skipping (has tags): {filename}")
                 stats['skipped_has_tags'] += 1
                 progress.update(task, ww=stats['skipped_has_tags'])
                 progress.advance(task)
                 continue
 
+            # 3. Tagging
             finished_at = get_file_dates(filepath)
-            
             tags = {
                 "XMP:VBCEncoder": "NVENC AV1 (GPU)",
                 "XMP:VBCFinishedAt": finished_at,
@@ -164,7 +156,7 @@ def main():
             }
 
             if dry_run:
-                logging.info(f"[DRY-RUN] Would tag: {filename}")
+                logging.info(f"[DRY-RUN] Tagging: {filename}")
                 stats['tagged'] += 1
             else:
                 try:
@@ -172,12 +164,12 @@ def main():
                     for k, v in tags.items():
                         cmd.append(f"-{k}={v}")
                     cmd.append(filepath)
-                    
-                    subprocess.run(cmd, capture_output=True, check=True)
+                    subprocess.run(cmd, capture_output=True, text=True, check=True)
                     logging.info(f"TAGGED: {filename}")
                     stats['tagged'] += 1
                 except Exception as e:
-                    logging.error(f"FAILED to tag {filepath}: {str(e)}")
+                    progress.console.print(f"[bold red]ERROR tagging {filename}: {e}")
+                    logging.error(f"FAILED {filepath}: {e}")
                     stats['skipped_error'] += 1
                     sys.exit(1)
             
