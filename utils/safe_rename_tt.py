@@ -18,22 +18,22 @@ def setup_logging():
     return log_filename
 
 def extract_datetime(filename):
-    # Pattern 1: YYYY.MM.DD_HH-MM-SS (z kropkami i myślnikami)
-    m1 = re.search(r'(\d{4})[\.-](\d{2})[\.-](\d{2})[_\s](\d{2})[\.-](\d{2})[\.-](\d{2})', filename)
+    # Pattern 1: YYYY.MM.DD_HH-MM-SS lub YYYY-MM-DD_HH-MM-SS (z kropkami, myslnikami, spocjami)
+    m1 = re.search(r'(\d{4})[\.-](\d{2})[\.-](\d{2})[_\s-](\d{2})[\.-](\d{2})[\.-](\d{2})', filename)
     if m1:
         return f"{m1.group(1)}{m1.group(2)}{m1.group(3)}_{m1.group(4)}{m1.group(5)}{m1.group(6)}"
     
-    # Pattern 2: YYYY-MM-DD HH_MM (bez sekund, np. z Twojego przykładu z emoji)
+    # Pattern 2: YYYY-MM-DD HH_MM (bez sekund)
     m2 = re.search(r'(\d{4})-(\d{2})-(\d{2})\s(\d{2})_(\d{2})', filename)
     if m2:
         return f"{m2.group(1)}{m2.group(2)}{m2.group(3)}_{m2.group(4)}{m2.group(5)}00"
 
-    # Pattern 3: YYYYMMDD_HHMMSS (już prawie poprawny)
+    # Pattern 3: YYYYMMDD_HHMMSS (standardowy format)
     m3 = re.search(r'(\d{8})_(\d{6})', filename)
     if m3:
         return f"{m3.group(1)}_{m3.group(2)}"
     
-    # Pattern 4: YYYY.MM.DD (sama data)
+    # Pattern 4: YYYY.MM.DD lub YYYY-MM-DD (sama data)
     m4 = re.search(r'(\d{4})[\.-](\d{2})[\.-](\d{2})', filename)
     if m4:
         return f"{m4.group(1)}{m4.group(2)}{m4.group(3)}_000000"
@@ -72,13 +72,23 @@ def main():
         subdirs = [d for d in os.listdir(root_path) if os.path.isdir(os.path.join(root_path, d))]
         
         for subdir in sorted(subdirs):
+            # Clean prefix: strip leading dots and underscores to avoid hidden files
+            clean_prefix = subdir.lstrip('.').lstrip('_').strip()
+            if not clean_prefix: # if subdir was just dots
+                clean_prefix = subdir
+
             subdir_path = os.path.join(root_path, subdir)
             files = [f for f in os.listdir(subdir_path) if os.path.isfile(os.path.join(subdir_path, f))]
             
             for filename in sorted(files):
+                if filename.startswith('rename_session_') and filename.endswith('.log'):
+                    continue
+
                 stats['total'] += 1
-                file_ext = os.path.splitext(filename)[1]
                 full_path = os.path.join(subdir_path, filename)
+                
+                # Robust extension handling for Unicode and multiple dots
+                name_part, file_ext = os.path.splitext(filename)
                 
                 dt_str = extract_datetime(filename)
                 if not dt_str:
@@ -86,7 +96,7 @@ def main():
                     stats['no_date_found'] += 1
                     continue
                 
-                new_filename = f"{subdir}_{dt_str}{file_ext}"
+                new_filename = f"{clean_prefix}_{dt_str}{file_ext}"
                 new_full_path = os.path.join(subdir_path, new_filename)
                 
                 if filename == new_filename:
@@ -95,7 +105,7 @@ def main():
                     continue
                 
                 if os.path.exists(new_full_path):
-                    logging.warning(f"CONFLICT: Destination file already exists: {new_full_path}. Keeping original name for: {full_path}")
+                    logging.warning(f"CONFLICT: Destination file already exists: {new_filename}. Keeping original: {filename}")
                     stats['skipped_error'] += 1
                     continue
 
