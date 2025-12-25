@@ -94,6 +94,7 @@ def main():
         'total': 0,
         'tagged': 0,
         'skipped_has_tags': 0,
+        'skipped_empty': 0,
         'skipped_error': 0
     }
 
@@ -126,6 +127,19 @@ def main():
         for filepath in sorted(mp4_files):
             filename = os.path.basename(filepath)
             
+            # Skip empty files
+            try:
+                if os.path.getsize(filepath) == 0:
+                    logging.info(f"Skipping empty file: {filename}")
+                    stats['skipped_empty'] += 1
+                    progress.advance(task)
+                    continue
+            except Exception as e:
+                logging.error(f"Error checking size of {filename}: {e}")
+                stats['skipped_error'] += 1
+                progress.advance(task)
+                continue
+
             existing = get_existing_tags(filepath, config_path)
             if existing:
                 logging.info(f"Skipping (already has tags): {filename}")
@@ -171,10 +185,11 @@ Config:   {config_path}
 Total MP4 files found:      {stats['total']}
 Files to be/tagged:         {stats['tagged']}
 Files already tagged:       {stats['skipped_has_tags']}
+Empty files skipped:        {stats['skipped_empty']}
 Errors:                     {stats['skipped_error']}
 ----------------------------------------
-Sum check (Total == Tagged + AlreadyTagged + Error):
-{stats['total']} == {stats['tagged'] + stats['skipped_has_tags'] + stats['skipped_error']}
+Sum check:
+{stats['total']} == {stats['tagged'] + stats['skipped_has_tags'] + stats['skipped_empty'] + stats['skipped_error']}
 ========================================
 """
     logging.info(report)
