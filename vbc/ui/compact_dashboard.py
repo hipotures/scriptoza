@@ -363,8 +363,11 @@ class CompactDashboard:
         bar_available = usable_width - fixed_columns - column_spacing
 
         # Decide layout based on available width
-        # Option 1: Everything in 1 line (name + meta + progress)
-        if bar_available >= bar_min_width:
+        # In narrow mode (1-column), always use 2-line layout (skip 1-line option)
+        is_narrow_mode = term_w < MIN_2COL_W
+
+        # Option 1: Everything in 1 line (name + meta + progress) - ONLY in wide mode
+        if not is_narrow_mode and bar_available >= bar_min_width:
             # 1 line: spinner filename • dur ... • fps • size [===] 8.4% • 07:46
             bar = ProgressBar(total=100, completed=int(pct), width=bar_available)
             l1_grid = Table.grid(padding=(0, 1))
@@ -382,12 +385,16 @@ class CompactDashboard:
             # Check if name + meta fits on L1
             if (name_width + meta_width + 1) <= usable_width:  # +1 for separator
                 # 2 lines: name + meta (right-aligned) | progress bar
+                # Recalculate filename to fit with metadata
+                available_for_name = usable_width - meta_width - 5  # -5 for spinner + spacing + separator
+                filename_2line = self._sanitize_filename(job.source_file.path.name, max_len=max(20, available_for_name))
+
                 # L1: use grid with name on left, meta on right
                 l1_grid = Table.grid(padding=(0, 1), expand=True)
                 l1_grid.add_column(ratio=1)  # Name (flex)
                 l1_grid.add_column(justify="right")  # Meta (right-aligned)
                 l1_grid.add_row(
-                    f"[green]{spinner}[/] {filename}",
+                    f"[green]{spinner}[/] {filename_2line}",
                     f"[dim]{meta_text}[/]"
                 )
 
@@ -444,11 +451,17 @@ class CompactDashboard:
                 l2 = f"  [green]{s_in} → {s_out} ({ratio:.1f}%) • {dur}[/]"
                 return Group(l1, l2)
             else: # B: 1 line
-                # ✓ filename  size → size (ratio%) • duration (icon + stats inline)
-                # Reserve: icon(2) + sizes(~20) + arrow(3) + ratio(10) + dur(7) = ~42 chars
+                # ✓ filename  |  size → size (ratio%) • duration (right-aligned)
                 filename_max = max(20, panel_w - 42)  # Reserve for icon + stats
                 filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
-                return f"{icon} {filename}  [green]{s_in} → {s_out} ({ratio:.1f}%) • {dur}[/]"
+                grid = Table.grid(padding=(0, 1), expand=True)
+                grid.add_column(ratio=1)  # Filename (left, flex)
+                grid.add_column(justify="right")  # Stats (right-aligned)
+                grid.add_row(
+                    f"{icon} {filename}",
+                    f"[green]{s_in} → {s_out} ({ratio:.1f}%) • {dur}[/]"
+                )
+                return grid
 
         elif job.status == JobStatus.SKIPPED:
             # Kept original logic usually means ratio check or similar
@@ -461,7 +474,11 @@ class CompactDashboard:
             else:
                 filename_max = max(20, panel_w - 15)
                 filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
-                return f"{icon} {filename}  [dim]{reason}[/]"
+                grid = Table.grid(padding=(0, 1), expand=True)
+                grid.add_column(ratio=1)
+                grid.add_column(justify="right")
+                grid.add_row(f"{icon} {filename}", f"[dim]{reason}[/]")
+                return grid
 
         elif job.status == JobStatus.FAILED:
             icon = "[red]✗[/]"
@@ -473,14 +490,22 @@ class CompactDashboard:
             else:
                 filename_max = max(20, panel_w - 15)
                 filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
-                return f"{icon} {filename}  [red]err[/]"
+                grid = Table.grid(padding=(0, 1), expand=True)
+                grid.add_column(ratio=1)
+                grid.add_column(justify="right")
+                grid.add_row(f"{icon} {filename}", f"[red]err[/]")
+                return grid
 
         elif job.status == JobStatus.INTERRUPTED:
              # ⚡ is 2-column wide, no space needed
              icon = "[red]⚡[/]"
              filename_max = max(25, panel_w - 15)
              filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
-             return f"{icon}{filename} [red]INTERRUPTED[/]"
+             grid = Table.grid(padding=(0, 1), expand=True)
+             grid.add_column(ratio=1)
+             grid.add_column(justify="right")
+             grid.add_row(f"{icon}{filename}", f"[red]INTERRUPTED[/]")
+             return grid
 
         filename_max = max(25, panel_w - 3)
         filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
@@ -672,9 +697,14 @@ class CompactDashboard:
     def _generate_active_jobs_panel(self, h_lines: int) -> Panel:
         with self.state._lock:
             jobs = self.state.active_jobs
-            # Dynamic layout: can be 2-3 lines per job depending on width
-            # Reserve 3 lines per job for worst case, but actual rendering is dynamic
-            levels = [("dynamic", 3), ("compact", 2)]
+            # Dynamic layout: reserve space based on terminal width
+            term_w = self.console.size.width
+            if term_w >= MIN_2COL_W:
+                # Wide mode: can use 1-3 lines per job
+                levels = [("dynamic", 3), ("compact", 2)]
+            else:
+                # Narrow mode: always 2 lines per job (max 8 jobs)
+                levels = [("dynamic", 2)]
             table = self._render_list(jobs, h_lines, levels, self._render_active_job)
             return Panel(table, title="ACTIVE JOBS", border_style="cyan")
 
@@ -898,31 +928,42 @@ class CompactDashboard:
             # 1 Column (Stack)
             # Progress > Active > Activity > Queue
             h_rem = h_work
-            
+
             h_progress_frame = min(PROGRESS_MAX + 2, h_rem)
             h_rem -= h_progress_frame
-            
-            h_active_frame = h_rem
-            h_activity_frame = 0
-            h_queue_frame = 0
-            
-            # If we have spare space, add activity
-            if h_active_frame > 10: # Arbitrary threshold for "enough active space"
-                 h_activity_frame = min(h_active_frame // 2, 8)
-                 h_active_frame -= h_activity_frame
-            
-            splits = [
-                Layout(name="progress", size=h_progress_frame),
-                Layout(name="active", size=h_active_frame)
-            ]
+
+            # Dynamic sizing: ACTIVE and ACTIVITY take only what they need, QUEUE gets the rest
+            with self.state._lock:
+                actual_jobs = len(self.state.active_jobs)
+                actual_activity = len(self.state.recent_jobs)
+
+            # ACTIVE JOBS: 2 lines per job in narrow mode (max 8 jobs), +2 for borders if not empty
+            active_content = min(actual_jobs, self.max_active_jobs)
+            h_active_frame = (active_content * 2 + 2) if active_content > 0 else 0
+
+            # ACTIVITY FEED: 1 line per item (max 5), +2 for borders if not empty
+            activity_content = min(actual_activity, 5)
+            h_activity_frame = (activity_content + 2) if activity_content > 0 else 0
+
+            # QUEUE: Gets remaining space (minimum 3 lines for borders + at least 1 item)
+            h_queue_frame = h_rem - h_active_frame - h_activity_frame
+            if h_queue_frame < 3:  # Not enough for even empty queue
+                h_queue_frame = 0
+
+            splits = [Layout(name="progress", size=h_progress_frame)]
+            if h_active_frame > 0:
+                splits.append(Layout(name="active", size=h_active_frame))
             if h_activity_frame > 0:
                 splits.append(Layout(name="activity", size=h_activity_frame))
-                
+            if h_queue_frame > 0:
+                splits.append(Layout(name="queue", size=h_queue_frame))
+
             layout["middle"].split_column(*splits)
-            
+
             h_progress = max(0, h_progress_frame - 2)
             h_active = max(0, h_active_frame - 2)
             h_activity = max(0, h_activity_frame - 2)
+            h_queue = max(0, h_queue_frame - 2)
 
         # 4. Generate Content
         layout["top"].update(self._generate_top_bar())
@@ -942,9 +983,12 @@ class CompactDashboard:
                  layout["right"]["queue"].update(self._generate_queue_panel(h_queue))
         else:
              layout["middle"]["progress"].update(self._generate_progress(h_progress))
-             layout["middle"]["active"].update(self._generate_active_jobs_panel(h_active))
+             if h_active_frame > 0:
+                 layout["middle"]["active"].update(self._generate_active_jobs_panel(h_active))
              if h_activity_frame > 0:
                  layout["middle"]["activity"].update(self._generate_activity_panel(h_activity))
+             if h_queue_frame > 0:
+                 layout["middle"]["queue"].update(self._generate_queue_panel(h_queue))
 
         # Footer
         layout["bottom"].update(self._generate_footer())
