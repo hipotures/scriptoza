@@ -64,10 +64,9 @@ def get_git_info(cwd: str) -> tuple[str, str]:
         )
         diff_output = result.stdout.strip()
 
-        stats = ''
+        ins = 0
+        dels = 0
         if diff_output:
-            ins = 0
-            dels = 0
             if 'insertion' in diff_output:
                 parts = diff_output.split()
                 for i, part in enumerate(parts):
@@ -75,7 +74,8 @@ def get_git_info(cwd: str) -> tuple[str, str]:
                         ins = int(parts[i-1])
                     if 'deletion' in part and i > 0:
                         dels = int(parts[i-1])
-            stats = f"(+{ins},-{dels})"
+
+        stats = f"(+{ins},-{dels})"
 
         return (f"⎇ {branch}" if branch else '', stats)
     except:
