@@ -170,8 +170,8 @@ def main():
     c1r1 = Text(f" Model: {model} ", style="white on red")
     c1r1.append(SEP, style="yellow on red")  # przejście do żółtego
 
-    c1r2 = Text(f" cwd: {cwd_short} ", style="white on black")
-    c1r2.append(SEP, style="yellow on black")  # przejście do żółtego
+    c1r2 = Text(f" cwd: {cwd_short} ", style="white on red")
+    c1r2.append(SEP, style="yellow on red")  # przejście do żółtego
 
     # Column 2 (middle)
     c2r1 = Text(f" {ctx_text} ", style="black on yellow") if ctx_text else Text("")
@@ -191,7 +191,7 @@ def main():
     col2_w = max(c2r1.cell_len, c2r2.cell_len)
 
     pad_to(c1r1, col1_w, "on red")
-    pad_to(c1r2, col1_w, "on black")
+    pad_to(c1r2, col1_w, "on red")
     if ctx_text:
         pad_to(c2r1, col2_w, "on yellow")
     if out_text:
