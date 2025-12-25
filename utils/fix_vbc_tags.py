@@ -5,6 +5,7 @@ import argparse
 import tempfile
 import subprocess
 import json
+import shutil
 from pathlib import Path
 from datetime import datetime
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn, SpinnerColumn
@@ -30,6 +31,12 @@ def setup_logging():
     logger.addHandler(ch)
     
     return log_filepath
+
+def check_free_space(path, min_gb=10):
+    """Returns True if there is at least min_gb free space on the disk containing path."""
+    stat = shutil.disk_usage(os.path.dirname(path))
+    free_gb = stat.free / (1024**3)
+    return free_gb >= min_gb, free_gb
 
 def get_file_dates(filepath):
     try:
@@ -66,6 +73,7 @@ def main():
     parser = argparse.ArgumentParser(description='Fix/Add missing VBC tags to MP4 files.')
     parser.add_argument('root_dir', help='Directory to scan recursively')
     parser.add_argument('--no-dry-run', action='store_true', help='Actually write tags to files.')
+    parser.add_argument('--min-space', type=int, default=10, help='Minimum free space in GB required to proceed (default: 10)')
     args = parser.parse_args()
 
     dry_run = not args.no_dry_run
@@ -74,7 +82,7 @@ def main():
     if dry_run:
         logging.warning("RUNNING IN DRY-RUN MODE - No metadata will be modified.")
     else:
-        logging.warning("RUNNING IN EXECUTION MODE - Writing metadata tags.")
+        logging.warning(f"RUNNING IN EXECUTION MODE - Writing metadata tags (Min space: {args.min_space}GB).")
 
     root_path = os.path.abspath(args.root_dir)
     if not os.path.isdir(root_path):
@@ -124,7 +132,15 @@ def main():
         for filepath in sorted(mp4_files):
             filename = os.path.basename(filepath)
             
-            # 1. Check size
+            # 1. Check free space (only in execution mode)
+            if not dry_run:
+                has_space, free_gb = check_free_space(filepath, min_gb=args.min_space)
+                if not has_space:
+                    progress.console.print(f"[bold red]CRITICAL ERROR: Low disk space ({free_gb:.2f} GB free). Minimum required: {args.min_space} GB.")
+                    logging.error(f"ABORTED due to low disk space: {free_gb:.2f} GB free.")
+                    sys.exit(1)
+
+            # 2. Check size
             try:
                 if os.path.getsize(filepath) == 0:
                     logging.info(f"Skipping empty: {filename}")
@@ -138,7 +154,7 @@ def main():
                 progress.advance(task)
                 continue
 
-            # 2. Check existing tags
+            # 3. Check existing tags
             existing = get_existing_tags(filepath, config_path)
             if existing:
                 logging.info(f"Skipping (has tags): {filename}")
@@ -147,7 +163,7 @@ def main():
                 progress.advance(task)
                 continue
 
-            # 3. Tagging
+            # 4. Tagging
             finished_at = get_file_dates(filepath)
             tags = {
                 "XMP:VBCEncoder": "NVENC AV1 (GPU)",
@@ -161,7 +177,6 @@ def main():
                 stats['tagged'] += 1
             else:
                 try:
-                    # Removed -unsafe, kept -m
                     cmd = ["exiftool", "-config", str(config_path), "-m", "-overwrite_original"]
                     for k, v in tags.items():
                         cmd.append(f"-{k}={v}")
