@@ -7,14 +7,26 @@ from datetime import datetime
 
 def setup_logging():
     log_filename = f"rename_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_filename, encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    
+    # Usuwamy stare handlery jesli istnieja
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+
+    # File handler - wszystko (INFO i wyzej)
+    fh = logging.FileHandler(log_filename, encoding='utf-8')
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    
+    # Console handler - tylko WARNING i ERROR
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.WARNING)
+    ch.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+    
+    logger.addHandler(fh)
+    logger.addHandler(ch)
+    
     return log_filename
 
 def extract_datetime(filename):
@@ -50,9 +62,9 @@ def main():
     log_file = setup_logging()
 
     if dry_run:
-        logging.info("RUNNING IN DRY-RUN MODE - No files will be changed.")
+        logging.warning("RUNNING IN DRY-RUN MODE - No files will be changed.")
     else:
-        logging.info("RUNNING IN EXECUTION MODE - Files will be renamed.")
+        logging.warning("RUNNING IN EXECUTION MODE - Files will be renamed.")
 
     root_path = os.path.abspath(args.root_dir)
     if not os.path.isdir(root_path):
@@ -142,6 +154,7 @@ Sum check (Total == Renamed + Correct + NoDate + Error):
 ========================================
 """
     logging.info(report)
+    print(report)
     
     if stats['total'] != (stats['renamed'] + stats['skipped_correct'] + stats['no_date_found'] + stats['skipped_error']):
         logging.error("CRITICAL: Statistics mismatch!")
