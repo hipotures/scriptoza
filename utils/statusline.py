@@ -155,7 +155,7 @@ def main():
     # Git info
     branch, stats = get_git_info(cwd)
 
-    console = Console()
+    console = Console(force_terminal=True, legacy_windows=False)
 
     # --- Build 2-line status without "black gaps" ---
     SEP = ""  # jeśli masz Nerd Font / Powerline; jak nie, zamień na "▶"
