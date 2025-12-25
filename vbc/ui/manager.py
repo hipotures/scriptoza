@@ -67,7 +67,8 @@ class UIManager:
 
     def on_shutdown_request(self, event: RequestShutdown):
         with self.state._lock:
-            self.state.shutdown_requested = True
+            # Toggle shutdown state (press S again to cancel)
+            self.state.shutdown_requested = not self.state.shutdown_requested
 
     def on_interrupt_request(self, event: InterruptRequested):
         with self.state._lock:

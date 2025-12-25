@@ -8,7 +8,7 @@ VBC provides interactive keyboard controls to adjust behavior while compression 
 |-----|--------|-------------|
 | `<` or `,` | Decrease threads | Reduce max concurrent threads by 1 (min: 1) |
 | `>` or `.` | Increase threads | Increase max concurrent threads by 1 (max: 16) |
-| `S` or `s` | Graceful shutdown | Stop accepting new jobs, finish active compressions |
+| `S` or `s` | Graceful shutdown / Cancel | Stop accepting new jobs, finish active compressions. Press again to cancel shutdown |
 | `R` or `r` | Refresh queue | Re-scan input directory and add new files |
 | `C` or `c` | Toggle config | Show/hide configuration overlay |
 | `Esc` | Hide config | Close configuration overlay |
@@ -60,21 +60,38 @@ Result: Threads: 4 → 5
 
 ### Graceful Shutdown (`S`)
 
-Stops accepting new compression jobs while allowing active jobs to finish.
+Stops accepting new compression jobs while allowing active jobs to finish. **Press `S` again to cancel shutdown.**
 
 **Behavior:**
 1. Sets shutdown flag
 2. No new jobs start (queue stops advancing)
 3. Active compressions continue normally
-4. UI shows "SHUTDOWN requested"
+4. UI shows "SHUTDOWN requested (press S to cancel)"
 5. Exit when all active jobs complete
+6. **Press `S` again to cancel shutdown and resume normal operation**
 
 **Use case:** Need to stop processing but don't want to lose progress on active files
 
-**Timeline:**
+**Timeline (with cancellation):**
 ```
 t=0s  : Press 'S'
-      → UI: "SHUTDOWN requested"
+      → UI: "SHUTDOWN requested (press S to cancel)"
+      → Active: 4 jobs (continue)
+      → Queue: 50 jobs (frozen)
+
+t=10s : Press 'S' again (cancel shutdown)
+      → UI: "SHUTDOWN cancelled"
+      → Active: 4 jobs (continue)
+      → Queue: 50 jobs (resumes)
+      → New jobs start as slots open
+
+t=30s : Queue processing continues normally
+```
+
+**Timeline (without cancellation):**
+```
+t=0s  : Press 'S'
+      → UI: "SHUTDOWN requested (press S to cancel)"
       → Active: 4 jobs (continue)
       → Queue: 50 jobs (frozen)
 
@@ -250,6 +267,7 @@ SVT-AV1 uses multiple threads per encode, so total system threads = `vbc_threads
 |----------|-----|--------|
 | Normal completion | `S` (Graceful) | Finish active jobs, no waste |
 | System maintenance soon | `S` (Graceful) | Controlled stop |
+| Accidental shutdown | `S` twice (Cancel) | Resume processing after mistaken press |
 | Urgent restart | `Ctrl+C` | Immediate termination |
 | Testing/debugging | `Ctrl+C` | Fast iteration |
 
@@ -298,8 +316,22 @@ Feedback expires after 60 seconds.
 2. All remaining files skipped (AV1/camera filter)
 
 **Solution:**
+- Check for "SHUTDOWN requested" message in UI
+- Press `S` again to cancel shutdown and resume
 - Check summary counters for skipped files
 - Press `R` to refresh queue
+
+### Accidental Shutdown
+
+**Symptom:** Pressed `S` by accident, want to continue processing
+
+**Solution:**
+- Press `S` again immediately to cancel
+- UI will show "SHUTDOWN cancelled"
+- Queue resumes normal operation
+- New jobs start as slots become available
+
+**Note:** You can cancel shutdown at any time before all active jobs finish.
 
 ### Refresh Not Finding Files
 

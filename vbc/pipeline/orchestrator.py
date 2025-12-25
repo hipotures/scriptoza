@@ -59,11 +59,17 @@ class Orchestrator:
 
     def _on_shutdown_request(self, event: RequestShutdown):
         with self._thread_lock:
-            self._shutdown_requested = True
+            # Toggle shutdown state (press S again to cancel)
+            if self._shutdown_requested:
+                self._shutdown_requested = False
+                message = "SHUTDOWN cancelled"
+            else:
+                self._shutdown_requested = True
+                message = "SHUTDOWN requested (press S to cancel)"
             self._thread_lock.notify_all()
-        # Publish feedback message (like old vbc.py line 781)
+        # Publish feedback message
         from vbc.domain.events import ActionMessage
-        self.event_bus.publish(ActionMessage(message="SHUTDOWN requested"))
+        self.event_bus.publish(ActionMessage(message=message))
 
     def _on_thread_control(self, event: ThreadControlEvent):
         if self._shutdown_requested:
