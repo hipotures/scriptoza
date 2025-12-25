@@ -444,10 +444,11 @@ class CompactDashboard:
                 l2 = f"  [green]{s_in} → {s_out} ({ratio:.1f}%) • {dur}[/]"
                 return Group(l1, l2)
             else: # B: 1 line
-                # ✓ filename  -ratio%  duration (icon + stats inline, ~20 chars)
-                filename_max = max(20, panel_w - 20)  # Reserve for icon + stats
+                # ✓ filename  size → size (ratio%) • duration (icon + stats inline)
+                # Reserve: icon(2) + sizes(~20) + arrow(3) + ratio(10) + dur(7) = ~42 chars
+                filename_max = max(20, panel_w - 42)  # Reserve for icon + stats
                 filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
-                return f"{icon} {filename}  [green]-{ratio:.1f}%  {dur}[/]"
+                return f"{icon} {filename}  [green]{s_in} → {s_out} ({ratio:.1f}%) • {dur}[/]"
 
         elif job.status == JobStatus.SKIPPED:
             # Kept original logic usually means ratio check or similar
