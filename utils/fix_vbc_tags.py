@@ -49,7 +49,6 @@ def get_file_dates(filepath):
 
 def get_existing_tags(filepath, config_path):
     try:
-        # Dodajemy -m tutaj rowniez
         cmd = ["exiftool", "-m"]
         if config_path:
             cmd.extend(["-config", str(config_path)])
@@ -93,6 +92,7 @@ def main():
         'tagged': 0,
         'skipped_has_tags': 0,
         'skipped_empty': 0,
+        'skipped_invalid': 0,
         'skipped_error': 0
     }
 
@@ -129,7 +129,7 @@ def main():
                 if os.path.getsize(filepath) == 0:
                     logging.info(f"Skipping empty: {filename}")
                     stats['skipped_empty'] += 1
-                    progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'])
+                    progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'] + stats['skipped_invalid'])
                     progress.advance(task)
                     continue
             except Exception as e:
@@ -143,7 +143,7 @@ def main():
             if existing:
                 logging.info(f"Skipping (has tags): {filename}")
                 stats['skipped_has_tags'] += 1
-                progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'])
+                progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'] + stats['skipped_invalid'])
                 progress.advance(task)
                 continue
 
@@ -161,23 +161,26 @@ def main():
                 stats['tagged'] += 1
             else:
                 try:
-                    # Dodajemy -m, -unsafe oraz capture_output dla lepszego debugowania
-                    cmd = ["exiftool", "-config", str(config_path), "-m", "-unsafe", "-overwrite_original"]
+                    # Removed -unsafe, kept -m
+                    cmd = ["exiftool", "-config", str(config_path), "-m", "-overwrite_original"]
                     for k, v in tags.items():
                         cmd.append(f"-{k}={v}")
                     cmd.append(filepath)
                     
-                    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                    subprocess.run(cmd, capture_output=True, text=True, check=True)
                     logging.info(f"TAGGED: {filename}")
                     stats['tagged'] += 1
                 except subprocess.CalledProcessError as e:
                     error_msg = e.stderr.strip() if e.stderr else str(e)
-                    progress.console.print(f"[bold red]ERROR tagging {filename}: {error_msg}")
-                    logging.error(f"FAILED {filepath}: {error_msg}")
-                    stats['skipped_error'] += 1
-                    # Decyzja: czy przerywac (sys.exit) czy kontynuowac? 
-                    # Twoja wczesniejsza instrukcja dla rename byla "przerwac natychmiast".
-                    sys.exit(1)
+                    if "Not a valid" in error_msg or "looks more like a FLV" in error_msg:
+                        logging.warning(f"SKIPPED (Invalid Format): {filename} - {error_msg}")
+                        stats['skipped_invalid'] += 1
+                        progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'] + stats['skipped_invalid'])
+                    else:
+                        progress.console.print(f"[bold red]ERROR tagging {filename}: {error_msg}")
+                        logging.error(f"FAILED {filepath}: {error_msg}")
+                        stats['skipped_error'] += 1
+                        sys.exit(1)
                 except Exception as e:
                     progress.console.print(f"[bold red]ERROR: {str(e)}")
                     logging.error(f"UNEXPECTED FAILED {filepath}: {str(e)}")
@@ -195,11 +198,12 @@ Config:   {config_path}
 Total MP4 files found:      {stats['total']}
 Files newly tagged:         {stats['tagged']}
 Files already tagged:       {stats['skipped_has_tags']}
+Invalid format skipped:     {stats['skipped_invalid']}
 Empty files skipped:        {stats['skipped_empty']}
 Errors:                     {stats['skipped_error']}
 ----------------------------------------
 Sum check:
-{stats['total']} == {stats['tagged'] + stats['skipped_has_tags'] + stats['skipped_empty'] + stats['skipped_error']}
+{stats['total']} == {stats['tagged'] + stats['skipped_has_tags'] + stats['skipped_invalid'] + stats['skipped_empty'] + stats['skipped_error']}
 ========================================
 """
     logging.info(report)
