@@ -50,6 +50,7 @@ class UIState:
         self.strip_unicode_display = True
         self.show_config = False
         self.show_legend = False
+        self.show_menu = False
         self.show_info = False
         self.info_message = ""
         self.config_lines: List[str] = []

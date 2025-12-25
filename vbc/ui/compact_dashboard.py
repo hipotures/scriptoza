@@ -584,7 +584,7 @@ class CompactDashboard:
             # 2. Build Left Content (Fixed 3 lines)
             l1 = f"{indicator} {status} • Threads: {active_threads}/{self.state.current_threads}{paused}"
             l2 = f"ETA: {eta_str} • {throughput_str} • {saved} saved ({ratio:.1f}%)"
-            l3 = "[dim]‹/› threads | S stop | R refresh | C config | L legend | G graph[/]"
+            l3 = "[dim]Press M for menu[/]"
             left_content = f"{l1}\n{l2}\n{l3}"
 
             # 3. GPU Metrics (Right Side)
@@ -836,6 +836,31 @@ class CompactDashboard:
         pw = min(max(65, int(w * 0.6)), max(20, w - 4))
         return Panel(content, title="LEGEND", border_style="cyan", width=pw, style="white on black")
 
+    def _generate_menu_overlay(self) -> Panel:
+        """Keyboard shortcuts menu."""
+        menu_items = [
+            "[bold cyan]Navigation & Control[/]",
+            "  [white]M[/]         Toggle this menu",
+            "  [white]Esc[/]       Close overlays",
+            "  [white]Ctrl+C[/]    Immediate interrupt & exit",
+            "",
+            "[bold cyan]Job Management[/]",
+            "  [white]S[/]         Shutdown toggle (graceful, press again to cancel)",
+            "  [white]‹ or ,[/]    Decrease thread count (-1)",
+            "  [white]› or .[/]    Increase thread count (+1)",
+            "  [white]R[/]         Refresh queue (re-scan for new files)",
+            "",
+            "[bold cyan]Information Panels[/]",
+            "  [white]C[/]         Toggle config panel",
+            "  [white]L[/]         Toggle legend panel (status symbols)",
+            "  [white]G[/]         Rotate GPU graph metric",
+            "                  [dim](temp → fan → pwr → gpu → mem)[/]",
+        ]
+        content = "\n".join(menu_items)
+        w = self.console.size.width
+        pw = min(max(65, int(w * 0.6)), max(20, w - 4))
+        return Panel(content, title="KEYBOARD SHORTCUTS", border_style="cyan", width=pw, style="white on black")
+
     # --- Main Layout Engine ---
 
     def create_display(self):
@@ -998,6 +1023,8 @@ class CompactDashboard:
             return _Overlay(layout, self._generate_config_overlay(), overlay_width=80)
         elif self.state.show_legend:
             return _Overlay(layout, self._generate_legend_overlay(), overlay_width=80)
+        elif self.state.show_menu:
+            return _Overlay(layout, self._generate_menu_overlay(), overlay_width=80)
         elif self.state.show_info:
              info = Panel(Align.center(self.state.info_message), title="NOTICE", border_style="yellow", width=60)
              return _Overlay(layout, info, overlay_width=60)

@@ -23,6 +23,10 @@ class ToggleLegend(Event):
     """Event emitted when user toggles legend display (Key 'L')."""
     pass
 
+class ToggleMenu(Event):
+    """Event emitted when user toggles menu display (Key 'M')."""
+    pass
+
 class HideConfig(Event):
     """Event emitted when user closes config display (Esc)."""
     pass
@@ -74,6 +78,8 @@ class KeyboardListener:
                         self.event_bus.publish(ToggleLegend())
                     elif key in ('G', 'g'):
                         self.event_bus.publish(RotateGpuMetric())
+                    elif key in ('M', 'm'):
+                        self.event_bus.publish(ToggleMenu())
                     elif key == '\x1b':
                         self.event_bus.publish(HideConfig())
                     elif key == '\x03':

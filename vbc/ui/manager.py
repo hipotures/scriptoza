@@ -7,7 +7,7 @@ from vbc.domain.events import (
     JobProgressUpdated, HardwareCapabilityExceeded, QueueUpdated,
     ActionMessage, ProcessingFinished
 )
-from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown, InterruptRequested, ToggleConfig, ToggleLegend, HideConfig, RotateGpuMetric
+from vbc.ui.keyboard import ThreadControlEvent, RequestShutdown, InterruptRequested, ToggleConfig, ToggleLegend, HideConfig, RotateGpuMetric, ToggleMenu
 
 class UIManager:
     """Subscribes to EventBus and updates UIState."""
@@ -30,6 +30,7 @@ class UIManager:
         self.bus.subscribe(InterruptRequested, self.on_interrupt_request)
         self.bus.subscribe(ToggleConfig, self.on_toggle_config)
         self.bus.subscribe(ToggleLegend, self.on_toggle_legend)
+        self.bus.subscribe(ToggleMenu, self.on_toggle_menu)
         self.bus.subscribe(RotateGpuMetric, self.on_rotate_gpu_metric)
         self.bus.subscribe(HideConfig, self.on_hide_config)
         self.bus.subscribe(QueueUpdated, self.on_queue_updated)
@@ -79,12 +80,21 @@ class UIManager:
             self.state.show_config = not self.state.show_config
             if self.state.show_config:
                 self.state.show_legend = False
+                self.state.show_menu = False
 
     def on_toggle_legend(self, event: ToggleLegend):
         with self.state._lock:
             self.state.show_legend = not self.state.show_legend
             if self.state.show_legend:
                 self.state.show_config = False
+                self.state.show_menu = False
+
+    def on_toggle_menu(self, event: ToggleMenu):
+        with self.state._lock:
+            self.state.show_menu = not self.state.show_menu
+            if self.state.show_menu:
+                self.state.show_config = False
+                self.state.show_legend = False
 
     def on_rotate_gpu_metric(self, event: RotateGpuMetric):
         """Rotate GPU sparkline metric (temp → fan → pwr → gpu → mem)."""
@@ -99,6 +109,7 @@ class UIManager:
         with self.state._lock:
             self.state.show_config = False
             self.state.show_legend = False
+            self.state.show_menu = False
 
     def on_job_started(self, event: JobStarted):
         # Track when first job starts
