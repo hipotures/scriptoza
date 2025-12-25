@@ -644,7 +644,7 @@ class CompactDashboard:
                 elif metric_idx == 4:
                     mem_str = f"[reverse]{mem_str}[/]"
 
-                gl2 = f"{temp_str} | {fan_str} | {pwr_str} | {gpu_str} | {mem_str}"
+                gl2 = f"{temp_str} • {fan_str} • {pwr_str} • {gpu_str} • {mem_str}"
 
                 # GL3: Sparkline (without label)
                 with self.state._lock:

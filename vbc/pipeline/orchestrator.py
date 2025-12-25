@@ -56,6 +56,7 @@ class Orchestrator:
         self.event_bus.subscribe(RequestShutdown, self._on_shutdown_request)
         self.event_bus.subscribe(ThreadControlEvent, self._on_thread_control)
         self.event_bus.subscribe(RefreshRequested, self._on_refresh_request)
+        self.event_bus.subscribe(InterruptRequested, self._on_interrupt_requested)
 
     def _on_shutdown_request(self, event: RequestShutdown):
         with self._thread_lock:
@@ -88,6 +89,20 @@ class Orchestrator:
     def _on_refresh_request(self, event):
         with self._refresh_lock:
             self._refresh_requested = True
+
+    def _on_interrupt_requested(self, event: InterruptRequested):
+        """Handle Ctrl+C interrupt from keyboard listener."""
+        self.logger.info("Interrupt requested (Ctrl+C) - stopping orchestrator...")
+        from vbc.domain.events import ActionMessage
+        self.event_bus.publish(ActionMessage(message="Ctrl+C - interrupting active compressions..."))
+
+        # Signal all workers to stop immediately
+        self._shutdown_event.set()
+
+        # Stop accepting new tasks
+        with self._thread_lock:
+            self._shutdown_requested = True
+            self._thread_lock.notify_all()
 
     def _get_metadata(self, video_file: VideoFile, base_metadata: Optional[Dict[str, Any]] = None) -> Optional[VideoMetadata]:
         """Get metadata with thread-safe caching (ffprobe + ExifTool like legacy)."""

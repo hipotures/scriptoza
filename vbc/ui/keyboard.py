@@ -83,10 +83,11 @@ class KeyboardListener:
                     elif key == '\x1b':
                         self.event_bus.publish(HideConfig())
                     elif key == '\x03':
-                        # Ctrl+C detected in keyboard listener - restore terminal and exit thread
-                        # The real KeyboardInterrupt will be handled by main thread
+                        # Ctrl+C detected - signal orchestrator to stop
+                        self.event_bus.publish(InterruptRequested())
+                        # Restore terminal and exit listener thread
                         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-                        break  # Exit keyboard listener thread
+                        break
         finally:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 

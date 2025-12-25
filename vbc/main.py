@@ -38,15 +38,14 @@ def compress(
     min_size: Optional[int] = typer.Option(None, "--min-size", help="Minimum input size in bytes to process"),
     rotate_180: bool = typer.Option(False, "--rotate-180", help="Rotate output 180 degrees"),
     debug: bool = typer.Option(False, "--debug/--no-debug", help="Enable verbose debug logging"),
-    ui_style: str = typer.Option("classic", "--ui-style", "-u", help="UI style: 'classic' (default) or 'compact'"),
-    textual: bool = typer.Option(False, "--textual", help="Use Textual dashboard (modern TUI with themes)")
+    ui_style: str = typer.Option("classic", "--ui-style", "-u", help="UI style: 'classic' (default) or 'compact'")
 ):
     """Batch compress videos in a directory with full feature parity."""
     if not input_dir.exists():
         typer.secho(f"Error: Directory {input_dir} does not exist.", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
-    if not textual and ui_style not in ["classic", "compact"]:
+    if ui_style not in ["classic", "compact"]:
         typer.secho(
             f"Error: Invalid UI style '{ui_style}'. Choose 'classic' or 'compact'.",
             fg=typer.colors.RED,
@@ -201,41 +200,18 @@ def compress(
             )
             gpu_monitor.start()
 
-        if textual:
-            # Textual dashboard (modern TUI with themes)
-            from vbc.ui.textual.app import TextualDashboardApp
-            theme = config.textual.default_theme if hasattr(config, 'textual') else None
-            dashboard_app = TextualDashboardApp(ui_state, bus, config, theme=theme)
-            # Textual handles its own event loop, no keyboard listener needed
-            try:
-                orchestrator_thread = threading.Thread(
-                    target=orchestrator.run,
-                    args=(input_dir,),
-                    daemon=False
-                )
-                orchestrator_thread.start()
-                dashboard_app.run()
-                orchestrator_thread.join()
-            finally:
-                if gpu_monitor:
-                    gpu_monitor.stop()
-                if exif.et.running:
-                    exif.et.terminate()
-                    logger.info("ExifTool terminated")
+        if ui_style == "compact":
+            from vbc.ui.compact_dashboard import CompactDashboard
+            panel_scale = config.ui.panel_height_scale if hasattr(config, 'ui') else 0.7
+            max_active = config.ui.active_jobs_max_display if hasattr(config, 'ui') else 8
+            dashboard = CompactDashboard(ui_state, panel_height_scale=panel_scale, max_active_jobs=max_active)
         else:
-            # Classic Rich dashboard
-            if ui_style == "compact":
-                from vbc.ui.compact_dashboard import CompactDashboard
-                panel_scale = config.ui.panel_height_scale if hasattr(config, 'ui') else 0.7
-                max_active = config.ui.active_jobs_max_display if hasattr(config, 'ui') else 8
-                dashboard = CompactDashboard(ui_state, panel_height_scale=panel_scale, max_active_jobs=max_active)
-            else:
-                dashboard = Dashboard(ui_state)
+            dashboard = Dashboard(ui_state)
 
-            keyboard.start()
-            try:
-                with dashboard:
-                    orchestrator.run(input_dir)
+        keyboard.start()
+        try:
+            with dashboard:
+                orchestrator.run(input_dir)
                 if ui_state.discovery_finished and ui_state.files_to_process == 0:
                     with ui_state._lock:
                         ui_state.info_message = (
@@ -244,14 +220,14 @@ def compress(
                         )
                         ui_state.show_info = True
                     threading.Event().wait(2.0)
-            finally:
-                keyboard.stop()
-                if gpu_monitor:
-                    gpu_monitor.stop()
-                # Cleanup ExifTool
-                if exif.et.running:
-                    exif.et.terminate()
-                    logger.info("ExifTool terminated")
+        finally:
+            keyboard.stop()
+            if gpu_monitor:
+                gpu_monitor.stop()
+            # Cleanup ExifTool
+            if exif.et.running:
+                exif.et.terminate()
+                logger.info("ExifTool terminated")
 
     except KeyboardInterrupt:
         # Ctrl+C was already handled by orchestrator - just exit gracefully
