@@ -10,16 +10,13 @@ def setup_logging():
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     
-    # Usuwamy stare handlery jesli istnieja
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
 
-    # File handler - wszystko (INFO i wyzej)
     fh = logging.FileHandler(log_filename, encoding='utf-8')
     fh.setLevel(logging.INFO)
     fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     
-    # Console handler - tylko WARNING i ERROR
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(logging.WARNING)
     ch.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
@@ -30,7 +27,7 @@ def setup_logging():
     return log_filename
 
 def extract_datetime(filename):
-    # Pattern 1: YYYY.MM.DD_HH-MM-SS lub YYYY-MM-DD_HH-MM-SS (z kropkami, myslnikami, spocjami)
+    # Pattern 1: YYYY.MM.DD_HH-MM-SS lub YYYY-MM-DD_HH-MM-SS
     m1 = re.search(r'(\d{4})[\.-](\d{2})[\.-](\d{2})[_\s-](\d{2})[\.-](\d{2})[\.-](\d{2})', filename)
     if m1:
         return f"{m1.group(1)}{m1.group(2)}{m1.group(3)}_{m1.group(4)}{m1.group(5)}{m1.group(6)}"
@@ -40,7 +37,7 @@ def extract_datetime(filename):
     if m2:
         return f"{m2.group(1)}{m2.group(2)}{m2.group(3)}_{m2.group(4)}{m2.group(5)}00"
 
-    # Pattern 3: YYYYMMDD_HHMMSS (standardowy format)
+    # Pattern 3: YYYYMMDD_HHMMSS
     m3 = re.search(r'(\d{8})_(\d{6})', filename)
     if m3:
         return f"{m3.group(1)}_{m3.group(2)}"
@@ -53,7 +50,7 @@ def extract_datetime(filename):
     return None
 
 def main():
-    parser = argparse.ArgumentParser(description='Safe file renamer for TT_out structure.')
+    parser = argparse.ArgumentParser(description='Safe file renamer for TT_out structure (relational mp4 + companions).')
     parser.add_argument('root_dir', help='Root directory (e.g., .../TT_out/)')
     parser.add_argument('--no-dry-run', action='store_true', help='Actually perform the rename operations.')
     args = parser.parse_args()
@@ -80,35 +77,65 @@ def main():
     }
 
     try:
-        # List subdirectories (1 level deep)
         subdirs = [d for d in os.listdir(root_path) if os.path.isdir(os.path.join(root_path, d))]
         
         for subdir in sorted(subdirs):
-            # Clean prefix: strip leading dots and underscores to avoid hidden files
             clean_prefix = subdir.lstrip('.').lstrip('_').strip()
-            if not clean_prefix: # if subdir was just dots
+            if not clean_prefix:
                 clean_prefix = subdir
 
             subdir_path = os.path.join(root_path, subdir)
-            files = [f for f in os.listdir(subdir_path) if os.path.isfile(os.path.join(subdir_path, f))]
+            all_files = sorted([f for f in os.listdir(subdir_path) if os.path.isfile(os.path.join(subdir_path, f))])
             
-            for filename in sorted(files):
+            # Mapowanie: stary_base_pliku -> nowa_nazwa_base
+            rename_map = {}
+            
+            # Krok 1: Znajdz wszystkie pliki .mp4 i ustal dla nich nowa baze
+            mp4_files = [f for f in all_files if f.lower().endswith('.mp4')]
+            for f in mp4_files:
+                dt_str = extract_datetime(f)
+                if dt_str:
+                    old_base = os.path.splitext(f)[0]
+                    new_base = f"{clean_prefix}_{dt_str}"
+                    if old_base != new_base:
+                        rename_map[old_base] = new_base
+
+            # Krok 2: Procesuj wszystkie pliki w katalogu uzywajac mapowania
+            for filename in all_files:
                 if filename.startswith('rename_session_') and filename.endswith('.log'):
                     continue
 
                 stats['total'] += 1
                 full_path = os.path.join(subdir_path, filename)
                 
-                # Robust extension handling for Unicode and multiple dots
-                name_part, file_ext = os.path.splitext(filename)
+                # Szukamy najdluzszego dopasowania bazy (zeby nie pomylic uzytkownika 'ala' z 'ala_ma_kota')
+                matched_old_base = None
+                for old_base in sorted(rename_map.keys(), key=len, reverse=True):
+                    if filename.startswith(old_base):
+                        matched_old_base = old_base
+                        break
                 
-                dt_str = extract_datetime(filename)
-                if not dt_str:
-                    logging.warning(f"Could not find date in filename: {full_path}")
-                    stats['no_date_found'] += 1
-                    continue
-                
-                new_filename = f"{clean_prefix}_{dt_str}{file_ext}"
+                if not matched_old_base:
+                    # Sprawdzamy czy plik sam w sobie ma date, nawet jesli nie jest mp4 i nie ma towarzysza mp4
+                    dt_str = extract_datetime(filename)
+                    if not dt_str:
+                        logging.info(f"No date/companion found for: {filename}")
+                        stats['no_date_found'] += 1
+                        continue
+                    
+                    # Jeśli nie ma towarzysza mp4, ale ma datę, traktujemy go jako samodzielny plik
+                    name_part, file_ext = os.path.splitext(filename)
+                    if file_ext and (file_ext[1:].isdigit() or len(file_ext) > 5):
+                        actual_ext = ""
+                    else:
+                        actual_ext = file_ext
+                    new_filename = f"{clean_prefix}_{dt_str}{actual_ext}"
+                else:
+                    # Uzywamy mapowania i zachowujemy reszte nazwy
+                    new_base = rename_map[matched_old_base]
+                    suffix = filename[len(matched_old_base):]
+                    new_filename = f"{new_base}{suffix}"
+
                 new_full_path = os.path.join(subdir_path, new_filename)
                 
                 if filename == new_filename:
@@ -117,7 +144,7 @@ def main():
                     continue
                 
                 if os.path.exists(new_full_path):
-                    logging.warning(f"CONFLICT: Destination file already exists: {new_filename}. Keeping original: {filename}")
+                    logging.warning(f"CONFLICT: Destination exists: {new_filename}. Keeping: {filename}")
                     stats['skipped_error'] += 1
                     continue
 
@@ -137,7 +164,6 @@ def main():
         logging.error(f"An unexpected error occurred: {str(e)}")
         sys.exit(1)
 
-    # Final Report
     report = f"""
 ========================================
 RENAME SESSION REPORT
