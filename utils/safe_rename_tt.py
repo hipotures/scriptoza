@@ -3,17 +3,19 @@ import re
 import sys
 import logging
 import argparse
+import tempfile
 from datetime import datetime
 
 def setup_logging():
     log_filename = f"rename_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    log_filepath = os.path.join(tempfile.gettempdir(), log_filename)
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
 
-    fh = logging.FileHandler(log_filename, encoding='utf-8')
+    fh = logging.FileHandler(log_filepath, encoding='utf-8')
     fh.setLevel(logging.INFO)
     fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     
@@ -24,7 +26,7 @@ def setup_logging():
     logger.addHandler(fh)
     logger.addHandler(ch)
     
-    return log_filename
+    return log_filepath
 
 def extract_datetime(filename):
     # Pattern 1: YYYY.MM.DD_HH-MM-SS lub YYYY-MM-DD_HH-MM-SS
