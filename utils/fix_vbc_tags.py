@@ -34,9 +34,12 @@ def setup_logging():
 
 def check_free_space(path, min_gb=10):
     """Returns True if there is at least min_gb free space on the disk containing path."""
-    stat = shutil.disk_usage(os.path.dirname(path))
-    free_gb = stat.free / (1024**3)
-    return free_gb >= min_gb, free_gb
+    try:
+        stat = shutil.disk_usage(os.path.dirname(path))
+        free_gb = stat.free / (1024**3)
+        return free_gb >= min_gb, free_gb
+    except Exception:
+        return True, 999
 
 def get_file_dates(filepath):
     try:
@@ -97,6 +100,7 @@ def main():
 
     stats = {
         'total': 0,
+        'processed': 0,
         'tagged': 0,
         'skipped_has_tags': 0,
         'skipped_empty': 0,
@@ -116,6 +120,7 @@ def main():
         logging.warning("No MP4 files found.")
         sys.exit(0)
 
+    interrupted = False
     with Progress(
         TextColumn("[bold blue]{task.completed}/{task.total}"),
         TextColumn("[bold magenta]({task.fields[new]} new / {task.fields[skip]} skip)"),
@@ -129,96 +134,106 @@ def main():
         
         task = progress.add_task("Processing", total=stats['total'], new=0, skip=0)
         
-        for filepath in sorted(mp4_files):
-            filename = os.path.basename(filepath)
-            
-            # 1. Check free space (only in execution mode)
-            if not dry_run:
-                has_space, free_gb = check_free_space(filepath, min_gb=args.min_space)
-                if not has_space:
-                    progress.console.print(f"[bold red]CRITICAL ERROR: Low disk space ({free_gb:.2f} GB free). Minimum required: {args.min_space} GB.")
-                    logging.error(f"ABORTED due to low disk space: {free_gb:.2f} GB free.")
-                    sys.exit(1)
+        try:
+            for filepath in sorted(mp4_files):
+                filename = os.path.basename(filepath)
+                
+                # 1. Check free space
+                if not dry_run:
+                    has_space, free_gb = check_free_space(filepath, min_gb=args.min_space)
+                    if not has_space:
+                        progress.console.print(f"[bold red]CRITICAL ERROR: Low disk space ({free_gb:.2f} GB free).")
+                        logging.error(f"ABORTED due to low disk space: {free_gb:.2f} GB free.")
+                        break
 
-            # 2. Check size
-            try:
-                if os.path.getsize(filepath) == 0:
-                    logging.info(f"Skipping empty: {filename}")
-                    stats['skipped_empty'] += 1
+                # 2. Check size
+                try:
+                    if os.path.getsize(filepath) == 0:
+                        logging.info(f"Skipping empty: {filename}")
+                        stats['skipped_empty'] += 1
+                        stats['processed'] += 1
+                        progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'] + stats['skipped_invalid'])
+                        progress.advance(task)
+                        continue
+                except Exception as e:
+                    logging.error(f"Size error {filename}: {e}")
+                    stats['skipped_error'] += 1
+                    stats['processed'] += 1
+                    progress.advance(task)
+                    continue
+
+                # 3. Check existing tags
+                existing = get_existing_tags(filepath, config_path)
+                if existing:
+                    logging.info(f"Skipping (has tags): {filename}")
+                    stats['skipped_has_tags'] += 1
+                    stats['processed'] += 1
                     progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'] + stats['skipped_invalid'])
                     progress.advance(task)
                     continue
-            except Exception as e:
-                logging.error(f"Size error {filename}: {e}")
-                stats['skipped_error'] += 1
-                progress.advance(task)
-                continue
 
-            # 3. Check existing tags
-            existing = get_existing_tags(filepath, config_path)
-            if existing:
-                logging.info(f"Skipping (has tags): {filename}")
-                stats['skipped_has_tags'] += 1
-                progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'] + stats['skipped_invalid'])
-                progress.advance(task)
-                continue
+                # 4. Tagging
+                finished_at = get_file_dates(filepath)
+                tags = {
+                    "XMP:VBCEncoder": "NVENC AV1 (GPU)",
+                    "XMP:VBCFinishedAt": finished_at,
+                    "XMP:VBCOriginalName": filename,
+                    "XMP:VBCOriginalSize": -1
+                }
 
-            # 4. Tagging
-            finished_at = get_file_dates(filepath)
-            tags = {
-                "XMP:VBCEncoder": "NVENC AV1 (GPU)",
-                "XMP:VBCFinishedAt": finished_at,
-                "XMP:VBCOriginalName": filename,
-                "XMP:VBCOriginalSize": -1
-            }
-
-            if dry_run:
-                logging.info(f"[DRY-RUN] Tagging: {filename}")
-                stats['tagged'] += 1
-            else:
-                try:
-                    cmd = ["exiftool", "-config", str(config_path), "-m", "-overwrite_original"]
-                    for k, v in tags.items():
-                        cmd.append(f"-{k}={v}")
-                    cmd.append(filepath)
-                    
-                    subprocess.run(cmd, capture_output=True, text=True, check=True)
-                    logging.info(f"TAGGED: {filename}")
+                if dry_run:
+                    logging.info(f"[DRY-RUN] Tagging: {filename}")
                     stats['tagged'] += 1
-                except subprocess.CalledProcessError as e:
-                    error_msg = e.stderr.strip() if e.stderr else str(e)
-                    if "Not a valid" in error_msg or "looks more like a FLV" in error_msg:
-                        logging.warning(f"SKIPPED (Invalid Format): {filename} - {error_msg}")
-                        stats['skipped_invalid'] += 1
-                        progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'] + stats['skipped_invalid'])
-                    else:
-                        progress.console.print(f"[bold red]ERROR tagging {filename}: {error_msg}")
-                        logging.error(f"FAILED {filepath}: {error_msg}")
-                        stats['skipped_error'] += 1
-                        sys.exit(1)
-                except Exception as e:
-                    progress.console.print(f"[bold red]ERROR: {str(e)}")
-                    logging.error(f"UNEXPECTED FAILED {filepath}: {str(e)}")
-                    sys.exit(1)
-            
-            progress.update(task, new=stats['tagged'])
-            progress.advance(task)
+                else:
+                    try:
+                        cmd = ["exiftool", "-config", str(config_path), "-m", "-overwrite_original"]
+                        for k, v in tags.items():
+                            cmd.append(f"-{k}={v}")
+                        cmd.append(filepath)
+                        
+                        subprocess.run(cmd, capture_output=True, text=True, check=True)
+                        logging.info(f"TAGGED: {filename}")
+                        stats['tagged'] += 1
+                    except subprocess.CalledProcessError as e:
+                        error_msg = e.stderr.strip() if e.stderr else str(e)
+                        if "Not a valid" in error_msg or "looks more like a FLV" in error_msg:
+                            logging.warning(f"SKIPPED (Invalid Format): {filename}")
+                            stats['skipped_invalid'] += 1
+                            progress.update(task, skip=stats['skipped_has_tags'] + stats['skipped_empty'] + stats['skipped_invalid'])
+                        else:
+                            progress.console.print(f"[bold red]ERROR tagging {filename}: {error_msg}")
+                            logging.error(f"FAILED {filepath}: {error_msg}")
+                            stats['skipped_error'] += 1
+                            break
+                    except Exception as e:
+                        progress.console.print(f"[bold red]ERROR: {str(e)}")
+                        logging.error(f"UNEXPECTED FAILED {filepath}: {str(e)}")
+                        break
+                
+                stats['processed'] += 1
+                progress.update(task, new=stats['tagged'])
+                progress.advance(task)
+        except KeyboardInterrupt:
+            progress.console.print("\n[bold yellow]Interrupt received. Finishing current file and shutting down...[/bold yellow]")
+            interrupted = True
 
+    report_title = "VBC TAG FIX REPORT" + (" (INTERRUPTED)" if interrupted else "")
     report = f"""
 ========================================
-VBC TAG FIX REPORT
+{report_title}
 ========================================
 Log file: {log_file}
 Config:   {config_path}
 Total MP4 files found:      {stats['total']}
+Files processed:            {stats['processed']}
 Files newly tagged:         {stats['tagged']}
 Files already tagged:       {stats['skipped_has_tags']}
 Invalid format skipped:     {stats['skipped_invalid']}
 Empty files skipped:        {stats['skipped_empty']}
 Errors:                     {stats['skipped_error']}
 ----------------------------------------
-Sum check:
-{stats['total']} == {stats['tagged'] + stats['skipped_has_tags'] + stats['skipped_invalid'] + stats['skipped_empty'] + stats['skipped_error']}
+Sum check (Processed == Tagged + Skip + Invalid + Empty + Error):
+{stats['processed']} == {stats['tagged'] + stats['skipped_has_tags'] + stats['skipped_invalid'] + stats['skipped_empty'] + stats['skipped_error']}
 ========================================
 """
     logging.info(report)
