@@ -138,17 +138,10 @@ def main():
             for filepath in sorted(mp4_files):
                 filename = os.path.basename(filepath)
                 
-                # 1. Check free space
-                if not dry_run:
-                    has_space, free_gb = check_free_space(filepath, min_gb=args.min_space)
-                    if not has_space:
-                        progress.console.print(f"[bold red]CRITICAL ERROR: Low disk space ({free_gb:.2f} GB free).")
-                        logging.error(f"ABORTED due to low disk space: {free_gb:.2f} GB free.")
-                        break
-
-                # 2. Check size
+                # 1. Check size
                 try:
-                    if os.path.getsize(filepath) == 0:
+                    old_size = os.path.getsize(filepath)
+                    if old_size == 0:
                         logging.info(f"Skipping empty: {filename}")
                         stats['skipped_empty'] += 1
                         stats['processed'] += 1
@@ -161,6 +154,14 @@ def main():
                     stats['processed'] += 1
                     progress.advance(task)
                     continue
+
+                # 2. Check free space
+                if not dry_run:
+                    has_space, free_gb = check_free_space(filepath, min_gb=args.min_space)
+                    if not has_space:
+                        progress.console.print(f"[bold red]CRITICAL ERROR: Low disk space ({free_gb:.2f} GB free).")
+                        logging.error(f"ABORTED due to low disk space: {free_gb:.2f} GB free.")
+                        break
 
                 # 3. Check existing tags
                 existing = get_existing_tags(filepath, config_path)
@@ -192,6 +193,16 @@ def main():
                         cmd.append(filepath)
                         
                         subprocess.run(cmd, capture_output=True, text=True, check=True)
+                        
+                        # Safety check: size difference
+                        new_size = os.path.getsize(filepath)
+                        diff_pct = abs(new_size - old_size) / old_size if old_size > 0 else 0
+                        if diff_pct > 0.01:
+                            err = f"CRITICAL: File size changed by {diff_pct:.2%} ({old_size} -> {new_size})"
+                            progress.console.print(f"[bold red]{err} for {filename}")
+                            logging.error(f"{err} for {filepath}")
+                            sys.exit(1)
+
                         logging.info(f"TAGGED: {filename}")
                         stats['tagged'] += 1
                     except subprocess.CalledProcessError as e:
