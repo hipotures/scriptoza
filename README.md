@@ -69,12 +69,25 @@ See [Architecture Overview](docs/architecture/overview.md) for details.
 
 ### [Utils](utils/) - General Utilities
 
-- **statusline.py** - Custom colorful status line for Claude Code with Rich formatting. Displays model, context, output, git branch, and stats with `--demo` mode for testing.
-  ```
+**Claude Code Session Management:**
+- **statusline.py** - Custom colorful status line for Claude Code with Rich formatting and SQLite logging. Displays model, tokens, cost, git branch, and stats. Automatically logs all sessions to `~/.claude/db/sessions.db`.
+  ```bash
+  # Test with demo data
   python ~/DEV/scriptoza/utils/statusline.py --demo 2>/dev/null
-  ⎿   Model: Sonnet 4.5   Ctx: 49.9k  ⎇ main
-      cwd: DEV/scriptoza  Out: 4.1k   (+1,-12)
+  # Output: 2-line status with model, tokens, cost, project, git info
   ```
+- **import_sessions.py** - Import historical session data from `statusline.log` to SQLite database. Run once to migrate existing logs.
+  ```bash
+  python utils/import_sessions.py
+  # Imports all historical sessions, preserves first_seen timestamps
+  ```
+- **session_stats.sh** - Comprehensive session statistics and analytics. Shows top sessions, costs per project/day, model usage, and totals.
+  ```bash
+  ./utils/session_stats.sh
+  # Displays: Top 10 sessions, cost per project, cost per day, model stats, totals
+  ```
+
+**Other Utilities:**
 - **safe_rename_tt.py** - Safe, multi-format date-based renamer for TikTok downloads. Uses parent directory as prefix, supports dry-run by default, and prevents overwriting.
 - **fix_vbc_tags.py** - Adds missing VBC metadata tags (Encoder, FinishedAt, OriginalName, OriginalSize) to MP4 files based on file system dates.
 

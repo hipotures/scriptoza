@@ -7,26 +7,13 @@ import json
 import subprocess
 import argparse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from rich.console import Console
 from rich.text import Text
+import sqlite3
 
-# Default log file path
-DEFAULT_LOG_FILE = Path.home() / '.claude' / 'log' / 'statusline.log'
-
-def log_input(data: dict, log_file: Path):
-    """Log input data to file."""
-    try:
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        with open(log_file, 'a') as f:
-            f.write(f"\n{'='*80}\n")
-            f.write(f"[{timestamp}]\n")
-            f.write(json.dumps(data, indent=2))
-            f.write("\n")
-    except Exception as e:
-        # Silent fail - don't break status line if logging fails
-        pass
+# SQLite database path
+DB_PATH = Path.home() / '.claude' / 'db' / 'sessions.db'
 
 def shorten_path(path: str, max_segments: int = 2) -> str:
     """Shorten path to last N segments if longer."""
@@ -34,6 +21,111 @@ def shorten_path(path: str, max_segments: int = 2) -> str:
     if len(parts) > max_segments:
         return '/'.join(parts[-max_segments:])
     return path
+
+def init_db():
+    """Initialize SQLite database with schema."""
+    try:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+
+                -- Static fields
+                model_id TEXT,
+                model_name TEXT,
+                project_dir TEXT,
+                transcript_path TEXT,
+                version TEXT,
+
+                -- Dynamic fields
+                total_cost_usd REAL,
+                total_duration_ms INTEGER,
+                total_api_duration_ms INTEGER,
+                total_lines_added INTEGER,
+                total_lines_removed INTEGER,
+                total_input_tokens INTEGER,
+                total_output_tokens INTEGER,
+                context_window_size INTEGER,
+                exceeds_200k_tokens INTEGER,
+
+                -- Full JSON
+                raw_json TEXT NOT NULL
+            )
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sessions_timestamp
+            ON sessions(timestamp)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sessions_project
+            ON sessions(project_dir)
+        """)
+
+        conn.commit()
+        conn.close()
+    except Exception:
+        # Silent fail - don't break status line if DB init fails
+        pass
+
+def log_to_db(data: dict):
+    """Log session data to SQLite (INSERT or UPDATE)."""
+    try:
+        session_id = data.get('session_id')
+        if not session_id:
+            return  # Skip old logs without session_id
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        # Check if session exists to preserve first_seen
+        cursor.execute("SELECT first_seen FROM sessions WHERE session_id = ?", (session_id,))
+        row = cursor.fetchone()
+        first_seen = row[0] if row else timestamp
+
+        # Extract fields
+        model_data = data.get('model', {})
+        workspace = data.get('workspace', {})
+        cost = data.get('cost', {})
+        ctx = data.get('context_window', {})
+
+        # INSERT OR REPLACE
+        cursor.execute("""
+            INSERT OR REPLACE INTO sessions (
+                session_id, timestamp, first_seen,
+                model_id, model_name, project_dir, transcript_path, version,
+                total_cost_usd, total_duration_ms, total_api_duration_ms,
+                total_lines_added, total_lines_removed,
+                total_input_tokens, total_output_tokens, context_window_size,
+                exceeds_200k_tokens, raw_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            session_id, timestamp, first_seen,
+            model_data.get('id'), model_data.get('display_name'),
+            workspace.get('project_dir'), data.get('transcript_path'),
+            data.get('version'),
+            cost.get('total_cost_usd'), cost.get('total_duration_ms'),
+            cost.get('total_api_duration_ms'), cost.get('total_lines_added'),
+            cost.get('total_lines_removed'),
+            ctx.get('total_input_tokens'), ctx.get('total_output_tokens'),
+            ctx.get('context_window_size'),
+            1 if data.get('exceeds_200k_tokens') else 0,
+            json.dumps(data)
+        ))
+
+        conn.commit()
+        conn.close()
+    except Exception:
+        # Silent fail - don't break status line if logging fails
+        pass
 
 def get_git_info(cwd: str) -> tuple[str, str]:
     """Get git branch and stats. Returns (branch, stats)."""
@@ -112,7 +204,6 @@ def main():
     # Parse arguments
     parser = argparse.ArgumentParser(description='Status line for Claude Code')
     parser.add_argument('--demo', action='store_true', help='Run in demo mode with simulated data')
-    parser.add_argument('--log-file', type=Path, default=DEFAULT_LOG_FILE, help='Path to log file')
 
     # Parse only known args to avoid issues when stdin is piped
     args, _ = parser.parse_known_args()
@@ -129,8 +220,9 @@ def main():
             print(f"Error reading input: {e}", file=sys.stderr)
             return
 
-    # Log input data
-    log_input(data, args.log_file)
+    # Log to database
+    init_db()
+    log_to_db(data)
 
     # Extract data
     model = data.get('model', {}).get('display_name', 'Unknown')
