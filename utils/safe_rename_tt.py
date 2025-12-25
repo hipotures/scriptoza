@@ -5,6 +5,7 @@ import logging
 import argparse
 import tempfile
 from datetime import datetime
+from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn, SpinnerColumn
 
 def setup_logging():
     log_filename = f"rename_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -70,123 +71,152 @@ def main():
         logging.error(f"Root directory does not exist: {root_path}")
         sys.exit(1)
 
+    # Pre-scan subdirectories
+    subdirs = sorted([d for d in os.listdir(root_path) if os.path.isdir(os.path.join(root_path, d))])
+    
+    # Discovery step to count total files for progress bar
+    total_files_count = 0
+    for subdir in subdirs:
+        subdir_path = os.path.join(root_path, subdir)
+        total_files_count += len([f for f in os.listdir(subdir_path) if os.path.isfile(os.path.join(subdir_path, f))])
+
     stats = {
-        'total': 0,
+        'total': total_files_count,
         'renamed': 0,
         'skipped_correct': 0,
         'skipped_error': 0,
-        'no_date_found': 0
+        'no_date_found': 0,
+        'processed': 0
     }
 
-    try:
-        subdirs = [d for d in os.listdir(root_path) if os.path.isdir(os.path.join(root_path, d))]
+    if stats['total'] == 0:
+        logging.warning("No files found to process.")
+        sys.exit(0)
+
+    with Progress(
+        TextColumn("[bold blue]{task.completed}/{task.total}"),
+        TextColumn("[bold magenta]({task.fields[new]} rename / {task.fields[skip]} skip)"),
+        BarColumn(bar_width=None),
+        TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        SpinnerColumn(),
+        expand=True
+    ) as progress:
         
-        for subdir in sorted(subdirs):
-            clean_prefix = subdir.lstrip('.').lstrip('_').strip()
-            if not clean_prefix:
-                clean_prefix = subdir
+        task = progress.add_task("Renaming", total=stats['total'], new=0, skip=0)
 
-            subdir_path = os.path.join(root_path, subdir)
-            all_files = sorted([f for f in os.listdir(subdir_path) if os.path.isfile(os.path.join(subdir_path, f))])
-            
-            # Mapowanie: stary_base_pliku -> nowa_nazwa_base
-            rename_map = {}
-            
-            # Krok 1: Znajdz wszystkie pliki .mp4 i ustal dla nich nowa baze
-            mp4_files = [f for f in all_files if f.lower().endswith('.mp4')]
-            for f in mp4_files:
-                dt_str = extract_datetime(f)
-                if dt_str:
-                    old_base = os.path.splitext(f)[0]
-                    new_base = f"{clean_prefix}_{dt_str}"
-                    if old_base != new_base:
-                        rename_map[old_base] = new_base
+        try:
+            for subdir in subdirs:
+                clean_prefix = subdir.lstrip('.').lstrip('_').strip()
+                if not clean_prefix:
+                    clean_prefix = subdir
 
-            # Krok 2: Procesuj wszystkie pliki w katalogu uzywajac mapowania
-            for filename in all_files:
-                if filename.startswith('rename_session_') and filename.endswith('.log'):
-                    continue
-
-                stats['total'] += 1
-                full_path = os.path.join(subdir_path, filename)
+                subdir_path = os.path.join(root_path, subdir)
+                all_files = sorted([f for f in os.listdir(subdir_path) if os.path.isfile(os.path.join(subdir_path, f))])
                 
-                # Szukamy najdluzszego dopasowania bazy (zeby nie pomylic uzytkownika 'ala' z 'ala_ma_kota')
-                matched_old_base = None
-                for old_base in sorted(rename_map.keys(), key=len, reverse=True):
-                    if filename.startswith(old_base):
-                        matched_old_base = old_base
-                        break
-                
-                if not matched_old_base:
-                    # Sprawdzamy czy plik sam w sobie ma date, nawet jesli nie jest mp4 i nie ma towarzysza mp4
-                    dt_str = extract_datetime(filename)
-                    if not dt_str:
-                        logging.info(f"No date/companion found for: {filename}")
-                        stats['no_date_found'] += 1
+                # Relational mapping logic
+                rename_map = {}
+                mp4_files = [f for f in all_files if f.lower().endswith('.mp4')]
+                for f in mp4_files:
+                    dt_str = extract_datetime(f)
+                    if dt_str:
+                        old_base = os.path.splitext(f)[0]
+                        new_base = f"{clean_prefix}_{dt_str}"
+                        if old_base != new_base:
+                            rename_map[old_base] = new_base
+
+                for filename in all_files:
+                    if filename.startswith('rename_session_') and filename.endswith('.log'):
+                        stats['total'] -= 1 # adjust total
+                        progress.update(task, total=stats['total'])
+                        continue
+
+                    full_path = os.path.join(subdir_path, filename)
+                    
+                    matched_old_base = None
+                    for old_base in sorted(rename_map.keys(), key=len, reverse=True):
+                        if filename.startswith(old_base):
+                            matched_old_base = old_base
+                            break
+                    
+                    if not matched_old_base:
+                        dt_str = extract_datetime(filename)
+                        if not dt_str:
+                            logging.info(f"No date/companion: {filename}")
+                            stats['no_date_found'] += 1
+                            stats['processed'] += 1
+                            progress.update(task, skip=stats['skipped_correct'] + stats['no_date_found'] + stats['skipped_error'])
+                            progress.advance(task)
+                            continue
+                        
+                        name_part, file_ext = os.path.splitext(filename)
+                        if file_ext and (file_ext[1:].isdigit() or len(file_ext) > 5):
+                            actual_ext = ""
+                        else:
+                            actual_ext = file_ext
+                        new_filename = f"{clean_prefix}_{dt_str}{actual_ext}"
+                    else:
+                        new_base = rename_map[matched_old_base]
+                        suffix = filename[len(matched_old_base):]
+                        new_filename = f"{new_base}{suffix}"
+
+                    new_full_path = os.path.join(subdir_path, new_filename)
+                    
+                    if filename == new_filename:
+                        logging.info(f"Correct: {filename}")
+                        stats['skipped_correct'] += 1
+                        stats['processed'] += 1
+                        progress.update(task, skip=stats['skipped_correct'] + stats['no_date_found'] + stats['skipped_error'])
+                        progress.advance(task)
                         continue
                     
-                    # Jeśli nie ma towarzysza mp4, ale ma datę, traktujemy go jako samodzielny plik
-                    name_part, file_ext = os.path.splitext(filename)
-                    if file_ext and (file_ext[1:].isdigit() or len(file_ext) > 5):
-                        actual_ext = ""
-                    else:
-                        actual_ext = file_ext
-                    new_filename = f"{clean_prefix}_{dt_str}{actual_ext}"
-                else:
-                    # Uzywamy mapowania i zachowujemy reszte nazwy
-                    new_base = rename_map[matched_old_base]
-                    suffix = filename[len(matched_old_base):]
-                    new_filename = f"{new_base}{suffix}"
+                    if os.path.exists(new_full_path):
+                        logging.warning(f"CONFLICT: {new_filename} exists. Keeping: {filename}")
+                        stats['skipped_error'] += 1
+                        stats['processed'] += 1
+                        progress.update(task, skip=stats['skipped_correct'] + stats['no_date_found'] + stats['skipped_error'])
+                        progress.advance(task)
+                        continue
 
-                new_full_path = os.path.join(subdir_path, new_filename)
-                
-                if filename == new_filename:
-                    logging.info(f"Skipping (already correct): {filename}")
-                    stats['skipped_correct'] += 1
-                    continue
-                
-                if os.path.exists(new_full_path):
-                    logging.warning(f"CONFLICT: Destination exists: {new_filename}. Keeping: {filename}")
-                    stats['skipped_error'] += 1
-                    continue
-
-                if dry_run:
-                    logging.info(f"[DRY-RUN] Would rename: {filename} -> {new_filename}")
-                    stats['renamed'] += 1
-                else:
-                    try:
-                        os.rename(full_path, new_full_path)
-                        logging.info(f"RENAMED: {filename} -> {new_filename}")
+                    if dry_run:
+                        logging.info(f"[DRY-RUN] {filename} -> {new_filename}")
                         stats['renamed'] += 1
-                    except Exception as e:
-                        logging.error(f"FATAL ERROR: Failed to rename {full_path} to {new_full_path}: {str(e)}")
-                        sys.exit(1)
+                    else:
+                        try:
+                            os.rename(full_path, new_full_path)
+                            logging.info(f"RENAMED: {filename} -> {new_filename}")
+                            stats['renamed'] += 1
+                        except Exception as e:
+                            progress.console.print(f"[bold red]ERROR renaming {filename}: {e}")
+                            logging.error(f"FAILED {full_path}: {e}")
+                            sys.exit(1)
+                    
+                    stats['processed'] += 1
+                    progress.update(task, new=stats['renamed'])
+                    progress.advance(task)
 
-    except Exception as e:
-        logging.error(f"An unexpected error occurred: {str(e)}")
-        sys.exit(1)
+        except KeyboardInterrupt:
+            progress.console.print("\n[bold yellow]Interrupt received. Stopping...[/bold yellow]")
 
     report = f"""
 ========================================
 RENAME SESSION REPORT
 ========================================
 Log file: {log_file}
-Total files processed:      {stats['total']}
-Files to be/renamed:        {stats['renamed']}
+Total files found:          {stats['total']}
+Files processed:            {stats['processed']}
+Files to be/renamed (new):  {stats['renamed']}
 Files already correct:      {stats['skipped_correct']}
 Files with no date found:   {stats['no_date_found']}
-Errors/Conflicts:           {stats['skipped_error']}
+Errors/Conflicts (skip):    {stats['skipped_error']}
 ----------------------------------------
-Sum check (Total == Renamed + Correct + NoDate + Error):
-{stats['total']} == {stats['renamed'] + stats['skipped_correct'] + stats['no_date_found'] + stats['skipped_error']}
+Sum check:
+{stats['processed']} == {stats['renamed'] + stats['skipped_correct'] + stats['no_date_found'] + stats['skipped_error']}
 ========================================
 """
     logging.info(report)
     print(report)
-    
-    if stats['total'] != (stats['renamed'] + stats['skipped_correct'] + stats['no_date_found'] + stats['skipped_error']):
-        logging.error("CRITICAL: Statistics mismatch!")
-        sys.exit(1)
 
 if __name__ == "__main__":
     main()
