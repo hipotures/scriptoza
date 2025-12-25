@@ -189,6 +189,7 @@ def main():
     # Align columns by padding WITH BACKGROUND style (no black gaps)
     col1_w = max(c1r1.cell_len, c1r2.cell_len)
     col2_w = max(c2r1.cell_len, c2r2.cell_len)
+    col3_w = max(c3r1.cell_len, c3r2.cell_len)
 
     pad_to(c1r1, col1_w, "on red")
     pad_to(c1r2, col1_w, "on red")
@@ -196,6 +197,10 @@ def main():
         pad_to(c2r1, col2_w, "on yellow")
     if out_text:
         pad_to(c2r2, col2_w, "on yellow")
+    if branch:
+        pad_to(c3r1, col3_w, "on blue")
+    if stats:
+        pad_to(c3r2, col3_w, "on blue")
 
     row1 = Text(); row1.append_text(c1r1); row1.append_text(c2r1); row1.append_text(c3r1)
     row2 = Text(); row2.append_text(c1r2); row2.append_text(c2r2); row2.append_text(c3r2)
