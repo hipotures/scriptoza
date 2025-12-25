@@ -60,47 +60,6 @@ sessions (
 )
 ```
 
-### import_sessions.py
-
-Import historical session data from `statusline.log` to SQLite database.
-
-**Features:**
-- Parses old text-based logs
-- Preserves session history
-- UPDATE strategy (one record per session)
-- Progress reporting
-
-**Usage:**
-
-```bash
-# Run once to migrate existing logs
-python utils/import_sessions.py
-```
-
-**Output:**
-
-```
-🔍 Importowanie danych z statusline.log do SQLite...
-📊 Inicjalizacja bazy danych...
-📖 Parsowanie /home/xai/.claude/log/statusline.log...
-✓ Znaleziono 1435 wpisów w logu
-💾 Importowanie do bazy danych...
-
-✅ Import zakończony!
-   • Zaimportowano: 1374 wpisów
-   • Pominięto: 61 wpisów (brak session_id)
-   • Unikalnych sesji: 13
-
-📈 Statystyki sesji:
-   • b9746fbf... : 465 aktualizacji
-   • 8552743b... : 269 aktualizacji
-```
-
-**Notes:**
-- Only needs to be run once
-- Safe to re-run (uses INSERT OR REPLACE)
-- Skips entries without `session_id` (old format)
-
 ### session_stats.sh
 
 Comprehensive session statistics and analytics dashboard.
@@ -225,17 +184,13 @@ Edit `~/.claude/settings.json` and add:
 }
 ```
 
-**2. Import existing logs (optional):**
-
-```bash
-python utils/import_sessions.py
-```
-
-**3. View statistics:**
+**2. View statistics:**
 
 ```bash
 ./utils/session_stats.sh
 ```
+
+Sessions are automatically logged to SQLite database on first run.
 
 ### Database Location
 

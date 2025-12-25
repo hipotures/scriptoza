@@ -76,11 +76,6 @@ See [Architecture Overview](docs/architecture/overview.md) for details.
   python ~/DEV/scriptoza/utils/statusline.py --demo 2>/dev/null
   # Output: 2-line status with model, tokens, cost, project, git info
   ```
-- **import_sessions.py** - Import historical session data from `statusline.log` to SQLite database. Run once to migrate existing logs.
-  ```bash
-  python utils/import_sessions.py
-  # Imports all historical sessions, preserves first_seen timestamps
-  ```
 - **session_stats.sh** - Comprehensive session statistics and analytics. Shows top sessions, costs per project/day, model usage, and totals.
   ```bash
   ./utils/session_stats.sh
