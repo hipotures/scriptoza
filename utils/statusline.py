@@ -196,18 +196,7 @@ def main():
     if stats:
         pad_to(c3r2, col3_w, "on blue")
 
-    # TERAZ dodaj separatory (po paddingu)
-    # Separator między czerwonym a żółtym - trójkąt musi być na czerwonym tle
-    c1r1.append(SEP_RIGHT, style="red on yellow")  # trójkąt czerwony na żółtym tle
-    c1r2.append(SEP_RIGHT, style="red on yellow")
-
-    if ctx_text:
-        # Separator między żółtym a niebieskim - trójkąt musi być na żółtym tle
-        c2r1.append(SEP_RIGHT, style="yellow on blue")  # trójkąt żółty na niebieskim tle
-    if out_text:
-        c2r2.append(SEP_RIGHT, style="yellow on blue")
-
-    # Złóż wiersze z separatorami skrajnymi
+    # Złóż wiersze z separatorami TYLKO SKRAJNYMI
     # Row 1
     row1 = Text()
     row1.append(SEP_LEFT, style="red")  # Lewy separator
