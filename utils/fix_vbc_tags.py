@@ -207,11 +207,14 @@ def main():
                         
                         subprocess.run(cmd, capture_output=True, text=True, check=True)
                         
-                        # Size safety check
+                        # Size safety check: (1% of old size) + 10 KB buffer
                         new_size = os.path.getsize(filepath)
-                        diff_pct = abs(new_size - old_size) / old_size if old_size > 0 else 0
-                        if diff_pct > 0.01:
-                            err = f"CRITICAL: Size changed by {diff_pct:.2%} ({old_size} -> {new_size})"
+                        diff_bytes = abs(new_size - old_size)
+                        allowed_diff = (0.01 * old_size) + 10240 # 1% + 10KB
+                        
+                        if diff_bytes > allowed_diff:
+                            diff_pct = (diff_bytes / old_size) if old_size > 0 else 0
+                            err = f"CRITICAL: Size changed significantly by {diff_bytes} bytes ({diff_pct:.2%}). Limit: {allowed_diff:.0f} bytes."
                             progress.console.print(f"\n[bold red]{err} for {filename}")
                             logging.error(f"{err} for {filepath}")
                             sys.exit(1)
