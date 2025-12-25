@@ -9,6 +9,7 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 from rich.console import Console
+from rich.table import Table
 
 # Default log file path
 DEFAULT_LOG_FILE = Path.home() / '.claude' / 'log' / 'statusline.log'
@@ -154,17 +155,21 @@ def main():
     # Git info
     branch, stats = get_git_info(cwd)
 
-    # Build status line with Rich formatting (2 lines)
+    # Build status line with Rich Table (2 rows, 3 columns)
     console = Console()
 
-    # LINE 1: Model + CWD
-    line1 = []
-    line1.append(f"[white on red] Model: {model} [/]")
-    line1.append("[red on black]▶[/]")
-    line1.append(f"[white on black] cwd: {cwd_short} [/]")
+    table = Table.grid(padding=0, pad_edge=False, expand=False)
+    table.add_column(justify="left", no_wrap=True, width=None)  # Column 1: Model
+    table.add_column(justify="left", no_wrap=True, width=None)  # Column 2: cwd / Ctx+Out
+    table.add_column(justify="left", no_wrap=True, width=None)  # Column 3: Git
 
-    # LINE 2: Context + Output + Git
-    line2 = []
+    # ROW 1: Model | cwd | (empty)
+    col1_row1 = f"[white on red] Model: {model} [/][red on black]▶[/]"
+    col2_row1 = f"[white on black] cwd: {cwd_short} [/][black on yellow]▶[/]"
+    col3_row1 = ""
+
+    # ROW 2: (empty) | Ctx + Out | Git branch + stats
+    col1_row2 = ""
 
     # Context and Output section (yellow background)
     yellow_parts = []
@@ -173,23 +178,27 @@ def main():
     if out_text:
         yellow_parts.append(f" {out_text} ")
 
+    col2_row2 = ""
     if yellow_parts:
-        line2.append(f"[black on yellow]{''.join(yellow_parts)}[/]")
+        col2_row2 = f"[black on yellow]{''.join(yellow_parts)}[/]"
 
     # Git section (blue background)
+    col3_row2 = ""
     if branch or stats:
-        line2.append("[yellow on blue]▶[/]")
         blue_parts = []
         if branch:
             blue_parts.append(f" {branch} ")
         if stats:
             blue_parts.append(f" {stats} ")
-        line2.append(f"[white on blue]{''.join(blue_parts)}[/]")
+        col3_row2 = f"[yellow on blue]▶[/][white on blue]{''.join(blue_parts)}[/]"
 
-    # Print both lines
+    # Add rows to table
+    table.add_row(col1_row1, col2_row1, col3_row1)
+    table.add_row(col1_row2, col2_row2, col3_row2)
+
+    # Print table
     with console.capture() as capture:
-        console.print(''.join(line1))
-        console.print(''.join(line2), end='')
+        console.print(table, end='')
 
     # Output the captured text
     print(capture.get(), end='')
