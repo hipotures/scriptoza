@@ -70,6 +70,11 @@ See [Architecture Overview](docs/architecture/overview.md) for details.
 ### [Utils](utils/) - General Utilities
 
 - **statusline.py** - Custom colorful status line for Claude Code with Rich formatting. Displays model, context, output, git branch, and stats with `--demo` mode for testing.
+  ```
+  python ~/DEV/scriptoza/utils/statusline.py --demo 2>/dev/null
+  ⎿   Model: Sonnet 4.5   Ctx: 49.9k  ⎇ main
+      cwd: DEV/scriptoza  Out: 4.1k   (+1,-12)
+  ```
 - **safe_rename_tt.py** - Safe, multi-format date-based renamer for TikTok downloads. Uses parent directory as prefix, supports dry-run by default, and prevents overwriting.
 - **fix_vbc_tags.py** - Adds missing VBC metadata tags (Encoder, FinishedAt, OriginalName, OriginalSize) to MP4 files based on file system dates.
 
