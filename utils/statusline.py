@@ -9,7 +9,7 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 from rich.console import Console
-from rich.table import Table
+from rich.text import Text
 
 # Default log file path
 DEFAULT_LOG_FILE = Path.home() / '.claude' / 'log' / 'statusline.log'
@@ -155,52 +155,56 @@ def main():
     # Git info
     branch, stats = get_git_info(cwd)
 
-    # Build status line with Rich Table (2 rows, 3 columns)
     console = Console()
 
-    table = Table.grid(padding=0, pad_edge=False, expand=False)
-    table.add_column(justify="left", no_wrap=True, width=None)  # Column 1: Model
-    table.add_column(justify="left", no_wrap=True, width=None)  # Column 2: cwd / Ctx+Out
-    table.add_column(justify="left", no_wrap=True, width=None)  # Column 3: Git
+    # --- Build 2-line status without "black gaps" ---
+    SEP = ""  # jeśli masz Nerd Font / Powerline; jak nie, zamień na "▶"
 
-    # ROW 1: Model | cwd | (empty)
-    col1_row1 = f"[white on red] Model: {model} [/][red on black]▶[/]"
-    col2_row1 = f"[white on black] cwd: {cwd_short} [/][black on yellow]▶[/]"
-    col3_row1 = ""
+    def pad_to(t: Text, width: int, style: str) -> Text:
+        missing = width - t.cell_len
+        if missing > 0:
+            t.append(" " * missing, style=style)
+        return t
 
-    # ROW 2: (empty) | Ctx + Out | Git branch + stats
-    col1_row2 = ""
+    # Column 1 (left)
+    c1r1 = Text(f" Model: {model} ", style="white on red")
+    c1r1.append(SEP, style="yellow on red")  # przejście do żółtego
 
-    # Context and Output section (yellow background)
-    yellow_parts = []
+    c1r2 = Text(f" cwd: {cwd_short} ", style="white on black")
+    c1r2.append(SEP, style="yellow on black")  # przejście do żółtego
+
+    # Column 2 (middle)
+    c2r1 = Text(f" {ctx_text} ", style="black on yellow") if ctx_text else Text("")
     if ctx_text:
-        yellow_parts.append(f" {ctx_text} ")
+        c2r1.append(SEP, style="blue on yellow")  # przejście do niebieskiego
+
+    c2r2 = Text(f" {out_text} ", style="black on yellow") if out_text else Text("")
     if out_text:
-        yellow_parts.append(f" {out_text} ")
+        c2r2.append(SEP, style="blue on yellow")
 
-    col2_row2 = ""
-    if yellow_parts:
-        col2_row2 = f"[black on yellow]{''.join(yellow_parts)}[/]"
+    # Column 3 (right)
+    c3r1 = Text(f" {branch} ", style="white on blue") if branch else Text("")
+    c3r2 = Text(f" {stats} ", style="white on blue") if stats else Text("")
 
-    # Git section (blue background)
-    col3_row2 = ""
-    if branch or stats:
-        blue_parts = []
-        if branch:
-            blue_parts.append(f" {branch} ")
-        if stats:
-            blue_parts.append(f" {stats} ")
-        col3_row2 = f"[yellow on blue]▶[/][white on blue]{''.join(blue_parts)}[/]"
+    # Align columns by padding WITH BACKGROUND style (no black gaps)
+    col1_w = max(c1r1.cell_len, c1r2.cell_len)
+    col2_w = max(c2r1.cell_len, c2r2.cell_len)
 
-    # Add rows to table
-    table.add_row(col1_row1, col2_row1, col3_row1)
-    table.add_row(col1_row2, col2_row2, col3_row2)
+    pad_to(c1r1, col1_w, "on red")
+    pad_to(c1r2, col1_w, "on black")
+    if ctx_text:
+        pad_to(c2r1, col2_w, "on yellow")
+    if out_text:
+        pad_to(c2r2, col2_w, "on yellow")
 
-    # Print table
+    row1 = Text(); row1.append_text(c1r1); row1.append_text(c2r1); row1.append_text(c3r1)
+    row2 = Text(); row2.append_text(c1r2); row2.append_text(c2r2); row2.append_text(c3r2)
+
+    # Print
     with console.capture() as capture:
-        console.print(table, end='')
+        console.print(row1)
+        console.print(row2, end='')
 
-    # Output the captured text
     print(capture.get(), end='')
 
 if __name__ == '__main__':
