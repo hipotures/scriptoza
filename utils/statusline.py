@@ -91,13 +91,17 @@ def get_demo_data() -> dict:
         "model": {
             "display_name": "Sonnet 4.5"
         },
+        "cost": {
+            "total_cost_usd": 0.31
+        },
         "context_window": {
+            "total_input_tokens": 14828,
+            "total_output_tokens": 4275,
             "current_usage": {
                 "input_tokens": 49900,
                 "cache_creation_input_tokens": 0,
                 "cache_read_input_tokens": 0
-            },
-            "total_output_tokens": 4100
+            }
         },
         "workspace": {
             "current_dir": "/home/xai/DEV/scriptoza"
@@ -131,25 +135,34 @@ def main():
     # Extract data
     model = data.get('model', {}).get('display_name', 'Unknown')
 
-    # Context usage
+    # Column 2: In/Out (total tokens)
+    in_tokens = data.get('context_window', {}).get('total_input_tokens', 0)
+    out_tokens = data.get('context_window', {}).get('total_output_tokens', 0)
+    in_val = format_k(in_tokens)
+    out_val = format_k(out_tokens)
+
+    # Column 3: Ctx/Cost
     ctx_usage = data.get('context_window', {}).get('current_usage')
-    total = 0
+    ctx_total = 0
     if ctx_usage:
-        total = (
+        ctx_total = (
             ctx_usage.get('input_tokens', 0) +
             ctx_usage.get('cache_creation_input_tokens', 0) +
             ctx_usage.get('cache_read_input_tokens', 0)
         )
-    ctx_val = format_k(total)
+    ctx_val = format_k(ctx_total)
+    cost_usd = data.get('cost', {}).get('total_cost_usd', 0)
+    cost_val = f"{cost_usd:.2f}"
 
-    # Output tokens
-    out_tokens = data.get('context_window', {}).get('total_output_tokens', 0)
-    out_val = format_k(out_tokens)
+    # Right-align values in column 2 (In/Out)
+    max_val_width_col2 = max(len(in_val), len(out_val))
+    in_text = f"In: {in_val:>{max_val_width_col2}}"
+    out_text = f"Out: {out_val:>{max_val_width_col2}}"
 
-    # Right-align values in middle column
-    max_val_width = max(len(ctx_val), len(out_val))
-    ctx_text = f"Ctx: {ctx_val:>{max_val_width}}"
-    out_text = f"Out: {out_val:>{max_val_width}}"
+    # Right-align values in column 3 (Ctx/Cost)
+    max_val_width_col3 = max(len(ctx_val), len(cost_val))
+    ctx_text = f"Ctx: {ctx_val:>{max_val_width_col3}}"
+    cost_text = f"USD: {cost_val:>{max_val_width_col3}}"
 
     # Working directory
     cwd = data.get('workspace', {}).get('current_dir', '')
@@ -171,31 +184,38 @@ def main():
             t.append(" " * missing, style=style)
         return t
 
-    # Column 1 (left) - BEZ separatorów najpierw
+    # Column 1 (left) - Model/cwd
     c1r1 = Text(f" Model: {model} ", style="white on red")
     c1r2 = Text(f" cwd: {cwd_short} ", style="white on red")
 
-    # Column 2 (middle) - BEZ separatorów najpierw
-    c2r1 = Text(f" {ctx_text} ", style="black on yellow")
+    # Column 2 (In/Out) - yellow
+    c2r1 = Text(f" {in_text} ", style="black on yellow")
     c2r2 = Text(f" {out_text} ", style="black on yellow")
 
-    # Column 3 (right) - BEZ separatorów najpierw
-    c3r1 = Text(f" {branch} ", style="white on blue") if branch else Text("")
-    c3r2 = Text(f" {stats} ", style="white on blue") if stats else Text("")
+    # Column 3 (Ctx/Cost) - green (NEW)
+    c3r1 = Text(f" {ctx_text} ", style="black on green")
+    c3r2 = Text(f" {cost_text} ", style="black on green")
+
+    # Column 4 (branch/stats) - blue
+    c4r1 = Text(f" {branch} ", style="white on blue") if branch else Text("")
+    c4r2 = Text(f" {stats} ", style="white on blue") if stats else Text("")
 
     # Align columns by padding WITH BACKGROUND style (no black gaps)
     col1_w = max(c1r1.cell_len, c1r2.cell_len)
     col2_w = max(c2r1.cell_len, c2r2.cell_len)
     col3_w = max(c3r1.cell_len, c3r2.cell_len)
+    col4_w = max(c4r1.cell_len, c4r2.cell_len)
 
     pad_to(c1r1, col1_w, "on red")
     pad_to(c1r2, col1_w, "on red")
     pad_to(c2r1, col2_w, "on yellow")
     pad_to(c2r2, col2_w, "on yellow")
+    pad_to(c3r1, col3_w, "on green")
+    pad_to(c3r2, col3_w, "on green")
     if branch:
-        pad_to(c3r1, col3_w, "on blue")
+        pad_to(c4r1, col4_w, "on blue")
     if stats:
-        pad_to(c3r2, col3_w, "on blue")
+        pad_to(c4r2, col4_w, "on blue")
 
     # Złóż wiersze z separatorami TYLKO SKRAJNYMI
     # Row 1
@@ -204,6 +224,7 @@ def main():
     row1.append_text(c1r1)
     row1.append_text(c2r1)
     row1.append_text(c3r1)
+    row1.append_text(c4r1)
     if branch:
         row1.append(SEP_END, style="blue")  # Prawy separator
 
@@ -213,6 +234,7 @@ def main():
     row2.append_text(c1r2)
     row2.append_text(c2r2)
     row2.append_text(c3r2)
+    row2.append_text(c4r2)
     if stats:
         row2.append(SEP_END, style="blue")  # Prawy separator
 
