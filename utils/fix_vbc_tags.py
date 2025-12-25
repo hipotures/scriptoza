@@ -5,6 +5,7 @@ import argparse
 import tempfile
 import subprocess
 import json
+from pathlib import Path
 from datetime import datetime
 
 def setup_logging():
@@ -33,26 +34,27 @@ def get_file_dates(filepath):
     """Returns the latest of creation or modification time in ExifTool format."""
     try:
         stat = os.stat(filepath)
-        # modification time
         mtime = datetime.fromtimestamp(stat.st_mtime)
-        # creation time (on some systems it's birth time, on others it's ctime)
         try:
             ctime = datetime.fromtimestamp(stat.st_birthtime)
         except AttributeError:
             ctime = datetime.fromtimestamp(stat.st_ctime)
         
         latest = max(mtime, ctime)
-        # Format: 2025:12:25 01:31:11+01:00 (simplifying offset to current local)
         offset = datetime.now().astimezone().strftime('%z')
         offset_formatted = f"{offset[:3]}:{offset[3:]}"
         return latest.strftime('%Y:%m:%d %H:%M:%S') + offset_formatted
     except Exception:
         return datetime.now().strftime('%Y:%m:%d %H:%M:%S') + "+01:00"
 
-def get_existing_tags(filepath):
+def get_existing_tags(filepath, config_path):
     """Returns VBC tags if they exist."""
     try:
-        cmd = ["exiftool", "-XMP-xmp:VBCEncoder", "-j", filepath]
+        cmd = ["exiftool"]
+        if config_path:
+            cmd.extend(["-config", str(config_path)])
+        cmd.extend(["-XMP:VBCEncoder", "-j", filepath])
+        
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         data = json.loads(result.stdout)
         if data and "VBCEncoder" in data[0]:
@@ -80,6 +82,13 @@ def main():
         logging.error(f"Directory does not exist: {root_path}")
         sys.exit(1)
 
+    # Find ExifTool config
+    script_dir = Path(__file__).resolve().parent
+    config_path = script_dir.parent / "conf" / "exiftool.conf"
+    if not config_path.exists():
+        logging.error(f"ExifTool config not found at: {config_path}")
+        sys.exit(1)
+
     stats = {
         'total': 0,
         'tagged': 0,
@@ -88,7 +97,6 @@ def main():
     }
 
     try:
-        # Recursive scan for mp4 files
         for root, dirs, files in os.walk(root_path):
             for filename in sorted(files):
                 if not filename.lower().endswith('.mp4'):
@@ -97,7 +105,7 @@ def main():
                 stats['total'] += 1
                 filepath = os.path.join(root, filename)
                 
-                existing = get_existing_tags(filepath)
+                existing = get_existing_tags(filepath, config_path)
                 if existing:
                     logging.info(f"Skipping (already has tags): {filename}")
                     stats['skipped_has_tags'] += 1
@@ -106,10 +114,10 @@ def main():
                 finished_at = get_file_dates(filepath)
                 
                 tags = {
-                    "XMP-xmp:VBCEncoder": "NVENC AV1 (GPU)",
-                    "XMP-xmp:VBCFinishedAt": finished_at,
-                    "XMP-xmp:VBCOriginalName": filename,
-                    "XMP-xmp:VBCOriginalSize": -1
+                    "XMP:VBCEncoder": "NVENC AV1 (GPU)",
+                    "XMP:VBCFinishedAt": finished_at,
+                    "XMP:VBCOriginalName": filename,
+                    "XMP:VBCOriginalSize": -1
                 }
 
                 if dry_run:
@@ -117,7 +125,7 @@ def main():
                     stats['tagged'] += 1
                 else:
                     try:
-                        cmd = ["exiftool", "-overwrite_original"]
+                        cmd = ["exiftool", "-config", str(config_path), "-overwrite_original"]
                         for k, v in tags.items():
                             cmd.append(f"-{k}={v}")
                         cmd.append(filepath)
@@ -139,6 +147,7 @@ def main():
 VBC TAG FIX REPORT
 ========================================
 Log file: {log_file}
+Config:   {config_path}
 Total MP4 files found:      {stats['total']}
 Files to be/tagged:         {stats['tagged']}
 Files already tagged:       {stats['skipped_has_tags']}
