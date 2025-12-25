@@ -70,6 +70,7 @@ See [Architecture Overview](docs/architecture/overview.md) for details.
 ### [Utils](utils/) - General Utilities
 
 - **safe_rename_tt.py** - Safe, multi-format date-based renamer for TikTok downloads. Uses parent directory as prefix, supports dry-run by default, and prevents overwriting.
+- **fix_vbc_tags.py** - Adds missing VBC metadata tags (Encoder, FinishedAt, OriginalName, OriginalSize) to MP4 files based on file system dates.
 
 ### [Photo](photo/)
 
