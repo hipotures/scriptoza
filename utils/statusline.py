@@ -154,38 +154,42 @@ def main():
     # Git info
     branch, stats = get_git_info(cwd)
 
-    # Build status line with Rich formatting
+    # Build status line with Rich formatting (2 lines)
     console = Console()
 
-    parts = []
+    # LINE 1: Model + CWD
+    line1 = []
+    line1.append(f"[white on red] Model: {model} [/]")
+    line1.append("[red on black]▶[/]")
+    line1.append(f"[white on black] cwd: {cwd_short} [/]")
 
-    # Model section (red/pink background)
-    parts.append(f"[white on red] Model: {model} [/]")
-    parts.append("[red on black]▶[/]")
+    # LINE 2: Context + Output + Git
+    line2 = []
 
-    # CWD section (dark background)
-    parts.append(f"[white on black] cwd: {cwd_short} [/]")
-    parts.append("[black on yellow]▶[/]")
-
-    # Context section (yellow background)
+    # Context and Output section (yellow background)
+    yellow_parts = []
     if ctx_text:
-        parts.append(f"[black on yellow] {ctx_text} [/]")
-
-    # Output section (yellow background)
+        yellow_parts.append(f" {ctx_text} ")
     if out_text:
-        parts.append(f"[black on yellow] {out_text} [/]")
+        yellow_parts.append(f" {out_text} ")
+
+    if yellow_parts:
+        line2.append(f"[black on yellow]{''.join(yellow_parts)}[/]")
 
     # Git section (blue background)
     if branch or stats:
-        parts.append("[yellow on blue]▶[/]")
+        line2.append("[yellow on blue]▶[/]")
+        blue_parts = []
         if branch:
-            parts.append(f"[white on blue] {branch} [/]")
+            blue_parts.append(f" {branch} ")
         if stats:
-            parts.append(f"[white on blue] {stats} [/]")
+            blue_parts.append(f" {stats} ")
+        line2.append(f"[white on blue]{''.join(blue_parts)}[/]")
 
-    # Print without newline
+    # Print both lines
     with console.capture() as capture:
-        console.print(''.join(parts), end='')
+        console.print(''.join(line1))
+        console.print(''.join(line2), end='')
 
     # Output the captured text
     print(capture.get(), end='')
