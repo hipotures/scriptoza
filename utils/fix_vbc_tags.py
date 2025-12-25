@@ -114,6 +114,7 @@ def main():
     # Step 2: Processing with Rich Progress
     with Progress(
         TextColumn("[bold blue]{task.completed}/{task.total}"),
+        TextColumn("[bold magenta]({task.fields[nn]}/{task.fields[ww]})"),
         BarColumn(bar_width=None),
         TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
         TextColumn("•"),
@@ -122,7 +123,12 @@ def main():
         expand=True
     ) as progress:
         
-        task = progress.add_task("Fixing tags...", total=stats['total'])
+        task = progress.add_task(
+            "Fixing tags...", 
+            total=stats['total'], 
+            nn=0, # to be tagged
+            ww=0  # already tagged
+        )
         
         for filepath in sorted(mp4_files):
             filename = os.path.basename(filepath)
@@ -144,6 +150,7 @@ def main():
             if existing:
                 logging.info(f"Skipping (already has tags): {filename}")
                 stats['skipped_has_tags'] += 1
+                progress.update(task, ww=stats['skipped_has_tags'])
                 progress.advance(task)
                 continue
 
@@ -166,7 +173,7 @@ def main():
                         cmd.append(f"-{k}={v}")
                     cmd.append(filepath)
                     
-                    subprocess.run(cmd, capture_output=True, text=True, check=True)
+                    subprocess.run(cmd, capture_output=True, check=True)
                     logging.info(f"TAGGED: {filename}")
                     stats['tagged'] += 1
                 except Exception as e:
@@ -174,6 +181,7 @@ def main():
                     stats['skipped_error'] += 1
                     sys.exit(1)
             
+            progress.update(task, nn=stats['tagged'])
             progress.advance(task)
 
     report = f"""
@@ -183,8 +191,8 @@ VBC TAG FIX REPORT
 Log file: {log_file}
 Config:   {config_path}
 Total MP4 files found:      {stats['total']}
-Files to be/tagged:         {stats['tagged']}
-Files already tagged:       {stats['skipped_has_tags']}
+Files to be/tagged (NN):    {stats['tagged']}
+Files already tagged (WW):  {stats['skipped_has_tags']}
 Empty files skipped:        {stats['skipped_empty']}
 Errors:                     {stats['skipped_error']}
 ----------------------------------------
