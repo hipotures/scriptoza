@@ -310,7 +310,9 @@ class CompactDashboard:
         else:
             panel_w = max(40, term_w - 4)  # 1-column mode: full width
 
-        spinner_chars = "●◐◓◑◒"
+        spinner_frames = "●○◉◎"
+        spinner_rotating = "◐◓◑◒"
+        use_spinner = spinner_rotating if (job.rotation_angle or 0) > 0 else spinner_frames
 
         # Metadata
         meta = job.source_file.metadata
@@ -334,7 +336,7 @@ class CompactDashboard:
         # Build 3 elements: name, metadata, progress bar
         filename_max = max(30, panel_w - 3)  # Uniform truncation for both modes
         filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
-        spinner = spinner_chars[(self._spinner_frame + hash(filename)) % 5]
+        spinner = use_spinner[(self._spinner_frame + hash(filename)) % len(use_spinner)]
 
         name_line = f"[green]{spinner}[/] {filename}"
         meta_text = f"dur {dur} • {fps} • in {size}"
@@ -855,6 +857,12 @@ class CompactDashboard:
 
     def _generate_legend_overlay(self) -> Panel:
         """Dashboard status legend."""
+        # Animated spinners
+        spinner_frames = "●○◉◎"
+        spinner_rotating = "◐◓◑◒"
+        normal_spinner = spinner_frames[self._spinner_frame % len(spinner_frames)]
+        rotating_spinner = spinner_rotating[self._spinner_frame % len(spinner_rotating)]
+
         legend = [
             "[red]fail[/]   : Current session errors (FFmpeg crash, no space)",
             "[red]err[/]    : Historic errors (existing .err file found on disk)",
@@ -866,6 +874,10 @@ class CompactDashboard:
             "[dim white]cam[/]    : Skipped (camera model doesn't match filter)",
             "",
             "[green]✓[/] : Success | [red]✗[/] : Error | [dim]≡[/] : Kept | [red]⚡[/] : Interrupted",
+            "",
+            "[bold cyan]Active Jobs Spinners[/]",
+            f"  [green]{normal_spinner}[/] : Normal processing",
+            f"  [green]{rotating_spinner}[/] : Video rotation in progress",
             "",
             "[bold cyan]GPU Graph (Key: G)[/]",
             "  [dim]Rotate metric:[/] temp → fan → pwr → gpu → mem",
