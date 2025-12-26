@@ -81,6 +81,10 @@ See [Architecture Overview](docs/architecture/overview.md) for details.
   ./utils/session_stats.sh
   # Displays: Top 10 sessions, cost per project, cost per day, model stats, totals
   ```
+- **claude_usage_report.py** - Aggregates JSONL history into per-session/per-model/per-day token totals (input/output/cache). Optional estimated cost output.
+  ```bash
+  uv run python utils/claude_usage_report.py > /tmp/claude_usage.csv
+  ```
 
 **Other Utilities:**
 - **safe_rename_tt.py** - Safe, multi-format date-based renamer for TikTok downloads. Uses parent directory as prefix, supports dry-run by default, and prevents overwriting.

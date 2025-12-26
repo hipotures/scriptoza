@@ -137,6 +137,38 @@ Comprehensive session statistics and analytics dashboard.
 - SQLite3
 - Bash with box table formatting support
 
+### claude_usage_report.py
+
+Aggregate token usage from Claude Code JSONL history by session, model, and day.
+
+**Features:**
+- Scans `~/.claude/projects/**.jsonl`
+- Outputs CSV/TSV with input/output + cache read/write tokens
+- Optional estimated cost based on hardcoded pricing
+
+**Usage:**
+
+```bash
+# CSV output (default)
+uv run python utils/claude_usage_report.py > /tmp/claude_usage.csv
+
+# TSV output
+uv run python utils/claude_usage_report.py --format tsv
+
+# Include estimated cost
+uv run python utils/claude_usage_report.py --include-cost > /tmp/claude_usage_with_cost.csv
+```
+
+**Output Columns:**
+- `date`
+- `session_id`
+- `model`
+- `input_tokens`
+- `output_tokens`
+- `cache_write_tokens`
+- `cache_read_tokens`
+- `cost_usd` (only with `--include-cost`)
+
 ### Custom SQL Queries
 
 You can run custom queries directly on the database:
