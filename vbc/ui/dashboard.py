@@ -1,16 +1,107 @@
 import re
 import threading
 import time
+import unicodedata
 from datetime import datetime
-from typing import Optional, Dict
-from rich.console import Console, Group
+from typing import Optional, List, Tuple, Any
+from collections import deque
+from rich.live import Live
+from rich.console import Console, Group, RenderableType
+from rich.panel import Panel
+from rich.table import Table
+from rich.layout import Layout
+from rich.progress_bar import ProgressBar
 from rich.align import Align
 from rich.segment import Segment
 from rich._loop import loop_last
+from rich.text import Text
+from vbc.ui.state import UIState
+from vbc.domain.models import JobStatus
+
+# Layout Constants
+TOP_BAR_LINES = 3  # Status, Gap, KPI
+FOOTER_LINES = 1   # Health counters
+MIN_2COL_W = 110   # Breakpoint for 2-column layout
+
+# Panel content min/max heights (lines within frame)
+PROGRESS_MIN = 2   # Done/Total + bar
+PROGRESS_MAX = 3   # 3 lines total: Header, Bar, Gap/Action
+ACTIVE_MIN = 1
+ACTIVITY_MIN = 1
+QUEUE_MIN = 1
+
+# GPU Sparkline Constants
+SPARKLINE_BLOCKS = "▁▂▃▄▅▆▇█"
+SPARKLINE_MISSING = "·"
+
+# Metric configs: (label, history_attr, min_val, max_val)
+# Order matches GL2 display: temp | fan | pwr | gpu | mem
+SPARKLINE_CONFIGS = [
+    ("Temp", "gpu_history_temp", 35.0, 70.0),   # 0: 35°C=▁, 70°C=█
+    ("Fan",  "gpu_history_fan",  0.0, 100.0),   # 1: 0%=▁, 100%=█
+    ("Pwr",  "gpu_history_pwr",  100.0, 400.0), # 2: 100W=▁, 400W=█
+    ("GPU",  "gpu_history_gpu",  0.0, 100.0),   # 3: 0%=▁, 100%=█
+    ("Mem",  "gpu_history_mem",  0.0, 100.0),   # 4: 0%=▁, 100%=█
+]
+
+def bin_value(val: Optional[float], min_val: float, max_val: float) -> int:
+    """Map value to 0..7 for sparkline block char. -1 for None."""
+    if val is None:
+        return -1
+    if val <= min_val:
+        return 0
+    if val >= max_val:
+        return 7
+    ratio = (val - min_val) / (max_val - min_val)
+    return min(7, int(ratio * 8))
+
+def is_wide_char(char: str) -> bool:
+    """Check if Unicode character is wide (takes 2 terminal columns)."""
+    if not char:
+        return False
+    # East Asian Width categories: F(ull), W(ide) = 2 cols, others = 1 col
+    width = unicodedata.east_asian_width(char[0])
+    return width in ('F', 'W')
+
+def format_icon(icon: str) -> str:
+    """Format icon with appropriate spacing (wide chars don't need trailing space)."""
+    if is_wide_char(icon):
+        return icon  # No space needed (e.g., ⚡)
+    else:
+        return f"{icon} "  # Add space (e.g., ✓ )
+
+def render_sparkline(
+    history: deque,
+    spark_len: int,
+    min_val: float,
+    max_val: float
+) -> str:
+    """
+    Render sparkline with newest on right, missing as ·.
+
+    Args:
+        history: deque of Optional[float]
+        spark_len: Target length of sparkline
+        min_val, max_val: Binning range
+    """
+    samples = list(history)[-spark_len:]  # Last N samples (oldest → newest)
+
+    # Don't pad - show only existing samples (grows from left to right)
+    chars = []
+    for val in samples:
+        bin_idx = bin_value(val, min_val, max_val)
+        chars.append(SPARKLINE_MISSING if bin_idx < 0 else SPARKLINE_BLOCKS[bin_idx])
+
+    # Right-pad with spaces to maintain fixed width
+    result = "".join(chars)
+    if len(result) < spark_len:
+        result = result + " " * (spark_len - len(result))
+
+    return result
+
 
 class _Overlay:
     """Render overlay panel centered over a background renderable."""
-
     def __init__(self, background, overlay, overlay_width: int):
         self.background = background
         self.overlay = overlay
@@ -47,10 +138,9 @@ class _Overlay:
 
     def __rich_console__(self, console, options):
         width, height = options.size
-
         bg_lines = console.render_lines(self.background, options, pad=True)
         bg_lines = Segment.set_shape(bg_lines, width, height)
-
+        
         overlay_lines = console.render_lines(
             self.overlay,
             options.update(width=self.overlay_width),
@@ -77,19 +167,15 @@ class _Overlay:
             yield from line
             if not last:
                 yield Segment.line()
-from rich.live import Live
-from rich.panel import Panel
-from rich.table import Table
-from rich.progress_bar import ProgressBar
-from rich.columns import Columns
-from vbc.ui.state import UIState
-from vbc.domain.models import JobStatus
+
 
 class Dashboard:
-    """Renders the live dashboard UI."""
+    """Adaptive UI implementation with dynamic density control."""
 
-    def __init__(self, state: UIState):
+    def __init__(self, state: UIState, panel_height_scale: float = 0.7, max_active_jobs: int = 8):
         self.state = state
+        self.panel_height_scale = panel_height_scale  # UI scale factor
+        self.max_active_jobs = max_active_jobs  # Max jobs to reserve space for
         self.console = Console()
         self._live: Optional[Live] = None
         self._refresh_thread: Optional[threading.Thread] = None
@@ -97,394 +183,927 @@ class Dashboard:
         self._ui_lock = threading.Lock()
         self._spinner_frame = 0
 
+    # --- Formatters ---
+
     def format_size(self, size: int) -> str:
-        """Format size in bytes to human readable"""
+        """Format size: 123B, 1.2KB, 45.1MB, 3.2GB."""
         if size == 0:
             return "0B"
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if size < 1024.0:
-                return f"{size:.1f}{unit}"
-            size /= 1024.0
-        return f"{size:.1f}TB"
+        units = ['B', 'KB', 'MB', 'GB', 'TB']
+        idx = 0
+        val = float(size)
+        while val >= 1024.0 and idx < len(units) - 1:
+            val /= 1024.0
+            idx += 1
+        
+        if idx < 2: # B, KB -> no decimal usually, but let's stick to spec
+            if idx == 0: return f"{int(val)}B"
+            return f"{val:.1f}KB"
+        return f"{val:.1f}{units[idx]}"
 
     def format_time(self, seconds: float) -> str:
-        """Format seconds to human readable time"""
+        """Format time: mm:ss (for <1h) or hh:mm."""
+        if seconds is None:
+            return "--:--"
+        if seconds < 3600:
+            return f"{int(seconds // 60):02d}:{int(seconds % 60):02d}"
+        else:
+            return f"{int(seconds // 3600):02d}h {int((seconds % 3600) // 60):02d}m"
+            
+    def format_global_eta(self, seconds: float) -> str:
+        """Format global ETA: hh:mm or mm:ss."""
+        if seconds is None:
+            return "--:--"
         if seconds < 60:
             return f"{int(seconds):02d}s"
         elif seconds < 3600:
-            return f"{int(seconds / 60):02d}m {int(seconds % 60):02d}s"
+            return f"{int(seconds // 60):02d}m {int(seconds % 60):02d}s"
         else:
-            return f"{int(seconds / 3600)}h {int((seconds % 3600) / 60):02d}m"
+            return f"{int(seconds // 3600):02d}h {int((seconds % 3600) // 60):02d}m"
 
     def format_resolution(self, metadata) -> str:
-        """Format resolution as megapixels (e.g., '8M')"""
         if metadata and metadata.width and metadata.height:
             megapixels = round((metadata.width * metadata.height) / 1_000_000)
             return f"{megapixels}M"
         return ""
 
     def format_fps(self, metadata) -> str:
-        """Format FPS as integer (e.g., '60fps')"""
         if metadata and metadata.fps:
             return f"{int(metadata.fps)}fps"
         return ""
-
-    def _sanitize_filename(self, filename: str) -> str:
-        """Remove non-ASCII characters for display."""
-        if not self.state.strip_unicode_display:
+        
+    def _sanitize_filename(self, filename: str, max_len: int = 30) -> str:
+        """Sanitize and truncate filename: prefix...suffix."""
+        if self.state.strip_unicode_display:
+            filename = "".join(c for c in filename if ord(c) < 128)
+        filename = filename.lstrip()
+        
+        if len(filename) <= max_len:
             return filename
-        sanitized = "".join(c for c in filename if ord(c) < 128)
-        return sanitized.lstrip()
+            
+        part_len = (max_len - 1) // 2
+        return f"{filename[:part_len]}…{filename[-part_len:]}"
 
-    def _generate_menu_panel(self) -> Panel:
-        return Panel(
-            "[bright_red]<[/bright_red] decrease threads | [bright_red]>[/bright_red] increase threads | [bright_red]S[/bright_red] stop | [bright_red]R[/bright_red] refresh | [bright_red]C[/bright_red] config | [bright_red]Esc[/bright_red] close",
-            title="MENU",
-            border_style="white"
-        )
+    # --- Render Logic ---
 
-    def _generate_config_overlay(self) -> Panel:
-        with self.state._lock:
-            lines = self.state.config_lines[:]
-        if lines:
-            formatted = [self._format_kv_line(line) for line in lines]
-            content = "\n".join(formatted)
+    def _render_list(self, items: List[Any], available_lines: int, 
+                     levels: List[Tuple[str, int]], render_func) -> Table:
+        """Generic list renderer with density degradation."""
+        table = Table(show_header=False, box=None, padding=(0, 0), expand=True)
+        table.add_column("Content", ratio=1)
+        
+        if available_lines <= 0:
+            return table
+            
+        if not items:
+            # table.add_row("[dim]Empty[/]") 
+            # Better to show nothing for empty lists to save space visual noise
+            return table
+
+        selected_level = levels[-1][0] # Default to lowest density
+        items_to_show = []
+        has_more = False
+        more_count = 0
+        
+        # Select highest density that allows showing at least 1 item
+        for level_name, lines_per_item in levels:
+            max_items = available_lines // lines_per_item
+            if max_items >= 1:
+                selected_level = level_name
+                # Check if we need "more" line
+                if len(items) <= max_items:
+                    items_to_show = items
+                    has_more = False
+                elif available_lines >= lines_per_item + 1: # Reserve 1 line for "... +N more"
+                     max_items_res = (available_lines - 1) // lines_per_item
+                     if max_items_res >= 1:
+                         items_to_show = items[:max_items_res]
+                         more_count = len(items) - max_items_res
+                         has_more = True
+                     else:
+                         # Not enough space for more line, show what fits
+                         items_to_show = items[:max_items]
+                         has_more = False # Or just implicit cut
+                else:
+                    items_to_show = items[:max_items]
+                    has_more = True # Implicit
+                    more_count = len(items) - max_items
+                break
+        
+        # Render items
+        for i, item in enumerate(items_to_show):
+            content = render_func(item, selected_level)
+            table.add_row(content)
+            # Add spacer if needed? No, strict lines packing.
+            
+        if has_more and more_count > 0:
+            table.add_row(f"[dim]… +{more_count} more")
+            
+        return table
+
+    def _render_active_job(self, job, level: str) -> RenderableType:
+        """Render active job with dynamic layout based on available width."""
+        # Calculate panel width based on layout mode
+        term_w = self.console.size.width
+        if term_w >= MIN_2COL_W:
+            panel_w = max(40, (term_w // 2) - 4)  # 2-column mode: half width
         else:
-            content = "No configuration available."
-        width = self.console.size.width
-        panel_width = max(40, int(width * 0.6))
-        panel_width = min(panel_width, max(20, width - 4))
-        return Panel(
-            content,
-            title="CONFIGURATION",
-            border_style="cyan",
-            width=panel_width,
-            style="white on black",
-            expand=False
-        )
+            panel_w = max(40, term_w - 4)  # 1-column mode: full width
 
-    def _generate_info_overlay(self) -> Panel:
-        with self.state._lock:
-            message = self.state.info_message.strip() or "No files to process."
-        width = self.console.size.width
-        panel_width = max(40, int(width * 0.6))
-        panel_width = min(panel_width, max(20, width - 4))
-        return Panel(
-            Align.center(message),
-            title="NOTICE",
-            border_style="yellow",
-            width=panel_width,
-            style="white on black",
-            expand=False
-        )
+        spinner_frames = "●○◉◎"
+        spinner_rotating = "◐◓◑◒"
+        use_spinner = spinner_rotating if (job.rotation_angle or 0) > 0 else spinner_frames
 
-    def _generate_status_panel(self) -> Panel:
-        with self.state._lock:
-            saved_gb = self.state.space_saved_bytes / (1024**3)
-            ratio = self.state.compression_ratio * 100
-            if self.state.interrupt_requested:
-                status = "INTERRUPTED"
-                color = "bright_red"
-            elif self.state.shutdown_requested:
-                status = "SHUTTING DOWN"
-                color = "yellow"
-            elif self.state.finished:
-                status = "FINISHED"
-                color = "cyan"
+        # Metadata
+        meta = job.source_file.metadata
+        dur_sec = meta.duration if meta else 0
+        dur = self.format_time(dur_sec)
+        fps = self.format_fps(meta)
+        size = self.format_size(job.source_file.size_bytes)
+
+        # Progress
+        pct = job.progress_percent or 0.0
+
+        # ETA calculation
+        eta_str = "--:--"
+        start_key = job.source_file.path.name
+        if start_key in self.state.job_start_times:
+            elapsed = (datetime.now() - self.state.job_start_times[start_key]).total_seconds()
+            if 0 < pct < 100 and elapsed > 0:
+                eta_seconds = (elapsed / pct) * (100 - pct)
+                eta_str = self.format_time(eta_seconds)
+
+        # Build 3 elements: name, metadata, progress bar
+        filename_max = max(30, panel_w - 3)  # Uniform truncation for both modes
+        filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+        spinner = use_spinner[(self._spinner_frame + hash(filename)) % len(use_spinner)]
+
+        name_line = f"[green]{spinner}[/] {filename}"
+        meta_text = f"dur {dur} • {fps} • in {size}"
+
+        # Calculate widths for layout decision
+        # panel_w already accounts for borders/spacing, use directly
+        usable_width = panel_w
+
+        # Calculate actual widths (visible characters, not markup)
+        name_width = len(filename) + 3  # spinner + space
+        meta_width = len(meta_text)  # actual metadata text length
+
+        # Progress components: bar + percent + bullet + eta
+        pct_width = 5  # "100.0%" (without leading space)
+        bullet_width = 1  # "•"
+        eta_width = 5  # "00:00"
+        bar_min_width = 15  # Minimum bar width
+
+        # Grid has 6 columns, so 5 spaces between them
+        column_spacing = 5
+
+        # Fixed columns (everything except bar)
+        fixed_columns = name_width + meta_width + pct_width + bullet_width + eta_width
+
+        # Calculate available space for progress bar
+        bar_available = usable_width - fixed_columns - column_spacing
+
+        # Decide layout based on available width
+        # In narrow mode (1-column), always use 2-line layout (skip 1-line option)
+        is_narrow_mode = term_w < MIN_2COL_W
+
+        # Option 1: Everything in 1 line (name + meta + progress) - ONLY in wide mode
+        if not is_narrow_mode and bar_available >= bar_min_width:
+            # 1 line: spinner filename • dur ... • fps • size [===] 8.4% • 07:46
+            bar = ProgressBar(total=100, completed=int(pct), width=bar_available)
+            l1_grid = Table.grid(padding=(0, 1))
+            l1_grid.add_row(
+                f"[green]{spinner}[/] {filename}",
+                f"[dim]{meta_text}[/]",
+                bar,
+                f"{pct:>5.1f}%",
+                "•",
+                eta_str
+            )
+            return l1_grid
+        # Option 2: Name + meta on L1 (meta right-aligned), progress on L2
+        else:
+            # Check if name + meta fits on L1
+            if (name_width + meta_width + 1) <= usable_width:  # +1 for separator
+                # 2 lines: name + meta (right-aligned) | progress bar
+                # Recalculate filename to fit with metadata
+                available_for_name = usable_width - meta_width - 5  # -5 for spinner + spacing + separator
+                filename_2line = self._sanitize_filename(job.source_file.path.name, max_len=max(20, available_for_name))
+
+                # L1: use grid with name on left, meta on right
+                l1_grid = Table.grid(padding=(0, 1), expand=True)
+                l1_grid.add_column(ratio=1)  # Name (flex)
+                l1_grid.add_column(justify="right")  # Meta (right-aligned)
+                l1_grid.add_row(
+                    f"[green]{spinner}[/] {filename_2line}",
+                    f"[dim]{meta_text}[/]"
+                )
+
+                # L2: full-width progress bar
+                # L2: bar + pct + bullet + eta
+                fixed_l2 = pct_width + bullet_width + eta_width
+                column_spacing_l2 = 3  # 4 columns = 3 spaces
+                bar_available_l2 = usable_width - fixed_l2 - column_spacing_l2
+                bar = ProgressBar(total=100, completed=int(pct), width=bar_available_l2)
+                l2_grid = Table.grid(padding=(0, 1))
+                l2_grid.add_row(bar, f"{pct:>5.1f}%", "•", eta_str)
+                return Group(l1_grid, l2_grid)
             else:
-                status = "ACTIVE"
-                color = "green"
+                # 3 lines: name | metadata | progress
+                # L3: " " + bar + pct + bullet + eta
+                indent_width_l3 = 1  # " "
+                fixed_l3 = indent_width_l3 + pct_width + bullet_width + eta_width
+                column_spacing_l3 = 3  # 4 columns = 3 spaces
+                bar_available_l3 = usable_width - fixed_l3 - column_spacing_l3
+                bar = ProgressBar(total=100, completed=int(pct), width=max(bar_min_width, bar_available_l3))
 
-            lines = [
-                f"[dim]Status:[/] [bold {color}]{status}[/]",
-                (
-                    f"[dim]Threads:[/] {self.state.current_threads} | "
-                    f"[dim]Done:[/] {self.state.completed_count} | "
-                    f"[dim]Failed:[/] {self.state.failed_count} | "
-                    f"[dim]Skipped:[/] {self.state.skipped_count}"
-                ),
-                f"[dim]Storage:[/] {saved_gb:.2f} GB saved ({ratio:.1f}% avg ratio)"
-            ]
+                l2 = f"  [dim]{meta_text}[/]"
+                l3_grid = Table.grid(padding=(0, 1))
+                l3_grid.add_row(" ", bar, f"{pct:>5.1f}%", "•", eta_str)
+                return Group(name_line, l2, l3_grid)
 
-            # Add discovery info if available
-            if self.state.discovery_finished:
-                lines.append(
-                    f"[dim]Files to compress:[/] {self.state.files_to_process} | "
-                    f"[dim]Already compressed:[/] {self.state.already_compressed_count}"
+    def _render_activity_item(self, job, level: str) -> RenderableType:
+        """Render activity feed item with dynamic width."""
+        # Calculate panel width based on layout mode
+        term_w = self.console.size.width
+        if term_w >= MIN_2COL_W:
+            panel_w = max(40, (term_w // 2) - 4)  # 2-column mode: half width
+        else:
+            panel_w = max(40, term_w - 4)  # 1-column mode: full width
+
+        if job.status == JobStatus.COMPLETED:
+            icon = "[green]✓[/]"
+            in_s = job.source_file.size_bytes
+            out_s = job.output_size_bytes
+            diff = in_s - out_s
+            ratio = (diff / in_s) * 100 if in_s > 0 else 0
+            dur = self.format_time(job.duration_seconds)
+
+            s_in = self.format_size(in_s)
+            s_out = self.format_size(out_s)
+
+            # ✓ is 1-column, needs space
+            if level == "A": # 2 lines
+                # L1: ✓ filename (only icon + space needed, ~3 chars)
+                # L2: size → size (ratio%) • duration
+                filename_max = max(25, panel_w - 3)  # Reserve only for icon + space
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+                l1 = f"{icon} {filename}"
+                l2 = f"  [green]{s_in} → {s_out} ({ratio:.1f}%) • {dur}[/]"
+                return Group(l1, l2)
+            else: # B: 1 line
+                # ✓ filename  |  size → size (ratio%) • duration (right-aligned)
+                filename_max = max(20, panel_w - 42)  # Reserve for icon + stats
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+                grid = Table.grid(padding=(0, 1), expand=True)
+                grid.add_column(ratio=1)  # Filename (left, flex)
+                grid.add_column(justify="right")  # Stats (right-aligned)
+                grid.add_row(
+                    f"{icon} {filename}",
+                    f"[green]{s_in} → {s_out} ({ratio:.1f}%) • {dur}[/]"
                 )
-                lines.append(
-                    f"[dim]Ignored:[/] [dim]size:[/] {self.state.ignored_small_count} | "
-                    f"[dim]err:[/] {self.state.ignored_err_count} | "
-                    f"[dim]av1:[/] {self.state.ignored_av1_count} | "
-                    f"[dim]cam:[/] {self.state.cam_skipped_count} | "
-                    f"[dim]hw_cap:[/] {self.state.hw_cap_count} | "
-                    f"[dim]ratio:[/] {self.state.min_ratio_skip_count}"
-                )
+                return grid
 
-        return Panel("\n".join(lines), title="COMPRESSION STATUS", border_style="cyan")
+        elif job.status == JobStatus.SKIPPED:
+            # Kept original logic usually means ratio check or similar
+            icon = "[dim]≡[/]"
+            reason = "kept"
+            if level == "A":
+                filename_max = max(25, panel_w - 3)
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+                return Group(f"{icon} {filename}", f"  [dim]{reason} (below threshold)[/]")
+            else:
+                filename_max = max(20, panel_w - 15)
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+                grid = Table.grid(padding=(0, 1), expand=True)
+                grid.add_column(ratio=1)
+                grid.add_column(justify="right")
+                grid.add_row(f"{icon} {filename}", f"[dim]{reason}[/]")
+                return grid
 
-    def _format_kv_line(self, line: str) -> str:
-        if ": " not in line:
-            return line
-        def _mark_key(match: re.Match) -> str:
-            prefix = match.group(1)
-            key = match.group(2)
-            return f"{prefix}[grey70]{key}:[/] "
+        elif job.status == JobStatus.FAILED:
+            icon = "[red]✗[/]"
+            err = job.error_message or "error"
+            if level == "A":
+                filename_max = max(25, panel_w - 3)
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+                return Group(f"{icon} {filename}", f"  [red]{err}[/]")
+            else:
+                filename_max = max(20, panel_w - 15)
+                filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+                grid = Table.grid(padding=(0, 1), expand=True)
+                grid.add_column(ratio=1)
+                grid.add_column(justify="right")
+                grid.add_row(f"{icon} {filename}", f"[red]err[/]")
+                return grid
 
-        return re.sub(r"(^|[|(]\s*)([^:|()]+):\s+", _mark_key, line)
+        elif job.status == JobStatus.INTERRUPTED:
+             # ⚡ is 2-column wide, no space needed
+             icon = "[red]⚡[/]"
+             filename_max = max(25, panel_w - 15)
+             filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+             grid = Table.grid(padding=(0, 1), expand=True)
+             grid.add_column(ratio=1)
+             grid.add_column(justify="right")
+             grid.add_row(f"{icon}{filename}", f"[red]INTERRUPTED[/]")
+             return grid
 
-    def _generate_progress_panel(self) -> Panel:
+        filename_max = max(25, panel_w - 3)
+        filename = self._sanitize_filename(job.source_file.path.name, max_len=filename_max)
+        return f"? {filename}"
+
+    def _render_queue_item(self, file, level: str) -> RenderableType:
+        """Render queue item (always 1 line) with dynamic filename width."""
+        size = self.format_size(file.size_bytes)
+        fps = self.format_fps(file.metadata)
+
+        # Calculate available width for filename based on layout mode
+        term_w = self.console.size.width
+        if term_w >= MIN_2COL_W:
+            panel_w = max(40, (term_w // 2) - 4)  # 2-column mode: half width
+        else:
+            panel_w = max(40, term_w - 4)  # 1-column mode: full width
+
+        # Reserve space for: "» " (2) + size (9) + " " (1) + fps (6) + spacing (2) = ~20
+        reserved = 20
+        filename_max = max(20, panel_w - reserved)
+        filename = self._sanitize_filename(file.path.name, max_len=filename_max)
+
+        # Use grid with padding between columns
+        grid = Table.grid(padding=(0, 1), expand=True)  # 1 space padding between columns
+        grid.add_column(ratio=1)  # Filename (flex)
+        grid.add_column(justify="right", width=9)  # Size (fixed 9 chars)
+        grid.add_column(justify="right", width=6)  # FPS (fixed 6 chars)
+        grid.add_row(
+            f"[dim]»[/] {filename}",
+            f"[dim]{size}[/]",
+            f"[dim]{fps}[/]" if fps else ""
+        )
+        return grid
+
+    # --- Panel Generators ---
+
+    def _generate_top_bar(self) -> Panel:
+        """Status, KPI, Hints + GPU Metrics."""
         with self.state._lock:
-            eta_str = "calculating..."
-            throughput_str = "0 MB/s"
-
-            # Calculate throughput if we have completed files
+            # L1: Status + Threads
+            indicator = "[green]●[/]"
+            if self.state.finished:
+                status = "[green]FINISHED[/]"
+            elif self.state.interrupt_requested:
+                status = "[bright_red]INTERRUPTED[/]"
+                indicator = "[red]![/]"
+            elif self.state.shutdown_requested:
+                status = "[yellow]SHUTTING DOWN[/]"
+                indicator = "[yellow]◐[/]"
+            else:
+                status = "[bright_cyan]ACTIVE[/]"
+            
+            # 1. Prepare KPI variables
+            active_threads = len(self.state.active_jobs)
+            paused = "" # Logic for paused could be added here
+            
+            eta_str = "--:--"
+            throughput_str = "0.0 MB/s"
+            
             if self.state.processing_start_time and self.state.completed_count > 0:
                 elapsed = (datetime.now() - self.state.processing_start_time).total_seconds()
                 if elapsed > 0:
-                    # Throughput in MB/s
-                    throughput_bytes_per_sec = self.state.total_input_bytes / elapsed
-                    throughput_mb = throughput_bytes_per_sec / (1024 * 1024)
-                    throughput_str = f"{throughput_mb:.1f} MB/s"
+                    total = self.state.files_to_process
+                    done = self.state.completed_count + self.state.failed_count
+                    rem = total - done
+                    if rem > 0 and done > 0:
+                        avg = elapsed / done
+                        eta_str = self.format_global_eta(avg * rem)
+                    
+                    tp = self.state.total_input_bytes / elapsed
+                    throughput_str = f"{tp / 1024 / 1024:.1f} MB/s"
+            
+            saved = self.format_size(self.state.space_saved_bytes)
+            ratio = self.state.compression_ratio
 
-                    # ETA calculation
-                    total_to_process = self.state.files_to_process
-                    completed = self.state.completed_count + self.state.failed_count
-                    remaining = total_to_process - completed
+            # Thread display: show single number or transition
+            if active_threads == self.state.current_threads:
+                threads_display = str(active_threads)
+            else:
+                threads_display = f"{active_threads} → {self.state.current_threads}"
 
-                    if remaining > 0 and completed > 0:
-                        # Average time per file
-                        avg_time_per_file = elapsed / completed
-                        eta_seconds = avg_time_per_file * remaining
-                        eta_str = self.format_time(eta_seconds)
+            # 2. Build Left Content (Fixed 3 lines)
+            l1 = f"{indicator} {status} • Threads: {threads_display}{paused}"
+            l2 = f"ETA: {eta_str} • {throughput_str} • {saved} saved ({ratio:.1f}%)"
+            l3 = "[dim]Press M for menu[/]"
+            left_content = f"{l1}\n{l2}\n{l3}"
 
-            # Get last action message (like old vbc.py line 1343-1344)
-            last_action = self.state.get_last_action()
-
-        content = f"ETA: {eta_str} | Throughput: {throughput_str}"
-        if last_action:
-            # Highlight action messages in bright red for visibility
-            content += f" | [bright_red]{last_action}[/bright_red]"
-        return Panel(content, border_style="green")
-
-    def _generate_processing_panel(self) -> Panel:
-        with self.state._lock:
-            if not self.state.active_jobs:
-                return Panel("No files processing", title="CURRENTLY PROCESSING", border_style="yellow")
-
-            # Main table for the processing panel
-            table = Table(show_header=False, box=None, padding=(0, 1), expand=True)
-            table.add_column("", width=1, style="yellow")
-            table.add_column("File", style="yellow", width=40, no_wrap=True, overflow="ellipsis")
-            table.add_column("Res", width=3, justify="right", style="cyan")
-            table.add_column("FPS", width=6, justify="right", style="cyan")
-            table.add_column("Size", justify="right")
-            table.add_column("Progress", justify="left", no_wrap=True, ratio=1) # Ratio=1 makes it expand
-
-            spinner_frames = "●○◉◎"
-            spinner_rotating = "◐◓◑◒"
-            for idx, job in enumerate(self.state.active_jobs):
-                use_spinner = spinner_rotating if (job.rotation_angle or 0) > 0 else spinner_frames
-                spinner_char = use_spinner[(self._spinner_frame + idx) % len(use_spinner)]
-
-                # Calculate elapsed time and ETA
-                filename = self._sanitize_filename(job.source_file.path.name)
-                elapsed = 0.0
-                start_key = job.source_file.path.name
-                if start_key in self.state.job_start_times:
-                    elapsed = (datetime.now() - self.state.job_start_times[start_key]).total_seconds()
-
-                percentage = job.progress_percent
-                eta_str = "0:00:00"
-                if 0 < percentage < 100:
-                    total_est = elapsed / (percentage / 100.0)
-                    remaining = max(0, total_est - elapsed)
-                    h, r = divmod(int(remaining), 3600)
-                    m, s = divmod(r, 60)
-                    eta_str = f"{h}:{m:02d}:{s:02d}"
-                elif percentage >= 100:
-                    eta_str = "0:00:00"
-                else:
-                    eta_str = "--:--:--"
-
-                # Use a nested grid that also expands to fill the cell
-                progress_grid = Table.grid(padding=(0, 1), expand=True)
-                progress_grid.add_column(ratio=1) # Bar column takes remaining space in grid
-                progress_grid.add_column(no_wrap=True) # Percentage
-                progress_grid.add_column(no_wrap=True) # Dot
-                progress_grid.add_column(no_wrap=True) # ETA
+            # 3. GPU Metrics (Right Side)
+            if self.state.gpu_data:
+                g = self.state.gpu_data
                 
-                progress_grid.add_row(
-                    ProgressBar(total=100, completed=percentage, width=None), # width=None to expand
-                    f"[cyan]{percentage:>5.1f}%[/]",
-                    "•",
-                    f"[yellow]{eta_str}[/]"
-                )
+                def _p(s):
+                    m = re.search(r"(\d+\.?\d*)", str(s))
+                    return float(m.group(1)) if m else 0.0
 
-                table.add_row(
-                    spinner_char,
-                    filename,
-                    self.format_resolution(job.source_file.metadata),
-                    self.format_fps(job.source_file.metadata),
-                    self.format_size(job.source_file.size_bytes),
-                    progress_grid
-                )
+                def _c(val, norm, high, op_le=False):
+                    if op_le: # <= norm
+                        if val <= norm: return "green"
+                    else: # < norm
+                        if val < norm: return "green"
+                    if val > high: return "red"
+                    return "yellow"
 
-        return Panel(table, title="CURRENTLY PROCESSING", border_style="yellow")
+                # Parse values
+                t_val = _p(g.get("temp", "0"))
+                f_val = _p(g.get("fan_speed", "0"))
+                p_val = _p(g.get("power_draw", "0"))
+                gu_val = _p(g.get("gpu_util", "0"))
+                mu_val = _p(g.get("mem_util", "0"))
 
-    def _generate_recent_panel(self) -> Panel:
+                # Colors
+                t_col = _c(t_val, 55, 65)
+                f_col = _c(f_val, 50, 75, op_le=True)
+                p_col = _c(p_val, 250, 380)
+                gu_col = _c(gu_val, 30, 60)
+                mu_col = _c(mu_val, 30, 60)
+
+                # Format GPU lines
+                gl1 = f"[dim]{g.get('device_name', 'GPU')}[/]"
+
+                # GL2: Current metrics with reverse highlighting for selected metric
+                with self.state._lock:
+                    metric_idx = self.state.gpu_sparkline_metric_idx
+
+                # Build GL2 with conditional reverse for active metric
+                # metric_idx: 0=temp, 1=fan, 2=pwr, 3=gpu, 4=mem
+                temp_str = f"[{t_col}]{g.get('temp', '??')}[/]"
+                fan_str = f"[{f_col}]fan {g.get('fan_speed', '??')}[/]"
+                pwr_str = f"[{p_col}]pwr {g.get('power_draw', '??')}[/]"
+                gpu_str = f"[{gu_col}]gpu {g.get('gpu_util', '??')}[/]"
+                mem_str = f"[{mu_col}]mem {g.get('mem_util', '??')}[/]"
+
+                # Apply reverse to selected metric (order: temp → fan → pwr → gpu → mem)
+                if metric_idx == 0:
+                    temp_str = f"[reverse]{temp_str}[/]"
+                elif metric_idx == 1:
+                    fan_str = f"[reverse]{fan_str}[/]"
+                elif metric_idx == 2:
+                    pwr_str = f"[reverse]{pwr_str}[/]"
+                elif metric_idx == 3:
+                    gpu_str = f"[reverse]{gpu_str}[/]"
+                elif metric_idx == 4:
+                    mem_str = f"[reverse]{mem_str}[/]"
+
+                gl2 = f"{temp_str} • {fan_str} • {pwr_str} • {gpu_str} • {mem_str}"
+
+                # GL3: Sparkline (without label)
+                with self.state._lock:
+                    label, hist_attr, min_val, max_val = SPARKLINE_CONFIGS[metric_idx]
+                    history = getattr(self.state, hist_attr)
+
+                    # Calculate sparkline length (full width, no label)
+                    term_w = self.console.size.width
+                    gpu_panel_w = max(20, (term_w // 2) - 4)
+                    spark_len = max(1, gpu_panel_w)
+
+                    spark = render_sparkline(history, spark_len, min_val, max_val)
+                    gl3 = f"[dim cyan]{spark}[/]"  # Dim cyan like panel borders
+
+                gpu_content = f"{gl1}\n{gl2}\n{gl3}"
+
+                # Create Grid for two columns
+                grid = Table.grid(expand=True)
+                grid.add_column(ratio=1) # Left
+                grid.add_column(justify="right") # Right
+                grid.add_row(left_content, gpu_content)
+                content = grid
+            else:
+                content = left_content
+            
+        return Panel(content, border_style="cyan", title="VBC")
+
+    def _generate_progress(self, h_lines: int) -> Panel:
+        """Progress bar + counters (size-based progress)."""
         with self.state._lock:
-            if not self.state.recent_jobs:
-                return Panel("No files completed yet", title="LAST COMPLETED", border_style="green")
+            # Liczby plików (header - bez zmian)
+            total = self.state.files_to_process
+            done = self.state.completed_count
+            failed = self.state.failed_count
+            skipped = self.state.skipped_count
 
-            table = Table(show_header=False, box=None, padding=(0, 1))
-            table.add_column("", width=1, style="green")
-            table.add_column("File", style="green", width=40, no_wrap=True, overflow="ellipsis")
-            table.add_column("Res", width=3, justify="right", style="cyan")
-            table.add_column("FPS", width=6, justify="right", style="cyan")
-            table.add_column("Input", justify="right", style="cyan")
-            table.add_column("→", width=1, justify="center", style="dim")
-            table.add_column("Output", justify="right", style="cyan")
-            table.add_column("Saved", justify="right", style="green")
-            table.add_column("Time", justify="right", style="yellow")
-            table.add_column("", width=2, justify="center", style="magenta")
+            # Oblicz całkowity rozmiar i przetworzony rozmiar
+            total_size_bytes = 0
+            processed_size_bytes = 0
 
-            for job in list(self.state.recent_jobs)[:5]:
-                display_name = self._sanitize_filename(job.source_file.path.name)
-                if job.status == JobStatus.COMPLETED:
-                    # Calculate compression ratio
-                    input_size = job.source_file.size_bytes
-                    output_size = job.output_size_bytes or 0
-                    ratio = ((input_size - output_size) / input_size * 100) if input_size > 0 else 0.0
+            # Pending files
+            for file in self.state.pending_files:
+                total_size_bytes += file.size_bytes
 
-                    # Check if original was kept (min_ratio_skip)
-                    warn_icon = "📋" if job.error_message and "kept original" in job.error_message else ""
+            # Active jobs
+            for job in self.state.active_jobs:
+                total_size_bytes += job.source_file.size_bytes
 
-                    table.add_row(
-                        "✓",
-                        display_name,
-                        self.format_resolution(job.source_file.metadata),
-                        self.format_fps(job.source_file.metadata),
-                        self.format_size(input_size),
-                        "→",
-                        self.format_size(output_size),
-                        f"{ratio:.1f}%",
-                        self.format_time(job.duration_seconds or 0),
-                        warn_icon
-                    )
-                elif job.status == JobStatus.INTERRUPTED:
-                    # Interrupted job (Ctrl+C) - show in bright red
-                    table.add_row(
-                        "✗",
-                        display_name,
-                        self.format_resolution(job.source_file.metadata),
-                        self.format_fps(job.source_file.metadata),
-                        self.format_size(job.source_file.size_bytes),
-                        "",
-                        f"[bright_red]INTERRUPTED[/bright_red]",
-                        "",
-                        self.format_time(job.duration_seconds or 0),
-                        "⚠"
-                    )
-                else:
-                    # Failed job - show status instead of compression info
-                    status_text = job.status.value if hasattr(job.status, 'value') else str(job.status)
-                    table.add_row(
-                        "✗",
-                        display_name,
-                        self.format_resolution(job.source_file.metadata),
-                        self.format_fps(job.source_file.metadata),
-                        self.format_size(job.source_file.size_bytes),
-                        "",
-                        f"[red]{status_text}[/]",
-                        "",
-                        self.format_time(job.duration_seconds or 0),
-                        ""
-                    )
+            # Completed files
+            processed_size_bytes = self.state.total_input_bytes
+            total_size_bytes += processed_size_bytes
 
-        return Panel(table, title="LAST COMPLETED", border_style="green")
+            # Progress % (oparty na rozmiarach, nie liczbie plików)
+            pct = 0.0
+            if total_size_bytes > 0:
+                pct = (processed_size_bytes / total_size_bytes) * 100
 
-    def _generate_queue_panel(self) -> Panel:
+            # Elapsed time
+            elapsed_str = "--:--"
+            if self.state.processing_start_time:
+                elapsed = (datetime.now() - self.state.processing_start_time).total_seconds()
+                elapsed_str = self.format_time(elapsed)
+
+            # Header (liczby plików - zostają bez zmian)
+            header = f"Done: {done}/{total}"
+
+            # Progress bar (skalowany do 0-10000 aby uniknąć problemów z dużymi liczbami)
+            if total_size_bytes > 0:
+                scaled_total = 10000
+                scaled_processed = int((processed_size_bytes / total_size_bytes) * 10000)
+            else:
+                scaled_total = 100
+                scaled_processed = 0
+
+            bar = ProgressBar(total=scaled_total, completed=scaled_processed, width=None)
+
+            # Format rozmiarów
+            processed_str = self.format_size(processed_size_bytes)
+            total_str = self.format_size(total_size_bytes)
+            sizes_str = f"{processed_str}/{total_str}"
+
+            # Bar + rozmiary + bullet + procent + bullet + czas
+            bar_grid = Table.grid(padding=(0, 1))
+            bar_grid.add_row(bar, sizes_str, "•", f"{pct:.1f}%", "•", elapsed_str)
+
+            rows = [header, bar_grid, ""]
+            content = Group(*rows)
+
+        return Panel(content, title="PROGRESS", border_style="cyan")
+
+    def _generate_active_jobs_panel(self, h_lines: int) -> Panel:
         with self.state._lock:
-            if not self.state.pending_files:
-                return Panel("Queue empty", title="NEXT IN QUEUE", border_style="blue")
+            jobs = self.state.active_jobs
+            # Dynamic layout: reserve space based on terminal width
+            term_w = self.console.size.width
+            if term_w >= MIN_2COL_W:
+                # Wide mode: can use 1-3 lines per job
+                levels = [("dynamic", 3), ("compact", 2)]
+            else:
+                # Narrow mode: always 2 lines per job (max 8 jobs)
+                levels = [("dynamic", 2)]
+            table = self._render_list(jobs, h_lines, levels, self._render_active_job)
+            return Panel(table, title="ACTIVE JOBS", border_style="cyan")
 
-            table = Table(show_header=False, box=None, padding=(0, 1))
-            table.add_column("", width=1, style="dim")
-            table.add_column("File", width=40, no_wrap=True, overflow="ellipsis")
-            table.add_column("Res", width=3, justify="right", style="cyan")
-            table.add_column("FPS", width=6, justify="right", style="cyan")
-            table.add_column("Size", justify="right")
-            table.add_column("Codec", width=5, justify="center", no_wrap=True, overflow="ellipsis")
-            table.add_column("Cam", width=7, style="magenta", no_wrap=True, overflow="ellipsis")
-
-            # Show first 5 pending files
-            for vf in list(self.state.pending_files)[:5]:
-                # Metadata is already cached by orchestrator
-                display_name = self._sanitize_filename(vf.path.name)
-                cam_model = ""
-                if vf.metadata:
-                    cam_model = vf.metadata.camera_model or vf.metadata.camera_raw or ""
-                cam_model = self._sanitize_filename(cam_model)
-
-                table.add_row(
-                    "»",
-                    display_name,
-                    self.format_resolution(vf.metadata),
-                    self.format_fps(vf.metadata),
-                    self.format_size(vf.size_bytes),
-                    vf.metadata.codec if vf.metadata and vf.metadata.codec else "",
-                    cam_model
-                )
-
-        return Panel(table, title="NEXT IN QUEUE", border_style="blue")
-
-    def _generate_summary_panel(self) -> Panel:
+    def _generate_activity_panel(self, h_lines: int) -> Panel:
         with self.state._lock:
-            summary = (
-                f"✓ {self.state.completed_count} success  "
-                f"✗ {self.state.failed_count} errors  "
-                f"⚡ {self.state.interrupted_count} interrupted  "
-                f"⚠ {self.state.hw_cap_count} hw_cap  "
-                f"📋 {self.state.min_ratio_skip_count} ratio  "
-                f"⊘ {self.state.skipped_count} skipped"
-            )
-        return Panel(summary, title="SESSION STATUS", border_style="white")
+            jobs = list(self.state.recent_jobs) # already sorted roughly
+            # In narrow mode (1-column), use more compact levels
+            term_w = self.console.size.width
+            if term_w >= MIN_2COL_W:
+                levels = [("A", 2), ("B", 1)]  # 2-column: both levels
+            else:
+                levels = [("B", 1)]  # 1-column: only 1-line format
+            table = self._render_list(jobs, h_lines, levels, self._render_activity_item)
+            return Panel(table, title="ACTIVITY FEED", border_style="cyan")
 
-    def create_display(self) -> Group:
-        """Creates display with all 7 panels."""
-        base = Group(
-            self._generate_menu_panel(),
-            self._generate_status_panel(),
-            self._generate_progress_panel(),
-            self._generate_processing_panel(),
-            self._generate_recent_panel(),
-            self._generate_queue_panel(),
-            self._generate_summary_panel()
+    def _generate_queue_panel(self, h_lines: int) -> Panel:
+        with self.state._lock:
+            files = list(self.state.pending_files)
+            levels = [("A", 1)]
+            table = self._render_list(files, h_lines, levels, self._render_queue_item)
+            return Panel(table, title="QUEUE", border_style="cyan")
+            
+    def _generate_footer(self) -> RenderableType:
+        with self.state._lock:
+            # Session stats
+            failed = self.state.failed_count
+            skipped = self.state.skipped_count
+            
+            # Persistent/Discovery stats
+            err = self.state.ignored_err_count
+            hw = self.state.hw_cap_count
+            kept = self.state.min_ratio_skip_count
+            small = self.state.ignored_small_count
+            av1 = self.state.ignored_av1_count
+            cam = self.state.cam_skipped_count
+            
+            # Show all stats (including zeros) on start or when legend is active
+            show_zeros = False
+            if self.state.discovery_finished and self.state.discovery_finished_time:
+                 if (datetime.now() - self.state.discovery_finished_time).total_seconds() < 5:
+                     show_zeros = True
+
+            # Also show all stats when legend is active
+            if self.state.show_legend:
+                show_zeros = True
+            
+            parts = []
+            
+            # Helper to add part
+            def add(val, label, style):
+                if val > 0 or show_zeros:
+                    parts.append(f"[{style}]{label}:{val}[/]")
+
+            add(failed, "fail", "red")
+            add(err, "err", "red")
+            add(hw, "hw_cap", "yellow")
+            add(skipped, "skip", "yellow")
+            add(kept, "kept", "dim white")
+            add(small, "small", "dim white")
+            add(av1, "av1", "dim white")
+            add(cam, "cam", "dim white")
+            
+            health_text = " • ".join(parts) if parts else "[green]Health: OK[/]"
+            
+            # Left side: Last Action with fading
+            action_text = ""
+            if self.state.last_action and self.state.last_action_time:
+                age = (datetime.now() - self.state.last_action_time).total_seconds()
+                if age < 15:
+                    if age < 5:
+                        style = "white"        # Stage 1: Bright
+                    elif age < 10:
+                        style = "grey70"       # Stage 2: Dim
+                    else:
+                        style = "grey30"       # Stage 3: Fading out
+                    
+                    action_text = f"[{style}]{self.state.last_action}[/]"
+
+            grid = Table.grid(expand=True)
+            grid.add_column(width=1) # Left padding
+            grid.add_column(justify="left", ratio=1)
+            grid.add_column(justify="right", ratio=1)
+            grid.add_column(width=1) # Right padding
+            grid.add_row("", action_text, health_text, "")
+            
+            return grid
+
+    def _generate_config_overlay(self) -> Panel:
+        # Same as before
+        with self.state._lock:
+            lines = self.state.config_lines[:]
+            
+        def _fmt(line):
+            if ": " not in line: return line
+            return re.sub(r"(^|[|(]\s*)([^:|()]+):\s+", lambda m: f"{m.group(1)}[grey70]{m.group(2)}:[/] ", line)
+            
+        content = "\n".join([_fmt(l) for l in lines]) if lines else "No config."
+        w = self.console.size.width
+        pw = min(max(40, int(w * 0.6)), max(20, w - 4))
+        return Panel(content, title="CONFIG", border_style="cyan", width=pw, style="white on black")
+
+    def _generate_legend_overlay(self) -> Panel:
+        """Dashboard status legend."""
+        # Animated spinners
+        spinner_frames = "●○◉◎"
+        spinner_rotating = "◐◓◑◒"
+        normal_spinner = spinner_frames[self._spinner_frame % len(spinner_frames)]
+        rotating_spinner = spinner_rotating[self._spinner_frame % len(spinner_rotating)]
+
+        legend = [
+            "[red]fail[/]   : Current session errors (FFmpeg crash, no space)",
+            "[red]err[/]    : Historic errors (existing .err file found on disk)",
+            "[yellow]hw_cap[/] : Out of hardware encoder slots (NVENC sessions)",
+            "[yellow]skip[/]   : Skipped (already AV1 or camera filter mismatch)",
+            "[dim white]kept[/]   : Original kept (compression gain below threshold)",
+            "[dim white]small[/]  : Ignored (file smaller than min-size threshold)",
+            "[dim white]av1[/]    : Skipped (detected AV1 codec)",
+            "[dim white]cam[/]    : Skipped (camera model doesn't match filter)",
+            "",
+            "[green]✓[/] : Success | [red]✗[/] : Error | [dim]≡[/] : Kept | [red]⚡[/] : Interrupted",
+            "",
+            "[bold cyan]Active Jobs Spinners[/]",
+            f"  [green]{normal_spinner}[/] : Normal processing",
+            f"  [green]{rotating_spinner}[/] : Video rotation in progress",
+            "",
+            "[bold cyan]GPU Graph (Key: G)[/]",
+            "  [dim]Rotate metric:[/] temp → fan → pwr → gpu → mem",
+            "  [dim]Scales:[/]",
+            "    temp: 35°C..70°C (5°C/bin), ≥70°C = max",
+            "    pwr:  100W..400W linear, ≥400W = max",
+            "    %:    0..100% linear",
+            "  [dim]Symbols:[/]",
+            "    ▁▂▃▄▅▆▇█ = low..high value",
+            "    · = missing sample",
+            "  [dim]Time:[/] left=older, right=newer (5min window)",
+        ]
+        content = "\n".join(legend)
+        w = self.console.size.width
+        pw = min(max(65, int(w * 0.6)), max(20, w - 4))
+        return Panel(content, title="LEGEND", border_style="cyan", width=pw, style="white on black")
+
+    def _generate_menu_overlay(self) -> Panel:
+        """Keyboard shortcuts menu."""
+        menu_items = [
+            "[bold cyan]Navigation & Control[/]",
+            "  [white]M[/]         Toggle this menu",
+            "  [white]Esc[/]       Close overlays",
+            "  [white]Ctrl+C[/]    Immediate interrupt & exit",
+            "",
+            "[bold cyan]Job Management[/]",
+            "  [white]S[/]         Shutdown toggle (graceful, press again to cancel)",
+            "  [white]‹ or ,[/]    Decrease thread count (-1)",
+            "  [white]› or .[/]    Increase thread count (+1)",
+            "  [white]R[/]         Refresh queue (re-scan for new files)",
+            "",
+            "[bold cyan]Information Panels[/]",
+            "  [white]C[/]         Toggle config panel",
+            "  [white]L[/]         Toggle legend panel (status symbols)",
+            "  [white]G[/]         Rotate GPU graph metric",
+            "                  [dim](temp → fan → pwr → gpu → mem)[/]",
+        ]
+        content = "\n".join(menu_items)
+        w = self.console.size.width
+        pw = min(max(65, int(w * 0.6)), max(20, w - 4))
+        return Panel(content, title="KEYBOARD SHORTCUTS", border_style="cyan", width=pw, style="white on black")
+
+    # --- Main Layout Engine ---
+
+    def create_display(self):
+        w, h = self.console.size
+        
+        # 1. Determine fixed heights
+        top_h = TOP_BAR_LINES + 2 # +2 for border
+        foot_h = FOOTER_LINES 
+        
+        # Hint logic
+        show_hint = h >= 18
+        if not show_hint:
+            # We need to hack the top bar content if we hide hint, 
+            # but for now simpler is just keep Top Bar as is, 
+            # or recreate it without line 3.
+            # Let's handle it by passing param to _generate_top_bar if needed, 
+            # but spec says "Top bar (2-3 lines)". Let's assume Top Bar is elastic based on logic inside.
+            pass
+            
+        fixed_h = top_h + foot_h
+        h_work = max(0, h - fixed_h)
+        # Scale applied inside panel sizing, not to h_work
+
+        # 2. Determine Mode
+        is_2col = w >= MIN_2COL_W
+
+        # 3. Allocation
+
+        # Defaults
+        h_progress = 0
+        h_active = 0
+        h_activity = 0
+        h_queue = 0
+
+        layout = Layout()
+        layout.split_column(
+            Layout(name="top", size=top_h),        # Top status bar
+            Layout(name="middle"),                 # Main content (flex)
+            Layout(name="bottom", size=foot_h)     # Bottom status
         )
+        
+        if is_2col:
+            # 2 Columns
+            layout["middle"].split_row(
+                Layout(name="left"),     # Progress + Active Jobs
+                Layout(name="right")     # Activity Feed + Queue
+            )
+            
+            # Left column: Progress (fixed) + Active (fixed for 8 jobs)
+            h_progress_frame = PROGRESS_MAX + 2  # 3 + 2 = 5
+            h_active_frame = (self.max_active_jobs * 3) + 2  # 8 × 3 + 2 = 26
+            h_left_total = h_progress_frame + h_active_frame  # 5 + 26 = 31
 
-        if self.state.show_info:
-            overlay = self._generate_info_overlay()
-            return _Overlay(base, overlay, overlay.width or int(self.console.size.width * 0.6))
+            # CRITICAL: Clamp to available h_work
+            if h_left_total > h_work:
+                h_left_total = h_work
+                h_active_frame = max(ACTIVE_MIN + 2, h_work - h_progress_frame)
+                h_progress_frame = h_work - h_active_frame
+
+            # Right column: Activity (fixed) + Queue (adjusts to match left column height)
+            max_activity_items = self.state.recent_jobs.maxlen
+            h_activity_frame = (max_activity_items * 2) + 2  # N × 2 + 2
+
+            # Queue adjusts so right column height = left column height
+            h_queue_frame = h_left_total - h_activity_frame
+
+            # Hide queue if too small
+            if h_queue_frame < (QUEUE_MIN + 2):
+                h_queue_frame = 0
+                # Don't expand activity - keep it fixed, right column will be shorter
+            
+            # Update Layouts
+            layout["left"].split_column(
+                Layout(name="progress", size=h_progress_frame),
+                Layout(name="active", size=h_active_frame)
+            )
+            
+            right_splits = [Layout(name="activity", size=h_activity_frame)]
+            if h_queue_frame > 0:
+                right_splits.append(Layout(name="queue", size=h_queue_frame))
+            layout["right"].split_column(*right_splits)
+            
+            # Content Heights (remove 2 for borders)
+            h_progress = max(0, h_progress_frame - 2)
+            h_active = max(0, h_active_frame - 2)
+            h_activity = max(0, h_activity_frame - 2)
+            h_queue = max(0, h_queue_frame - 2)
+
+        else:
+            # 1 Column (Stack)
+            # Progress > Active > Activity > Queue
+            h_rem = h_work
+
+            h_progress_frame = min(PROGRESS_MAX + 2, h_rem)
+            h_rem -= h_progress_frame
+
+            # Dynamic sizing: ACTIVE and ACTIVITY take only what they need, QUEUE gets the rest
+            with self.state._lock:
+                actual_jobs = len(self.state.active_jobs)
+                actual_activity = len(self.state.recent_jobs)
+
+            # ACTIVE JOBS: 2 lines per job in narrow mode (max 8 jobs), +2 for borders if not empty
+            active_content = min(actual_jobs, self.max_active_jobs)
+            h_active_frame = (active_content * 2 + 2) if active_content > 0 else 0
+
+            # ACTIVITY FEED: 1 line per item (max 5), +2 for borders if not empty
+            activity_content = min(actual_activity, 5)
+            h_activity_frame = (activity_content + 2) if activity_content > 0 else 0
+
+            # QUEUE: Gets remaining space (minimum 3 lines for borders + at least 1 item)
+            h_queue_frame = h_rem - h_active_frame - h_activity_frame
+            if h_queue_frame < 3:  # Not enough for even empty queue
+                h_queue_frame = 0
+
+            splits = [Layout(name="progress", size=h_progress_frame)]
+            if h_active_frame > 0:
+                splits.append(Layout(name="active", size=h_active_frame))
+            if h_activity_frame > 0:
+                splits.append(Layout(name="activity", size=h_activity_frame))
+            if h_queue_frame > 0:
+                splits.append(Layout(name="queue", size=h_queue_frame))
+
+            layout["middle"].split_column(*splits)
+
+            h_progress = max(0, h_progress_frame - 2)
+            h_active = max(0, h_active_frame - 2)
+            h_activity = max(0, h_activity_frame - 2)
+            h_queue = max(0, h_queue_frame - 2)
+
+        # 4. Generate Content
+        layout["top"].update(self._generate_top_bar())
+
+        # Middle components
+        def safe_update(name, content):
+            try:
+                pass 
+            except: pass
+
+        # Assign directly based on tree structure we just built
+        if is_2col:
+             layout["left"]["progress"].update(self._generate_progress(h_progress))
+             layout["left"]["active"].update(self._generate_active_jobs_panel(h_active))
+             layout["right"]["activity"].update(self._generate_activity_panel(h_activity))
+             if h_queue_frame > 0:
+                 layout["right"]["queue"].update(self._generate_queue_panel(h_queue))
+        else:
+             layout["middle"]["progress"].update(self._generate_progress(h_progress))
+             if h_active_frame > 0:
+                 layout["middle"]["active"].update(self._generate_active_jobs_panel(h_active))
+             if h_activity_frame > 0:
+                 layout["middle"]["activity"].update(self._generate_activity_panel(h_activity))
+             if h_queue_frame > 0:
+                 layout["middle"]["queue"].update(self._generate_queue_panel(h_queue))
+
+        # Footer
+        layout["bottom"].update(self._generate_footer())
+
+        # Overlays
         if self.state.show_config:
-            overlay = self._generate_config_overlay()
-            return _Overlay(base, overlay, overlay.width or int(self.console.size.width * 0.6))
+            return _Overlay(layout, self._generate_config_overlay(), overlay_width=80)
+        elif self.state.show_legend:
+            return _Overlay(layout, self._generate_legend_overlay(), overlay_width=80)
+        elif self.state.show_menu:
+            return _Overlay(layout, self._generate_menu_overlay(), overlay_width=80)
+        elif self.state.show_info:
+             info = Panel(Align.center(self.state.info_message), title="NOTICE", border_style="yellow", width=60)
+             return _Overlay(layout, info, overlay_width=60)
 
-        return base
+        return layout
 
     def _refresh_loop(self):
-        """Background thread to update Live display."""
         while not self._stop_refresh.is_set():
             if self._live:
-                self._spinner_frame = (self._spinner_frame + 1) % 4
-                display = self.create_display()
-                with self._ui_lock:
-                    self._live.update(display)
+                self._spinner_frame = (self._spinner_frame + 1) % 5
+                try:
+                    display = self.create_display()
+                    with self._ui_lock:
+                        self._live.update(display)
+                except Exception:
+                    pass # Resilience
             time.sleep(0.5)
 
     def start(self):
-        """Starts the Live display and refresh thread."""
-        self._live = Live(self.create_display(), console=self.console, refresh_per_second=10)
+        self._live = Live(self.create_display(), console=self.console, refresh_per_second=4)
         self._live.start()
         self._stop_refresh.clear()
         self._refresh_thread = threading.Thread(target=self._refresh_loop, daemon=True)
@@ -492,13 +1111,15 @@ class Dashboard:
         return self
 
     def stop(self):
-        """Stops the Live display and refresh thread."""
         self._stop_refresh.set()
         if self._refresh_thread:
             self._refresh_thread.join(timeout=1.0)
         if self._live:
-            with self._ui_lock:
+            # Final update to show INTERRUPTED/FINISHED state
+            try:
                 self._live.update(self.create_display())
+            except:
+                pass
             self._live.stop()
 
     def __enter__(self):
@@ -507,3 +1128,4 @@ class Dashboard:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stop()
+        return False

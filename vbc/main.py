@@ -37,20 +37,11 @@ def compress(
     skip_av1: bool = typer.Option(False, "--skip-av1", help="Skip files already encoded in AV1"),
     min_size: Optional[int] = typer.Option(None, "--min-size", help="Minimum input size in bytes to process"),
     rotate_180: bool = typer.Option(False, "--rotate-180", help="Rotate output 180 degrees"),
-    debug: bool = typer.Option(False, "--debug/--no-debug", help="Enable verbose debug logging"),
-    ui_style: str = typer.Option("classic", "--ui-style", "-u", help="UI style: 'classic' (default) or 'compact'")
+    debug: bool = typer.Option(False, "--debug/--no-debug", help="Enable verbose debug logging")
 ):
     """Batch compress videos in a directory with full feature parity."""
     if not input_dir.exists():
         typer.secho(f"Error: Directory {input_dir} does not exist.", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
-
-    if ui_style not in ["classic", "compact"]:
-        typer.secho(
-            f"Error: Invalid UI style '{ui_style}'. Choose 'classic' or 'compact'.",
-            fg=typer.colors.RED,
-            err=True
-        )
         raise typer.Exit(code=1)
 
     try:
@@ -200,13 +191,10 @@ def compress(
             )
             gpu_monitor.start()
 
-        if ui_style == "compact":
-            from vbc.ui.compact_dashboard import CompactDashboard
-            panel_scale = config.ui.panel_height_scale if hasattr(config, 'ui') else 0.7
-            max_active = config.ui.active_jobs_max_display if hasattr(config, 'ui') else 8
-            dashboard = CompactDashboard(ui_state, panel_height_scale=panel_scale, max_active_jobs=max_active)
-        else:
-            dashboard = Dashboard(ui_state)
+        # Initialize dashboard with configuration
+        panel_scale = config.ui.panel_height_scale if hasattr(config, 'ui') else 0.7
+        max_active = config.ui.active_jobs_max_display if hasattr(config, 'ui') else 8
+        dashboard = Dashboard(ui_state, panel_height_scale=panel_scale, max_active_jobs=max_active)
 
         keyboard.start()
         try:

@@ -46,22 +46,8 @@ class UiConfig(BaseModel):
     active_jobs_max_display: int = Field(default=8, ge=1, le=16)  # Max threads to reserve space for
     panel_height_scale: float = Field(default=0.7, ge=0.3, le=1.0)  # 0.7 = 30% reduction
 
-class TextualConfig(BaseModel):
-    """Textual dashboard configuration."""
-    default_theme: str = Field(default="cyberpunk")
-    refresh_rate_hz: float = Field(default=4.0, ge=1.0, le=10.0)
-
-    @field_validator('default_theme')
-    @classmethod
-    def validate_theme(cls, v: str) -> str:
-        valid_themes = {"cyberpunk", "minimalist", "retro", "material"}
-        if v not in valid_themes:
-            raise ValueError(f"Invalid theme '{v}'. Must be one of: {', '.join(valid_themes)}")
-        return v
-
 class AppConfig(BaseModel):
     general: GeneralConfig
     autorotate: AutoRotateConfig = Field(default_factory=AutoRotateConfig)
     gpu_config: GpuConfig = Field(default_factory=GpuConfig)
     ui: UiConfig = Field(default_factory=UiConfig)
-    textual: TextualConfig = Field(default_factory=TextualConfig)
