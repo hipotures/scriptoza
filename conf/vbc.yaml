@@ -1,5 +1,5 @@
 general:
-  threads: 4
+  threads: 1
   prefetch_factor: 1
   gpu: true
   copy_metadata: true

@@ -11,7 +11,7 @@ class GpuConfig(BaseModel):
     nvtop_device_name: Optional[str] = None  # Override index
 
 class GeneralConfig(BaseModel):
-    threads: int = Field(default=4, gt=0)
+    threads: int = Field(default=1, gt=0)
     cq: Optional[int] = Field(default=45, ge=0, le=63)
     prefetch_factor: int = Field(default=1, ge=1)
     gpu: bool = True
