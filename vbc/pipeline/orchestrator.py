@@ -680,8 +680,8 @@ class Orchestrator:
         pending = deque(files_to_process)
         in_flight = {}  # future -> VideoFile
 
-        # Pre-load metadata for first 5 files (for queue display)
-        for vf in list(pending)[:5]:
+        # Pre-load metadata for first 25 files (for queue display)
+        for vf in list(pending)[:25]:
             if not vf.metadata:
                 vf.metadata = self._get_metadata(vf)
 
@@ -697,8 +697,8 @@ class Orchestrator:
                     future = executor.submit(self._process_file, vf, input_dir)
                     in_flight[future] = vf
 
-                # Pre-load metadata for next 5 files in queue (for UI display)
-                for vf in list(pending)[:5]:
+                # Pre-load metadata for next 25 files in queue (for UI display)
+                for vf in list(pending)[:25]:
                     if not vf.metadata:
                         vf.metadata = self._get_metadata(vf)
 
