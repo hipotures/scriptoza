@@ -581,8 +581,14 @@ class CompactDashboard:
             saved = self.format_size(self.state.space_saved_bytes)
             ratio = self.state.compression_ratio
 
+            # Thread display: show single number or transition
+            if active_threads == self.state.current_threads:
+                threads_display = str(active_threads)
+            else:
+                threads_display = f"{active_threads} → {self.state.current_threads}"
+
             # 2. Build Left Content (Fixed 3 lines)
-            l1 = f"{indicator} {status} • Threads: {active_threads}/{self.state.current_threads}{paused}"
+            l1 = f"{indicator} {status} • Threads: {threads_display}{paused}"
             l2 = f"ETA: {eta_str} • {throughput_str} • {saved} saved ({ratio:.1f}%)"
             l3 = "[dim]Press M for menu[/]"
             left_content = f"{l1}\n{l2}\n{l3}"
