@@ -38,6 +38,7 @@ class DiscoveryFinished(Event):
     ignored_small: int = 0
     ignored_err: int = 0
     ignored_av1: int = 0
+    source_folders_count: int = 1
 
 class QueueUpdated(Event):
     pending_files: List  # List[VideoFile] but avoid circular import

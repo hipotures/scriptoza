@@ -719,8 +719,11 @@ class Dashboard:
                 elapsed = (datetime.now() - self.state.processing_start_time).total_seconds()
                 elapsed_str = self.format_time(elapsed)
 
-            # Header (liczby plików - zostają bez zmian)
-            header = f"Done: {done}/{total}"
+            # Header (liczby plików + source folders jeśli > 1)
+            if self.state.source_folders_count > 1:
+                header = f"Done: {done}/{total} • Sources: {self.state.source_folders_count}"
+            else:
+                header = f"Done: {done}/{total}"
 
             # Progress bar (skalowany do 0-10000 aby uniknąć problemów z dużymi liczbami)
             if total_size_bytes > 0:

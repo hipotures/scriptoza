@@ -56,6 +56,7 @@ class UIManager:
         self.state.ignored_small_count = event.ignored_small
         self.state.ignored_err_count = event.ignored_err
         self.state.ignored_av1_count = event.ignored_av1
+        self.state.source_folders_count = event.source_folders_count
         self.state.discovery_finished = True
         self.state.discovery_finished_time = datetime.now()
 

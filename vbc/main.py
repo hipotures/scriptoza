@@ -28,7 +28,7 @@ app = typer.Typer(help="VBC (Video Batch Compression) - Modular Version")
 
 @app.command()
 def compress(
-    input_dir: Path = typer.Argument(..., help="Directory containing videos to compress"),
+    input_dirs_arg: str = typer.Argument(..., help="Directory or comma-separated directories to compress"),
     config_path: Optional[Path] = typer.Option(Path("conf/vbc.yaml"), "--config", "-c", help="Path to YAML config"),
     threads: Optional[int] = typer.Option(None, "--threads", "-t", help="Override number of threads"),
     cq: Optional[int] = typer.Option(None, "--cq", help="Override constant quality (0-63)"),
@@ -40,9 +40,23 @@ def compress(
     debug: bool = typer.Option(False, "--debug/--no-debug", help="Enable verbose debug logging")
 ):
     """Batch compress videos in a directory with full feature parity."""
-    if not input_dir.exists():
-        typer.secho(f"Error: Directory {input_dir} does not exist.", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
+    # Parse comma-separated folders
+    input_dirs_raw = [d.strip() for d in input_dirs_arg.split(',')]
+
+    # Convert to Path objects and deduplicate (preserve order)
+    input_dirs = []
+    seen = set()
+    for dir_str in input_dirs_raw:
+        dir_path = Path(dir_str)
+        if dir_path not in seen:
+            input_dirs.append(dir_path)
+            seen.add(dir_path)
+
+    # Validate all folders exist
+    for input_dir in input_dirs:
+        if not input_dir.exists():
+            typer.secho(f"Error: Directory {input_dir} does not exist.", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=1)
 
     try:
         config = load_config(config_path)
@@ -56,10 +70,10 @@ def compress(
         if debug: config.general.debug = True
         if rotate_180: config.general.manual_rotation = 180
 
-        # Setup output directory and logging FIRST
-        output_dir = input_dir.with_name(f"{input_dir.name}_out")
-        logger = setup_logging(output_dir, debug=config.general.debug)
-        logger.info(f"VBC started: input={input_dir}, output={output_dir}")
+        # Setup output directory and logging FIRST (use first folder's _out)
+        first_output_dir = input_dirs[0].with_name(f"{input_dirs[0].name}_out")
+        logger = setup_logging(first_output_dir, debug=config.general.debug)
+        logger.info(f"VBC started: input_folders={len(input_dirs)}, folders={input_dirs}")
         logger.info(f"Config: threads={config.general.threads}, cq={config.general.cq}, gpu={config.general.gpu}, debug={config.general.debug}")
 
         bus = EventBus()
@@ -98,8 +112,8 @@ def compress(
         ui_state.config_lines = [
             f"Video Batch Compression - {encoder_name}",
             f"Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}",
-            f"Input: {input_dir}",
-            f"Output: {output_dir}",
+            f"Input folders: {len(input_dirs)}",
+            *[f"  {i+1}. {d}" for i, d in enumerate(input_dirs)],
             f"Threads: {config.general.threads} (Prefetch: {config.general.prefetch_factor}x)",
             f"Encoder: {encoder_name} | Preset: {preset}",
             "Audio: Copy (stream copy)",
@@ -121,12 +135,13 @@ def compress(
         
         # Housekeeping (Cleanup stale files)
         housekeeper = HousekeepingService()
-        housekeeper.cleanup_temp_files(input_dir)
-        if config.general.clean_errors:
-            # Also cleanup in output dir if it exists
-            output_dir = input_dir.with_name(f"{input_dir.name}_out")
-            if output_dir.exists():
-                housekeeper.cleanup_error_markers(output_dir)
+        for input_dir in input_dirs:
+            housekeeper.cleanup_temp_files(input_dir)
+            if config.general.clean_errors:
+                # Also cleanup in output dir if it exists
+                output_dir = input_dir.with_name(f"{input_dir.name}_out")
+                if output_dir.exists():
+                    housekeeper.cleanup_error_markers(output_dir)
         
         ui_manager = UIManager(bus, ui_state)
 
@@ -199,7 +214,7 @@ def compress(
         keyboard.start()
         try:
             with dashboard:
-                orchestrator.run(input_dir)
+                orchestrator.run(input_dirs)
                 if ui_state.discovery_finished and ui_state.files_to_process == 0:
                     with ui_state._lock:
                         ui_state.info_message = (

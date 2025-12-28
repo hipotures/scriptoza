@@ -49,6 +49,9 @@ class Orchestrator:
         self._refresh_lock = threading.Lock()
         self._shutdown_event = threading.Event()  # Signal workers to stop
 
+        # Folder mapping (input_dir -> output_dir)
+        self._folder_mapping: Dict[Path, Path] = {}
+
         self._setup_subscriptions()
 
     def _setup_subscriptions(self):
@@ -103,6 +106,20 @@ class Orchestrator:
         with self._thread_lock:
             self._shutdown_requested = True
             self._thread_lock.notify_all()
+
+    def _get_output_dir(self, input_dir: Path) -> Path:
+        """Get output directory for given input directory."""
+        return input_dir.with_name(f"{input_dir.name}_out")
+
+    def _find_input_folder(self, file_path: Path) -> Optional[Path]:
+        """Find which input folder contains this file."""
+        for input_dir in self._folder_mapping.keys():
+            try:
+                file_path.relative_to(input_dir)
+                return input_dir
+            except ValueError:
+                continue
+        return None
 
     def _get_metadata(self, video_file: VideoFile, base_metadata: Optional[Dict[str, Any]] = None) -> Optional[VideoMetadata]:
         """Get metadata with thread-safe caching (ffprobe + ExifTool like legacy)."""
@@ -377,88 +394,114 @@ class Orchestrator:
         except Exception as e:
             self.logger.warning(f"Failed to write VBC tags for {output_path.name}: {e}")
 
-    def _perform_discovery(self, input_dir: Path) -> tuple:
-        """Performs file discovery and returns (files_to_process, discovery_stats)."""
-        if self.config.general.debug:
-            self.logger.info(f"DISCOVERY_START: scanning {input_dir}")
-        # First count all files (including small ones) for statistics
+    def _perform_discovery(self, input_dirs: List[Path]) -> tuple:
+        """Performs file discovery across multiple directories and returns (files_to_process, discovery_stats)."""
         import os
-        total_files = 0
-        ignored_small = 0
-        for root, dirs, filenames in os.walk(str(input_dir)):
-            root_path = Path(root)
-            if root_path.name.endswith("_out"):
-                dirs[:] = []
-                continue
-            for fname in filenames:
-                fpath = root_path / fname
-                if fpath.suffix.lower() in self.file_scanner.extensions:
-                    total_files += 1
-                    try:
-                        if fpath.stat().st_size < self.file_scanner.min_size_bytes:
-                            ignored_small += 1
-                    except OSError:
-                        pass
 
-        # Now get files that pass size filter
-        files = list(self.file_scanner.scan(input_dir))
+        all_files = []
+        total_stats = {
+            'files_found': 0,
+            'files_to_process': 0,
+            'already_compressed': 0,
+            'ignored_small': 0,
+            'ignored_err': 0
+        }
 
-        # Count files that will be skipped during discovery
-        output_dir = input_dir.with_name(f"{input_dir.name}_out")
-        already_compressed = 0
-        ignored_err = 0
-        files_to_process = []
+        for input_dir in input_dirs:
+            output_dir = self._get_output_dir(input_dir)
+            self._folder_mapping[input_dir] = output_dir
 
-        for vf in files:
-            try:
-                rel_path = vf.path.relative_to(input_dir)
-            except ValueError:
-                rel_path = Path(vf.path.name)
-            # Always output as .mp4 (lowercase), regardless of input extension
-            output_path = output_dir / rel_path.with_suffix('.mp4')
-            err_path = output_path.with_suffix('.err')
+            if self.config.general.debug:
+                self.logger.info(f"DISCOVERY_START: scanning {input_dir}")
 
-            # Check for error markers FIRST (before timestamp check)
-            if err_path.exists():
-                if self.config.general.clean_errors:
-                    err_path.unlink()  # Remove error marker
-                else:
-                    # Distinguish hw_cap errors from regular errors
-                    try:
-                        err_content = err_path.read_text()
-                        if "Hardware is lacking required capabilities" in err_content:
-                            pass  # hw_cap is not counted as ignored_err
-                        else:
-                            ignored_err += 1
-                    except:
-                        ignored_err += 1
+            # Count all files (including small ones) for statistics
+            folder_total_files = 0
+            folder_ignored_small = 0
+            for root, dirs, filenames in os.walk(str(input_dir)):
+                root_path = Path(root)
+                if root_path.name.endswith("_out"):
+                    dirs[:] = []
+                    continue
+                for fname in filenames:
+                    fpath = root_path / fname
+                    if fpath.suffix.lower() in self.file_scanner.extensions:
+                        folder_total_files += 1
+                        try:
+                            if fpath.stat().st_size < self.file_scanner.min_size_bytes:
+                                folder_ignored_small += 1
+                        except OSError:
+                            pass
+
+            # Get files that pass size filter
+            files = list(self.file_scanner.scan(input_dir))
+
+            # Count files that will be skipped during discovery
+            folder_already_compressed = 0
+            folder_ignored_err = 0
+            folder_files_to_process = []
+
+            for vf in files:
+                try:
+                    rel_path = vf.path.relative_to(input_dir)
+                except ValueError:
+                    rel_path = Path(vf.path.name)
+                # Always output as .mp4 (lowercase), regardless of input extension
+                output_path = output_dir / rel_path.with_suffix('.mp4')
+                err_path = output_path.with_suffix('.err')
+
+                # Check for error markers FIRST (before timestamp check)
+                if err_path.exists():
+                    if self.config.general.clean_errors:
+                        err_path.unlink()  # Remove error marker
+                    else:
+                        # Distinguish hw_cap errors from regular errors
+                        try:
+                            err_content = err_path.read_text()
+                            if "Hardware is lacking required capabilities" in err_content:
+                                pass  # hw_cap is not counted as ignored_err
+                            else:
+                                folder_ignored_err += 1
+                        except:
+                            folder_ignored_err += 1
+                        continue
+
+                # Check if already compressed
+                if output_path.exists() and output_path.stat().st_mtime >= vf.path.stat().st_mtime:
+                    folder_already_compressed += 1
                     continue
 
-            # Check if already compressed
-            if output_path.exists() and output_path.stat().st_mtime >= vf.path.stat().st_mtime:
-                already_compressed += 1
-                continue
+                # AV1 check is done during processing, not discovery
+                folder_files_to_process.append(vf)
 
-            # AV1 check is done during processing, not discovery
-            files_to_process.append(vf)
+            # Aggregate stats
+            total_stats['files_found'] += folder_total_files
+            total_stats['already_compressed'] += folder_already_compressed
+            total_stats['ignored_small'] += folder_ignored_small
+            total_stats['ignored_err'] += folder_ignored_err
 
-        discovery_stats = {
-            'files_found': total_files,
-            'files_to_process': len(files_to_process),
-            'already_compressed': already_compressed,
-            'ignored_small': ignored_small,
-            'ignored_err': ignored_err
-        }
+            all_files.extend(folder_files_to_process)
+
+            if self.config.general.debug:
+                self.logger.info(
+                    f"DISCOVERY_END ({input_dir.name}): found={folder_total_files}, to_process={len(folder_files_to_process)}, "
+                    f"already_compressed={folder_already_compressed}, ignored_small={folder_ignored_small}, ignored_err={folder_ignored_err}"
+                )
+
+        # Sort all files by filename for deterministic processing order
+        all_files.sort(key=lambda vf: vf.path.name)
+
+        # Update final stats
+        total_stats['files_to_process'] = len(all_files)
 
         if self.config.general.debug:
             self.logger.info(
-                f"DISCOVERY_END: found={total_files}, to_process={len(files_to_process)}, "
-                f"already_compressed={already_compressed}, ignored_small={ignored_small}, ignored_err={ignored_err}"
+                f"DISCOVERY_END (all folders): found={total_stats['files_found']}, to_process={len(all_files)}, "
+                f"already_compressed={total_stats['already_compressed']}, ignored_small={total_stats['ignored_small']}, ignored_err={total_stats['ignored_err']}"
             )
 
-        return files_to_process, discovery_stats
+        return all_files, total_stats
 
-    def _process_file(self, video_file: VideoFile, input_dir: Path):
+    def _process_file(self, video_file: VideoFile):
         """Processes a single file with dynamic concurrency control."""
         filename = video_file.path.name
         start_time = time.monotonic() if self.config.general.debug else None
@@ -485,12 +528,18 @@ class Orchestrator:
         stream_info = None
 
         try:
+            # Find which input folder contains this file
+            input_dir = self._find_input_folder(video_file.path)
+            if not input_dir:
+                self.logger.error(f"Cannot determine input folder for {video_file.path}")
+                return
+
             try:
                 rel_path = video_file.path.relative_to(input_dir)
             except ValueError:
                 rel_path = Path(video_file.path.name)
 
-            output_dir = input_dir.with_name(f"{input_dir.name}_out")
+            output_dir = self._folder_mapping[input_dir]
             # Always output as .mp4 (lowercase), regardless of input extension
             output_path = output_dir / rel_path.with_suffix('.mp4')
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -648,10 +697,9 @@ class Orchestrator:
                 self._active_threads -= 1
                 self._thread_lock.notify_all()
 
-    def run(self, input_dir: Path):
-        self.logger.info(f"Discovery started: {input_dir}")
-        self.event_bus.publish(DiscoveryStarted(directory=input_dir))
-        files_to_process, discovery_stats = self._perform_discovery(input_dir)
+    def run(self, input_dirs: List[Path]):
+        self.logger.info(f"Discovery started: {len(input_dirs)} folders")
+        files_to_process, discovery_stats = self._perform_discovery(input_dirs)
 
         self.logger.info(
             f"Discovery finished: found={discovery_stats['files_found']}, "
@@ -666,7 +714,8 @@ class Orchestrator:
             already_compressed=discovery_stats['already_compressed'],
             ignored_small=discovery_stats['ignored_small'],
             ignored_err=discovery_stats['ignored_err'],
-            ignored_av1=0  # AV1 check done during processing
+            ignored_av1=0,  # AV1 check done during processing
+            source_folders_count=len(input_dirs)
         ))
 
         # If no files to process, exit early
@@ -694,7 +743,7 @@ class Orchestrator:
                 max_inflight = self.config.general.prefetch_factor * self._current_max_threads
                 while len(in_flight) < max_inflight and pending and not self._shutdown_requested:
                     vf = pending.popleft()
-                    future = executor.submit(self._process_file, vf, input_dir)
+                    future = executor.submit(self._process_file, vf)
                     in_flight[future] = vf
 
                 # Pre-load metadata for next 25 files in queue (for UI display)
@@ -730,8 +779,8 @@ class Orchestrator:
                     with self._refresh_lock:
                         if self._refresh_requested:
                             self._refresh_requested = False
-                            # Perform new discovery
-                            new_files, new_stats = self._perform_discovery(input_dir)
+                            # Perform new discovery on all folders
+                            new_files, new_stats = self._perform_discovery(list(self._folder_mapping.keys()))
                             # Track already submitted files to avoid duplicates
                             submitted_paths = {vf.path for vf in in_flight.values()}
                             submitted_paths.update(vf.path for vf in pending)
@@ -748,7 +797,8 @@ class Orchestrator:
                                 already_compressed=new_stats['already_compressed'],
                                 ignored_small=new_stats['ignored_small'],  # FIX: update this counter
                                 ignored_err=new_stats['ignored_err'],
-                                ignored_av1=0  # AV1 check done during processing
+                                ignored_av1=0,  # AV1 check done during processing
+                                source_folders_count=len(self._folder_mapping)
                             ))
                             # Publish feedback message (like old vbc.py lines 1852-1860)
                             from vbc.domain.events import ActionMessage
