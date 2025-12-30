@@ -1,95 +1,30 @@
 # Scriptoza
 
-Collection of useful scripts organized by category. Each category has its own directory with detailed documentation.
+Collection of small utility scripts organized by category. Each category has its own README with requirements and usage.
 
-## 🎬 VBC - Video Batch Compression
+## Categories
 
-**Modern, modular video compression tool with AV1/NVENC support.**
+### Video (video/)
 
-### Quick Start
+- `rename_video.py` - Universal video renaming (DJI, Panasonic, Sony)
+- `check_4k.py` - Scans MP4 tree for 4K/non-4K classification
+- `check_collisions.py` - Detects basename collisions
+- `sort_video_qvr.sh` - Organizes QVR files by date
+- `sort_video_sr.sh` - Organizes Screen Recordings by date
 
-```bash
-# Compress videos with GPU acceleration
-uv run vbc/main.py /path/to/videos --gpu --threads 8
+### Photo (photo/)
 
-# CPU mode with high quality
-uv run vbc/main.py /path/to/videos --cpu --cq 35
-```
+- `rename_photo.py` - Universal photo renaming tool (Sony RAW/JPG, Panasonic JPG)
 
-### Features
+### Utils (utils/)
 
-- 🚀 **Multi-threaded**: Dynamic concurrency control (adjust with `<`/`>` keys)
-- 🎯 **Smart Compression**: Camera-specific quality settings, auto-rotation
-- 🎨 **Rich UI**: Real-time dashboard with 6 panels
-- 🔧 **Flexible**: YAML config + CLI overrides
-- 📦 **Deep Metadata**: Full EXIF/GPS preservation with ExifTool
+- `statusline.py` - Rich status line for Claude Code with SQLite session logging
+- `session_stats.sh` - Session statistics (top sessions, costs, model usage)
+- `claude_usage_report.py` - Aggregates JSONL history into per-session/per-day totals
+- `safe_rename_tt.py` - Safe date-based renamer for TikTok downloads
+- `scan_mp4_to_json.py` - Scans MP4 files and outputs metadata as JSON
 
-### Documentation
+## Notes
 
-**📚 [Full Documentation](docs/)** - Comprehensive guides and API reference
-
-- [Getting Started](docs/getting-started/installation.md) - Installation & quick start
-- [Configuration](docs/getting-started/configuration.md) - All settings explained
-- [Runtime Controls](docs/user-guide/runtime-controls.md) - Keyboard shortcuts
-- [Advanced Features](docs/user-guide/advanced.md) - Dynamic CQ, auto-rotation
-- [Architecture](docs/architecture/overview.md) - System design
-- [API Reference](docs/api/) - Auto-generated from code
-
-**🌐 Build docs:** `./serve-docs.sh` → http://127.0.0.1:8000
-
-### Architecture
-
-VBC uses **Clean Architecture** with event-driven design:
-
-```
-UI Layer (Rich dashboard, keyboard controls)
-    ↓ Events (EventBus)
-Pipeline Layer (Orchestrator, queue management)
-    ↓ Domain Models
-Infrastructure Layer (FFmpeg, ExifTool, FFprobe)
-```
-
-See [Architecture Overview](docs/architecture/overview.md) for details.
-
----
-
-## Other Scripts
-
-### [Video](video/) - Video Utilities
-
-- **rename_video.py** - Universal video renaming (DJI, Panasonic, Sony)
-- **check_4k.py** - Scans MP4 tree for 4K/non-4K classification
-- **check_collisions.py** - Detects basename collisions
-- **sort_video_qvr.sh** - Organizes QVR files by date
-- **sort_video_sr.sh** - Organizes Screen Recordings by date
-
-**VBC Utilities** (moved to `vbc/utils/`):
-- **move_err_files.py** - Moves failed compression sources
-- **copy_failed_videos.py** - Copies failed compression sources
-
-### [Utils](utils/) - General Utilities
-
-**Claude Code Session Management:**
-- **statusline.py** - Custom colorful status line for Claude Code with Rich formatting and SQLite logging. Displays model, tokens, cost, git branch, and stats. Automatically logs all sessions to `~/.claude/db/sessions.db`.
-  ```bash
-  # Test with demo data
-  python ~/DEV/scriptoza/utils/statusline.py --demo 2>/dev/null
-  # Output: 2-line status with model, tokens, cost, project, git info
-  ```
-- **session_stats.sh** - Comprehensive session statistics and analytics. Shows top sessions, costs per project/day, model usage, and totals.
-  ```bash
-  ./utils/session_stats.sh
-  # Displays: Top 10 sessions, cost per project, cost per day, model stats, totals
-  ```
-- **claude_usage_report.py** - Aggregates JSONL history into per-session/per-model/per-day token totals (input/output/cache). Optional estimated cost output.
-  ```bash
-  uv run python utils/claude_usage_report.py > /tmp/claude_usage.csv
-  ```
-
-**Other Utilities:**
-- **safe_rename_tt.py** - Safe, multi-format date-based renamer for TikTok downloads. Uses parent directory as prefix, supports dry-run by default, and prevents overwriting.
-- **fix_vbc_tags.py** - Adds missing VBC metadata tags (Encoder, FinishedAt, OriginalName, OriginalSize) to MP4 files based on file system dates.
-
-### [Photo](photo/)
-
-- **rename_photo.py** - Universal photo renaming tool (Sony RAW/JPG, Panasonic JPG) with standardized format: `YYYYMMDD_HHMMSS_MMM.ext` (with milliseconds)
+- Follow each category README for dependencies and usage details.
+- VBC (Video Batch Compression) is maintained in a separate repository: https://github.com/hipotures/vbc
