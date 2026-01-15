@@ -169,3 +169,31 @@ SR/
 └── 20241026/
     └── Screen_Recording_20241026_090000.mp4
 ```
+
+---
+
+## sort_dji.py
+
+Identifies DJI Pocket and Osmo Pocket 3 files using EXIF data and moves them to a dedicated directory.
+
+### Features
+
+- Detects files with `Model` tag matching "DJI Pocket" or `Encoder` matching "DJI OsmoPocket3"
+- Non-recursive: only scans the specified directory
+- Safe move: prevents overwriting existing files in the destination
+- Creates `dji/` subdirectory automatically
+
+### Requirements
+
+- Python 3.7+
+- exiftool
+
+### Usage
+
+```bash
+python video/sort_dji.py /path/to/videos
+```
+
+### Output
+
+- Files from DJI Pocket are moved to `/path/to/videos/dji/`
