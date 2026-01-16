@@ -172,16 +172,16 @@ SR/
 
 ---
 
-## sort_dji.py
+## find_vbc.py
 
-Identifies DJI Pocket and Osmo Pocket 3 files using EXIF data and moves them to a dedicated directory.
+Finds video files (.mp4, .mov) that either have or do not have VBC (Video Batch Compression) metadata tags.
 
 ### Features
 
-- Detects files with `Model` tag matching "DJI Pocket" or `Encoder` matching "DJI OsmoPocket3"
-- Non-recursive: only scans the specified directory
-- Safe move: prevents overwriting existing files in the destination
-- Creates `dji/` subdirectory automatically
+- Scans for any of the VBC tags (specifically checks for `VBCEncoder`)
+- Supports both inclusive and exclusive searches via flags
+- Outputs full absolute paths of matching files
+- Recursive by default (can be disabled)
 
 ### Requirements
 
@@ -191,9 +191,12 @@ Identifies DJI Pocket and Osmo Pocket 3 files using EXIF data and moves them to 
 ### Usage
 
 ```bash
-python video/sort_dji.py /path/to/videos
+# Find files WITH VBC tags
+python video/find_vbc.py /path/to/videos --with-vbc
+
+# Find files WITHOUT VBC tags
+python video/find_vbc.py /path/to/videos --without-vbc
+
+# Non-recursive search
+python video/find_vbc.py . --with-vbc --no-recursive
 ```
-
-### Output
-
-- Files from DJI Pocket are moved to `/path/to/videos/dji/`
