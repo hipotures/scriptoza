@@ -210,7 +210,7 @@ def get_normalized_stem(meta: Dict[str, Any], original_stem: str) -> str:
 
     # 3. FPS
     raw_fps = get_exif_tag(meta, ['VideoFrameRate', 'VideoAvgFrameRate', 'FrameRate'])
-    if raw_fps is not None:
+    if raw_fps is not None and str(raw_fps).lower() not in ['n/a', 'nan', 'none']:
         try:
             fps_val = str(int(round(float(raw_fps)))) + 'fps'
         except (ValueError, TypeError):
