@@ -22,6 +22,7 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
+from rich.prompt import Confirm
 
 # =============================================================================
 # KONFIGURACJA TAGÓW (edytuj tutaj)
@@ -232,10 +233,17 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--debug", action="store_true", help="Wypisz tagi i powody, które wpłynęły na decyzję (dla każdego pliku)")
     parser.add_argument("--timeout", type=int, default=30, help="Timeout dla exiftool per plik w sekundach (domyślnie: 30)")
     parser.add_argument("--dry-run", action="store_true", help="Nie zmieniaj nazw plików; tylko pokaż planowane operacje")
+    parser.add_argument("--scan", action="store_true", help="Uruchom skanowanie bez pytania o potwierdzenie")
 
     args = parser.parse_args(argv)
 
     console = Console()
+
+    if not argv and not args.scan:
+        if not Confirm.ask("Nie podano żadnych argumentów. Czy chcesz rozpocząć skanowanie katalogu bieżącego?", default=False):
+            console.print("[yellow]Anulowano przez użytkownika.[/yellow]")
+            return 0
+
     root = Path(".").resolve()
     files = iter_mp4_files(root)
 
