@@ -2,8 +2,41 @@
 # Skrypt aplikuje PIERWSZY pasujący preset (kolejność ma znaczenie).
 
 presets:
-  qvr:
+  fz1000:
     description: "Nagrania z kamery telefonu (wymaga Android i GPS)"
+    suffix: "pan"
+    delimiter: "_"
+    rules:
+      require:
+        matches:
+          "Model": "DMC-FZ1000"
+
+  cam:
+    description: "Nagrania z kamery telefonu (wymaga Android i GPS)"
+    suffix: "cam"
+    delimiter: "_"
+    rules:
+      require:
+        keys:
+          - "AndroidVersion"
+          - "GPSCoordinates"
+          - "AndroidCaptureFPS"
+      exclude:
+        matches:
+          "Make": "panasonic"
+          "CameraModelName": "DMC-FZ1000"
+
+  cam2:
+    description: "Nagrania z kamery telefonu (wymaga Android i GPS)"
+    suffix: "cam"
+    delimiter: "_"
+    rules:
+      require:
+        matches:
+          "HandlerVendorID": "Apple"
+
+  qvr:
+    description: "Nagrania z kamery telefonu (wymaga Android i GPS) w trybiw qvr"
     suffix: "qvr"
     delimiter: "_"
     rules:
@@ -29,6 +62,20 @@ presets:
       exclude:
         keys:
           - "GPSCoordinates"
+
+  cam_fallback:
+    description: "Nagrania z kamery telefonu (wymaga Android i GPS)"
+    suffix: "cam"
+    delimiter: "_"
+    rules:
+      require:
+        keys:
+          - "AndroidVersion"
+      exclude:
+        matches:
+          "Make": "panasonic"
+          "CameraModelName": "DMC-FZ1000"
+
 
   # Przykład dodatkowego presetu
   # lumix:
