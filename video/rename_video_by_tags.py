@@ -267,6 +267,7 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--timeout", type=int, default=30, help="Timeout dla exiftool (domyślnie: 30s)")
     parser.add_argument("--dry-run", action="store_true", help="Tylko pokaż co zostanie zmienione")
     parser.add_argument("--scan", action="store_true", help="Uruchom bez pytania o potwierdzenie")
+    parser.add_argument("--force", action="store_true", help="Wymuś zmianę nawet jeśli plik ma już znany suffix (pozwala na zmianę profilu)")
 
     args = parser.parse_args(argv)
     console = Console()
@@ -362,11 +363,21 @@ def main(argv: List[str]) -> int:
             
             if old_suffix_info:
                 old_delim, old_suf = old_suffix_info
+                # Jeśli ma już ten sam suffix - zawsze pomijamy
                 if old_suf.lower() == suffix.lower() and old_delim == delimiter:
                     stats["skipped_already_suffixed"] += 1
                     progress.advance(task)
                     continue
-                # Jeśli inny suffix - będziemy go zastępować
+                
+                # Jeśli ma INNY znany suffix i NIE ma --force - pomijamy (nowe domyślne zachowanie)
+                if not args.force:
+                    stats["skipped_already_suffixed"] += 1
+                    if args.debug:
+                        console.print(f"  [yellow]SKIP[/yellow] plik ma już suffix {old_delim}{old_suf} (użyj --force aby zmienić)")
+                    progress.advance(task)
+                    continue
+                
+                # Jeśli jest --force i inny suffix - będziemy go zastępować
 
             target = build_target_name(path, suffix, delimiter, old_suffix_info)
 
