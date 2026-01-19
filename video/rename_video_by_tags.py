@@ -166,12 +166,34 @@ def evaluate_tags_for_preset(meta: Dict[str, Any], name: str, preset_config: Dic
     return Decision(True, reasons, debug_kv)
 
 
-def build_target_name(path: Path, suffix: str, delim: str) -> Path:
+def get_current_suffix(path: Path, all_presets: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+    """
+    Sprawdza czy plik ma już przypisany którykolwiek ze znanych suffixów.
+    Zwraca krotkę (delimiter, suffix) jeśli znaleziono, w przeciwnym razie None.
+    """
+    stem = path.stem.lower()
+    # Sortujemy po długości suffixu (malejąco), aby uniknąć błędnych dopasowań (np. _q vs _qvr)
+    sorted_presets = sorted(all_presets.items(), key=lambda x: len(x[1].get("suffix", "")), reverse=True)
+    
+    for _, cfg in sorted_presets:
+        s = cfg.get("suffix", "").lower()
+        d = cfg.get("delimiter", "_").lower()
+        if s and stem.endswith(f"{d}{s}"):
+            return cfg.get("delimiter", "_"), cfg.get("suffix", "")
+    return None
+
+
+def build_target_name(path: Path, suffix: str, delim: str, old_suffix_info: Optional[Tuple[str, str]] = None) -> Path:
+    """Buduje nową nazwę, opcjonalnie zastępując stary suffix."""
+    if old_suffix_info:
+        old_delim, old_suf = old_suffix_info
+        # Usuwamy stary suffix z końca rdzenia nazwy
+        # Używamy re.escape dla bezpieczeństwa, choć suffixy to zwykle alfanumeryki
+        pattern = re.escape(f"{old_delim}{old_suf}") + "$"
+        new_stem = re.sub(pattern, "", path.stem, flags=re.IGNORECASE)
+        return path.with_name(f"{new_stem}{delim}{suffix}{path.suffix}")
+    
     return path.with_name(f"{path.stem}{delim}{suffix}{path.suffix}")
-
-
-def already_suffixed(path: Path, suffix: str, delim: str) -> bool:
-    return path.stem.lower().endswith(f"{delim}{suffix}".lower())
 
 
 def iter_mp4_files(root: Path) -> List[Path]:
@@ -332,12 +354,18 @@ def main(argv: List[str]) -> int:
             suffix = preset_cfg.get("suffix", "")
             delimiter = preset_cfg.get("delimiter", "_")
 
-            if already_suffixed(path, suffix, delimiter):
-                stats["skipped_already_suffixed"] += 1
-                progress.advance(task)
-                continue
+            # Inteligentne sprawdzenie istniejącego suffixu
+            old_suffix_info = get_current_suffix(path, all_presets)
+            
+            if old_suffix_info:
+                old_delim, old_suf = old_suffix_info
+                if old_suf.lower() == suffix.lower() and old_delim == delimiter:
+                    stats["skipped_already_suffixed"] += 1
+                    progress.advance(task)
+                    continue
+                # Jeśli inny suffix - będziemy go zastępować
 
-            target = build_target_name(path, suffix, delimiter)
+            target = build_target_name(path, suffix, delimiter, old_suffix_info)
 
             if target.exists():
                 stats["conflicts"] += 1
@@ -347,7 +375,8 @@ def main(argv: List[str]) -> int:
 
             if args.dry_run:
                 stats["would_rename"] += 1
-                console.print(f"[cyan]DRY-RUN[/cyan] rename: {path.name} -> {target.name} (preset: {matched_preset_name})")
+                action = "replace suffix" if old_suffix_info else "rename"
+                console.print(f"[cyan]DRY-RUN[/cyan] {action}: {path.name} -> {target.name} (preset: {matched_preset_name})")
             else:
                 ok, ren_err = safe_rename_no_overwrite(path, target)
                 if ok:
