@@ -398,14 +398,20 @@ def main(argv: List[str]) -> int:
                     break
 
             if not final_decision or not final_decision.should_rename:
-                stats["skipped_no_match"] += 1
-                progress.advance(task)
-                continue
-
-            # Pobranie parametrów z pasującego presetu
-            preset_cfg = all_presets[matched_preset_name]
-            suffix = preset_cfg.get("suffix", "")
-            delimiter = preset_cfg.get("delimiter", "_")
+                if not args.normalize:
+                    stats["skipped_no_match"] += 1
+                    progress.advance(task)
+                    continue
+                else:
+                    # Normalizacja bez suffixu (brak dopasowanego presetu)
+                    suffix = ""
+                    delimiter = ""
+                    matched_preset_name = "brak (tylko normalizacja)"
+            else:
+                # Pobranie parametrów z dopasowanego presetu
+                preset_cfg = all_presets[matched_preset_name]
+                suffix = preset_cfg.get("suffix", "")
+                delimiter = preset_cfg.get("delimiter", "_")
 
             # Inteligentne sprawdzenie istniejącego suffixu
             old_suffix_info = get_current_suffix(path, all_presets)
@@ -437,6 +443,15 @@ def main(argv: List[str]) -> int:
                 normalize_meta=meta if args.normalize else None
             )
 
+            if target.name == path.name:
+                # Nazwa po normalizacji/zmianie suffixu jest taka sama jak obecna
+                if not final_decision or not final_decision.should_rename:
+                    stats["skipped_no_match"] += 1
+                else:
+                    stats["skipped_already_suffixed"] += 1
+                progress.advance(task)
+                continue
+
             if target.exists():
                 stats["conflicts"] += 1
                 console.print(f"[yellow]KONFLIKT NAZWY[/yellow] {path.name} -> {target.name} (cel istnieje)")
@@ -445,7 +460,10 @@ def main(argv: List[str]) -> int:
 
             if args.dry_run:
                 stats["would_rename"] += 1
-                action = "replace suffix" if old_suffix_info else "rename"
+                if not suffix:
+                    action = "normalize"
+                else:
+                    action = "replace suffix" if old_suffix_info else "rename"
                 console.print(f"[cyan]DRY-RUN[/cyan] {action}: {path.name} -> {target.name} (preset: {matched_preset_name})")
             else:
                 ok, ren_err = safe_rename_no_overwrite(path, target)
