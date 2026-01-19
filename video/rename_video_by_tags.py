@@ -183,17 +183,65 @@ def get_current_suffix(path: Path, all_presets: Dict[str, Any]) -> Optional[Tupl
     return None
 
 
-def build_target_name(path: Path, suffix: str, delim: str, old_suffix_info: Optional[Tuple[str, str]] = None) -> Path:
-    """Buduje nową nazwę, opcjonalnie zastępując stary suffix."""
-    if old_suffix_info:
-        old_delim, old_suf = old_suffix_info
-        # Usuwamy stary suffix z końca rdzenia nazwy
-        # Używamy re.escape dla bezpieczeństwa, choć suffixy to zwykle alfanumeryki
-        pattern = re.escape(f"{old_delim}{old_suf}") + "$"
-        new_stem = re.sub(pattern, "", path.stem, flags=re.IGNORECASE)
-        return path.with_name(f"{new_stem}{delim}{suffix}{path.suffix}")
+def get_exif_tag(data: Dict[str, Any], keys: List[str]) -> Any:
+    for key in keys:
+        if key in data:
+            return data[key]
+    return None
+
+
+def get_normalized_stem(meta: Dict[str, Any], original_stem: str) -> str:
+    """Tworzy bazową nazwę na podstawie metadanych: data_WxH_fps_rozmiar."""
+    # 1. Data (CreateDate lub fallback na oryginał)
+    raw_date = get_exif_tag(meta, ['CreateDate', 'MediaCreateDate', 'DateTimeOriginal'])
+    if not raw_date or str(raw_date).startswith('0000'):
+        date_part = original_stem
+    else:
+        # Format: 2024:07:12 21:24:28+02:00 -> 20240712_212428
+        date_part = str(raw_date).split('+')[0].replace(':', '').replace(' ', '_')
+
+    # 2. Rozdzielczość
+    w = get_exif_tag(meta, ['SourceImageWidth', 'ImageWidth', 'VideoWidth']) or '???'
+    h = get_exif_tag(meta, ['SourceImageHeight', 'ImageHeight', 'VideoHeight']) or '???'
+    wh = f"{w}x{h}"
+
+    # 3. FPS
+    raw_fps = get_exif_tag(meta, ['VideoFrameRate', 'VideoAvgFrameRate', 'FrameRate'])
+    if raw_fps is not None:
+        try:
+            fps_val = str(int(round(float(raw_fps)))) + 'fps'
+        except (ValueError, TypeError):
+            fps_val = f"{raw_fps}fps"
+    else:
+        fps_val = 'unknownfps'
+
+    # 4. Rozmiar (MediaDataSize - w bajtach)
+    raw_size = get_exif_tag(meta, ['MediaDataSize', 'FileSize'])
+    size_str = str(raw_size) if raw_size is not None else 'unknown'
+
+    return f"{date_part}_{wh}_{fps_val}_{size_str}"
+
+
+def build_target_name(path: Path, suffix: str, delim: str, old_suffix_info: Optional[Tuple[str, str]] = None, normalize_meta: Optional[Dict[str, Any]] = None) -> Path:
+    """Buduje nową nazwę, opcjonalnie normalizując ją i zastępując stary suffix."""
     
-    return path.with_name(f"{path.stem}{delim}{suffix}{path.suffix}")
+    # Jeśli mamy normalizować, budujemy nowy rdzeń nazwy
+    if normalize_meta:
+        # Usuwamy stary suffix jeśli istnieje, aby nie wszedł do normalizacji jako część original_stem (w razie błędu daty)
+        clean_stem = path.stem
+        if old_suffix_info:
+            old_delim, old_suf = old_suffix_info
+            clean_stem = re.sub(re.escape(f"{old_delim}{old_suf}") + "$", "", path.stem, flags=re.IGNORECASE)
+        
+        base_stem = get_normalized_stem(normalize_meta, clean_stem)
+    else:
+        # Jeśli nie normalizujemy, po prostu usuwamy stary suffix
+        base_stem = path.stem
+        if old_suffix_info:
+            old_delim, old_suf = old_suffix_info
+            base_stem = re.sub(re.escape(f"{old_delim}{old_suf}") + "$", "", path.stem, flags=re.IGNORECASE)
+    
+    return path.with_name(f"{base_stem}{delim}{suffix}{path.suffix}")
 
 
 def iter_mp4_files(root: Path) -> List[Path]:
@@ -268,6 +316,7 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--dry-run", action="store_true", help="Tylko pokaż co zostanie zmienione")
     parser.add_argument("--scan", action="store_true", help="Uruchom bez pytania o potwierdzenie")
     parser.add_argument("--force", action="store_true", help="Wymuś zmianę nawet jeśli plik ma już znany suffix (pozwala na zmianę profilu)")
+    parser.add_argument("--normalize", action="store_true", help="Znormalizuj nazwę pliku (data_rozdzielczosc_fps_rozmiar) przed dodaniem suffixu")
 
     args = parser.parse_args(argv)
     console = Console()
@@ -379,7 +428,14 @@ def main(argv: List[str]) -> int:
                 
                 # Jeśli jest --force i inny suffix - będziemy go zastępować
 
-            target = build_target_name(path, suffix, delimiter, old_suffix_info)
+            # Przekazujemy metadane do normalizacji tylko jeśli opcja jest włączona
+            target = build_target_name(
+                path, 
+                suffix, 
+                delimiter, 
+                old_suffix_info, 
+                normalize_meta=meta if args.normalize else None
+            )
 
             if target.exists():
                 stats["conflicts"] += 1
