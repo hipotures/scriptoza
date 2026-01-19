@@ -33,6 +33,7 @@ DEFAULT_DELIM = "_"
 # Pozytywne warunki - AND (wszystkie aktywne muszą przejść)
 POSITIVE_KEYS_REQUIRED: List[str] = [
     "AndroidVersion",
+    "GPSCoordinates",
     # "GPSPosition",
 ]
 POSITIVE_VALUE_RULES: List[Tuple[str, str]] = [
