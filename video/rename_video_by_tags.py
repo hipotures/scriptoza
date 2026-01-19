@@ -209,20 +209,21 @@ def get_normalized_stem(meta: Dict[str, Any], original_stem: str) -> str:
     wh = f"{sanitize(w)}x{sanitize(h)}"
 
     # 3. FPS
+    fps_part = ""
     raw_fps = get_exif_tag(meta, ['VideoFrameRate', 'VideoAvgFrameRate', 'FrameRate'])
     if raw_fps is not None and str(raw_fps).lower() not in ['n/a', 'nan', 'none']:
         try:
             fps_val = str(int(round(float(raw_fps)))) + 'fps'
+            fps_part = f"_{fps_val}"
         except (ValueError, TypeError):
-            fps_val = f"{sanitize(raw_fps)}fps"
-    else:
-        fps_val = 'unknownfps'
+            # Jeśli to jakiś dziwny tekst, używamy zsanitizowanej wersji
+            fps_part = f"_{sanitize(raw_fps)}fps"
 
     # 4. Rozmiar (MediaDataSize - w bajtach)
     raw_size = get_exif_tag(meta, ['MediaDataSize', 'FileSize'])
     size_str = sanitize(raw_size) if raw_size is not None else 'unknown'
 
-    return f"{date_part}_{wh}_{fps_val}_{size_str}"
+    return f"{date_part}_{wh}{fps_part}_{size_str}"
 
 
 def build_target_name(path: Path, suffix: str, delim: str, old_suffix_info: Optional[Tuple[str, str]] = None, normalize_meta: Optional[Dict[str, Any]] = None) -> Path:
