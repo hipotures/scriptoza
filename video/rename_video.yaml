@@ -1,0 +1,41 @@
+# Konfiguracja reguł dla rename_video_by_tags.py
+# Skrypt aplikuje PIERWSZY pasujący preset (kolejność ma znaczenie).
+
+presets:
+  qvr:
+    description: "Nagrania z kamery telefonu (wymaga Android i GPS)"
+    suffix: "qvr"
+    delimiter: "_"
+    rules:
+      require:
+        keys:
+          - "AndroidVersion"
+          - "GPSCoordinates"
+      exclude:
+        matches:
+          "Make": "panasonic"
+          "CameraModelName": "DMC-FZ1000"
+
+  scr:
+    description: "Nagrania ekranu telefonu (brak GPS, rozdzielczość pionowa 2220, VideoHandle)"
+    suffix: "scr"
+    delimiter: "_"
+    rules:
+      require:
+        keys:
+          - "AndroidVersion"
+        matches:
+          "HandlerDescription": "VideoHandle"
+      exclude:
+        keys:
+          - "GPSCoordinates"
+
+  # Przykład dodatkowego presetu
+  # lumix:
+  #   description: "Nagrania z aparatu Panasonic"
+  #   suffix: "lumix"
+  #   delimiter: "-"
+  #   rules:
+  #     require:
+  #       matches:
+  #         "Make": "panasonic"

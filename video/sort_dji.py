@@ -19,13 +19,13 @@ def sort_dji_files(target_dir):
 
     try:
         # Support for:
-        # - Model: DJI Pocket (Original/Pocket 2)
-        # - Encoder: DJI OsmoPocket3 (Pocket 3)
+        # - Model: DJI Pocket, DJI Osmo Action
+        # - Encoder: DJI OsmoPocket3
         # Using ($Tag || "") to avoid Perl errors if a tag is missing
         cmd = [
             'exiftool',
             '-q', '-q',
-            '-if', '($Model || "") =~ /Pocket/ or ($Encoder || "") =~ /Pocket/',
+            '-if', '($Model || "") =~ /Pocket|Action/ or ($Encoder || "") =~ /Pocket|Action/',
             '-filename',
             '-s3',
             target_dir
@@ -36,7 +36,7 @@ def sort_dji_files(target_dir):
         
         output = result.stdout.strip()
         if not output:
-            print(f"  No DJI Pocket/Osmo files found in {target_dir}")
+            print(f"  No DJI Pocket/Osmo/Action files found in {target_dir}")
             return
 
         files_to_move = output.split('\n')

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import yaml
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -25,33 +26,7 @@ from rich.progress import (
 from rich.prompt import Confirm
 
 # =============================================================================
-# KONFIGURACJA TAGÓW (edytuj tutaj)
-# =============================================================================
-DEFAULT_SUFFIX = "qvr"
-DEFAULT_DELIM = "_"
-
-# Pozytywne warunki - AND (wszystkie aktywne muszą przejść)
-POSITIVE_KEYS_REQUIRED: List[str] = [
-    "AndroidVersion",
-    "GPSCoordinates",
-    # "GPSPosition",
-]
-POSITIVE_VALUE_RULES: List[Tuple[str, str]] = [
-    # ("AndroidVersion", r"\b9\b"),
-]
-
-# Negatywne warunki - OR (jakikolwiek blokuje)
-NEGATIVE_KEYS_PRESENT: List[str] = [
-    # "CameraModelName",
-]
-NEGATIVE_VALUE_RULES: List[Tuple[str, str]] = [
-    ("Make", r"panasonic"),
-    ("CameraModelName", r"DMC-FZ1000"),
-]
-
-
-# =============================================================================
-# IMPLEMENTACJA
+# STRUKTURY DANYCH
 # =============================================================================
 
 @dataclass
@@ -61,6 +36,10 @@ class Decision:
     debug_kv: List[Tuple[str, Any]]
 
 
+# =============================================================================
+# FUNKCJE POMOCNICZE
+# =============================================================================
+
 def is_set_value(v: Any) -> bool:
     if v is None:
         return False
@@ -69,6 +48,35 @@ def is_set_value(v: Any) -> bool:
     if isinstance(v, (list, dict, tuple, set)):
         return len(v) > 0
     return True
+
+
+def load_all_presets() -> Tuple[Dict[str, Any], Optional[str]]:
+    """Ładuje konfigurację presetów z YAML."""
+    search_paths = [
+        Path("rename_video.yaml"),
+        Path(sys.argv[0]).parent / "rename_video.yaml",
+        Path.home() / ".config" / "scriptoza" / "rename_video.yaml",
+    ]
+
+    config_path = None
+    for p in search_paths:
+        if p.exists():
+            config_path = p
+            break
+
+    if not config_path:
+        return {}, f"Plik konfiguracji nie został znaleziony w: {[str(p) for p in search_paths]}"
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        
+        if not config or "presets" not in config:
+            return {}, f"Nieprawidłowa struktura YAML w {config_path} (brak klucza 'presets')"
+        
+        return config["presets"], None
+    except Exception as e:
+        return {}, f"Błąd odczytu {config_path}: {e!r}"
 
 
 def run_exiftool_json(path: Path, timeout_s: int = 30) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -104,48 +112,57 @@ def run_exiftool_json(path: Path, timeout_s: int = 30) -> Tuple[Optional[Dict[st
         return None, f"json decode error: {e}"
 
 
-def evaluate_tags(meta: Dict[str, Any]) -> Decision:
+def evaluate_tags_for_preset(meta: Dict[str, Any], name: str, preset_config: Dict[str, Any]) -> Decision:
+    """Ocenia czy dany plik spełnia reguły konkretnego presetu."""
     reasons: List[str] = []
     debug_kv: List[Tuple[str, Any]] = []
+    
+    rules = preset_config.get("rules", {})
+    require = rules.get("require", {})
+    exclude = rules.get("exclude", {})
 
-    # NEGATIVE (OR)
-    for key in NEGATIVE_KEYS_PRESENT:
+    # 1. EXCLUDE (OR - jakikolwiek blokuje)
+    # Sprawdzenie samej obecności kluczy
+    for key in exclude.get("keys", []):
         if key in meta and is_set_value(meta.get(key)):
             v = meta.get(key)
-            reasons.append(f"NEGATIVE key present: {key}={v!r}")
+            reasons.append(f"EXCLUDE key present: {key}={v!r}")
             debug_kv.append((key, v))
             return Decision(False, reasons, debug_kv)
-
-    for key, pattern in NEGATIVE_VALUE_RULES:
+    
+    # Sprawdzenie wartości (regex)
+    for key, pattern in exclude.get("matches", {}).items():
         if key in meta and is_set_value(meta.get(key)):
             v = meta.get(key)
-            if re.search(pattern, str(v), flags=re.IGNORECASE):
-                reasons.append(f"NEGATIVE value match: {key}={v!r} ~ /{pattern}/i")
+            if re.search(str(pattern), str(v), flags=re.IGNORECASE):
+                reasons.append(f"EXCLUDE value match: {key}={v!r} ~ /{pattern}/i")
                 debug_kv.append((key, v))
                 return Decision(False, reasons, debug_kv)
 
-    # POSITIVE (AND)
-    for key in POSITIVE_KEYS_REQUIRED:
+    # 2. REQUIRE (AND - wszystkie muszą być spełnione)
+    # Sprawdzenie obecności kluczy
+    for key in require.get("keys", []):
         if key not in meta or not is_set_value(meta.get(key)):
-            reasons.append(f"POSITIVE key missing/unset: {key}")
+            reasons.append(f"REQUIRE key missing/unset: {key}")
             debug_kv.append((key, meta.get(key, None)))
             return Decision(False, reasons, debug_kv)
         debug_kv.append((key, meta.get(key)))
 
-    for key, pattern in POSITIVE_VALUE_RULES:
+    # Sprawdzenie wartości (regex)
+    for key, pattern in require.get("matches", {}).items():
         if key not in meta or not is_set_value(meta.get(key)):
-            reasons.append(f"POSITIVE value missing/unset: {key} ~ /{pattern}/i")
+            reasons.append(f"REQUIRE value missing/unset: {key} ~ /{pattern}/i")
             debug_kv.append((key, meta.get(key, None)))
             return Decision(False, reasons, debug_kv)
 
         v = meta.get(key)
-        if not re.search(pattern, str(v), flags=re.IGNORECASE):
-            reasons.append(f"POSITIVE value no match: {key}={v!r} !~ /{pattern}/i")
+        if not re.search(str(pattern), str(v), flags=re.IGNORECASE):
+            reasons.append(f"REQUIRE value no match: {key}={v!r} !~ /{pattern}/i")
             debug_kv.append((key, v))
             return Decision(False, reasons, debug_kv)
         debug_kv.append((key, v))
 
-    reasons.append("All POSITIVE conditions satisfied; no NEGATIVE matched.")
+    reasons.append(f"Preset '{name}' conditions satisfied.")
     return Decision(True, reasons, debug_kv)
 
 
@@ -162,20 +179,13 @@ def iter_mp4_files(root: Path) -> List[Path]:
 
 
 def safe_rename_no_overwrite(src: Path, dst: Path) -> Tuple[bool, Optional[str]]:
-    """
-    Maksymalnie bezpieczne:
-      - nigdy nie nadpisuje dst
-      - próba jest odporna na wyścigi (EEXIST)
-      - jeśli nie można wykonać operacji w pełni, nie usuwa źródła
-    Technika: hardlink dst -> src (fail jeśli dst istnieje), potem usuń src.
-    """
     try:
         if not src.exists():
             return False, "source disappeared before rename"
         if dst.exists():
             return False, "target already exists"
 
-        os.link(src, dst)  # atomowe "stwórz jeśli nie istnieje"
+        os.link(src, dst)
         try:
             os.unlink(src)
         except Exception as e_unlink:
@@ -193,56 +203,62 @@ def safe_rename_no_overwrite(src: Path, dst: Path) -> Tuple[bool, Optional[str]]
         return False, f"os error: {e.strerror or str(e)}"
 
 
-def build_epilog() -> str:
-    pos_keys = ", ".join(POSITIVE_KEYS_REQUIRED) if POSITIVE_KEYS_REQUIRED else "(brak)"
-    pos_vals = ", ".join([f"{k}~/{p}/i" for k, p in POSITIVE_VALUE_RULES]) if POSITIVE_VALUE_RULES else "(brak)"
-    neg_keys = ", ".join(NEGATIVE_KEYS_PRESENT) if NEGATIVE_KEYS_PRESENT else "(brak)"
-    neg_vals = ", ".join([f"{k}~/{p}/i" for k, p in NEGATIVE_VALUE_RULES]) if NEGATIVE_VALUE_RULES else "(brak)"
-
-    return f"""\
-Opis działania:
+def build_epilog(all_presets: Optional[Dict[str, Any]] = None) -> str:
+    preset_info = ""
+    if all_presets:
+        preset_info = "\nDostępne presety (YAML):\n"
+        for name, cfg in all_presets.items():
+            desc = cfg.get("description", "(brak opisu)")
+            suf = cfg.get("suffix", "??")
+            delim = cfg.get("delimiter", "_")
+            preset_info += f"  - {name}: {desc} (suffix: {delim}{suf})\n"
+    
+    return f"""\nOpis działania:
 - Skrypt skanuje rekursywnie katalog bieżący (.) i wszystkie podkatalogi w poszukiwaniu plików *.mp4 (case-insensitive).
-- Dla każdego pliku uruchamia: exiftool -json <plik> i podejmuje decyzję o zmianie nazwy na podstawie tagów.
+- Dla każdego pliku uruchamia: exiftool -json <plik> i dopasowuje pierwszy pasujący preset z YAML.
 
-Logika tagów:
-- Pozytywne warunki (AND): WSZYSTKIE muszą być spełnione, aby zmienić nazwę.
-  * Obecność kluczy (POSITIVE_KEYS_REQUIRED): {pos_keys}
-  * Dopasowanie wartości regex (POSITIVE_VALUE_RULES): {pos_vals}
-- Negatywne warunki (OR): jeśli JAKIKOLWIEK zadziała, zmiana nazwy jest zablokowana.
-  * Obecność kluczy (NEGATIVE_KEYS_PRESENT): {neg_keys}
-  * Dopasowanie wartości regex (NEGATIVE_VALUE_RULES): {neg_vals}
-
-Zmiana nazwy:
+Logika presetów (kaskada):
+- Skrypt sprawdza presety w kolejności ich wystąpienia w pliku YAML.
+- Zastosowany zostanie PIERWSZY preset, którego warunki 'require' są spełnione i 'exclude' nie są spełnione.
+{preset_info}Zmiana nazwy:
 - Dokleja <delim><suffix> tuż przed prawdziwym rozszerzeniem, zachowując oryginalny case rozszerzenia.
 - Nigdy nie nadpisuje istniejących plików: konflikt jest raportowany i plik jest pomijany.
 - --dry-run: nie wykonuje zmian, tylko wypisuje co BY zrobił.
-
-Konfiguracja tagów:
-- Edytuj listy POSITIVE_* i NEGATIVE_* na początku pliku (możesz komentować linie, aby wyłączyć warunki).
 """
 
 
+# =============================================================================
+# MAIN
+# =============================================================================
+
 def main(argv: List[str]) -> int:
+    # 1. Wstępne ładowanie konfiguracji dla pomocy --help
+    all_presets, config_err = load_all_presets()
+    
     parser = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
-        description="Bezpiecznie dopisuje suffix do nazw MP4 wykrytych jako nagrania z telefonu na podstawie metadanych exiftool.",
-        epilog=build_epilog(),
+        description="Bezpiecznie dopisuje suffix do nazw MP4 na podstawie metadanych exiftool i reguł z pliku YAML.",
+        epilog=build_epilog(all_presets),
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("--suffix", default=DEFAULT_SUFFIX, help=f"Suffix bez separatora (domyślnie: {DEFAULT_SUFFIX})")
-    parser.add_argument("--delim", default=DEFAULT_DELIM, help=f"Separator przed suffixem (domyślnie: {DEFAULT_DELIM!r})")
-    parser.add_argument("--debug", action="store_true", help="Wypisz tagi i powody, które wpłynęły na decyzję (dla każdego pliku)")
-    parser.add_argument("--timeout", type=int, default=30, help="Timeout dla exiftool per plik w sekundach (domyślnie: 30)")
-    parser.add_argument("--dry-run", action="store_true", help="Nie zmieniaj nazw plików; tylko pokaż planowane operacje")
-    parser.add_argument("--scan", action="store_true", help="Uruchom skanowanie bez pytania o potwierdzenie")
+    parser.add_argument("--debug", action="store_true", help="Wypisz szczegóły decyzji dla każdego pliku")
+    parser.add_argument("--timeout", type=int, default=30, help="Timeout dla exiftool (domyślnie: 30s)")
+    parser.add_argument("--dry-run", action="store_true", help="Tylko pokaż co zostanie zmienione")
+    parser.add_argument("--scan", action="store_true", help="Uruchom bez pytania o potwierdzenie")
 
     args = parser.parse_args(argv)
-
     console = Console()
 
-    if not argv and not args.scan:
-        if not Confirm.ask("Nie podano żadnych argumentów. Czy chcesz rozpocząć skanowanie katalogu bieżącego?", default=False):
-            console.print("[yellow]Anulowano przez użytkownika.[/yellow]")
+    if config_err:
+        console.print(f"[red]Błąd konfiguracji:[/red] {config_err}")
+        return 1
+    if not all_presets:
+        console.print(f"[red]Błąd: Nie znaleziono żadnych presetów w konfiguracji.[/red]")
+        return 1
+
+    if not args.scan and not argv:
+        if not Confirm.ask("Nie podano argumentów. Czy skanować bieżący katalog?", default=False):
+            console.print("[yellow]Anulowano.[/yellow]")
             return 0
 
     root = Path(".").resolve()
@@ -255,13 +271,12 @@ def main(argv: List[str]) -> int:
         "conflicts": 0,
         "skipped_already_suffixed": 0,
         "skipped_no_match": 0,
-        "skipped_negative_block": 0,
         "errors_exiftool": 0,
         "errors_rename": 0,
     }
 
     if not files:
-        console.print("[yellow]No .mp4 files found.[/yellow]")
+        console.print("[yellow]Nie znaleziono plików .mp4.[/yellow]")
         return 0
 
     progress = Progress(
@@ -274,86 +289,98 @@ def main(argv: List[str]) -> int:
     )
 
     with progress:
-        task = progress.add_task("Analyzing files", total=len(files))
+        task = progress.add_task("Analizowanie plików", total=len(files))
 
         for path in files:
             stats["scanned"] += 1
 
-            if already_suffixed(path, args.suffix, args.delim):
+            meta, exif_err = run_exiftool_json(path, timeout_s=args.timeout)
+            if exif_err is not None or meta is None:
+                stats["errors_exiftool"] += 1
+                if args.debug:
+                    console.print(f"\n[bold]{path}[/bold] [red]EXIFTOOL ERROR:[/red] {exif_err}")
+                progress.advance(task)
+                continue
+
+            matched_preset_name = None
+            final_decision = None
+            
+            # Kaskada presetów
+            for preset_name, preset_rules in all_presets.items():
+                decision = evaluate_tags_for_preset(meta, preset_name, preset_rules)
+
+                if args.debug:
+                    console.print(f"\n[bold]{path}[/bold] (Preset: [cyan]{preset_name}[/cyan])")
+                    for k, v in decision.debug_kv:
+                        console.print(f"    {k}: {v!r}")
+                    for r in decision.reasons:
+                        status_color = "green" if decision.should_rename else "yellow"
+                        console.print(f"    - [{status_color}]{r}[/{status_color}]")
+
+                if decision.should_rename:
+                    matched_preset_name = preset_name
+                    final_decision = decision
+                    break
+
+            if not final_decision or not final_decision.should_rename:
+                stats["skipped_no_match"] += 1
+                progress.advance(task)
+                continue
+
+            # Pobranie parametrów z pasującego presetu
+            preset_cfg = all_presets[matched_preset_name]
+            suffix = preset_cfg.get("suffix", "")
+            delimiter = preset_cfg.get("delimiter", "_")
+
+            if already_suffixed(path, suffix, delimiter):
                 stats["skipped_already_suffixed"] += 1
                 progress.advance(task)
                 continue
 
-            meta, err = run_exiftool_json(path, timeout_s=args.timeout)
-            if err is not None or meta is None:
-                stats["errors_exiftool"] += 1
-                if args.debug:
-                    console.print(f"[red]EXIFTOOL ERROR[/red] {path}: {err}")
-                progress.advance(task)
-                continue
-
-            decision = evaluate_tags(meta)
-
-            if args.debug:
-                console.print(f"\n[bold]{path}[/bold]")
-                for k, v in decision.debug_kv:
-                    console.print(f"  {k}: {v!r}")
-                for r in decision.reasons:
-                    console.print(f"  - {r}")
-
-            if not decision.should_rename:
-                if any(r.startswith("NEGATIVE") for r in decision.reasons):
-                    stats["skipped_negative_block"] += 1
-                else:
-                    stats["skipped_no_match"] += 1
-                progress.advance(task)
-                continue
-
-            target = build_target_name(path, args.suffix, args.delim)
+            target = build_target_name(path, suffix, delimiter)
 
             if target.exists():
                 stats["conflicts"] += 1
-                console.print(f"[yellow]NAME CONFLICT[/yellow] {path} -> {target} (target exists; skipping)")
+                console.print(f"[yellow]KONFLIKT NAZWY[/yellow] {path.name} -> {target.name} (cel istnieje)")
                 progress.advance(task)
                 continue
 
             if args.dry_run:
                 stats["would_rename"] += 1
-                console.print(f"[cyan]DRY-RUN[/cyan] would rename: {path} -> {target}")
-                progress.advance(task)
-                continue
-
-            ok, ren_err = safe_rename_no_overwrite(path, target)
-            if ok:
-                stats["renamed"] += 1
-                if args.debug:
-                    console.print(f"[green]RENAMED[/green] {path.name} -> {target.name}")
+                console.print(f"[cyan]DRY-RUN[/cyan] rename: {path.name} -> {target.name} (preset: {matched_preset_name})")
             else:
-                if ren_err and "target already exists" in ren_err:
-                    stats["conflicts"] += 1
-                    console.print(f"[yellow]NAME CONFLICT[/yellow] {path} -> {target} ({ren_err})")
+                ok, ren_err = safe_rename_no_overwrite(path, target)
+                if ok:
+                    stats["renamed"] += 1
                 else:
                     stats["errors_rename"] += 1
-                    console.print(f"[red]RENAME FAILED[/red] {path} -> {target} ({ren_err})")
+                    console.print(f"[red]BŁĄD ZMIANY NAZWY[/red] {path.name} -> {target.name}: {ren_err}")
 
             progress.advance(task)
 
-    console.print("\n[bold]Summary[/bold]")
-    console.print(f"  Root: {root}")
-    console.print(f"  Scanned: {stats['scanned']}")
-    console.print(f"  Renamed: {stats['renamed']}")
+    console.print("\n[bold]Podsumowanie[/bold]")
+    console.print(f"  Przeskanowano: {stats['scanned']}")
+    console.print(f"  Zmieniono nazwy: {stats['renamed']}")
     if args.dry_run:
-        console.print(f"  Would rename: {stats['would_rename']}")
-    console.print(f"  Conflicts: {stats['conflicts']}")
-    console.print(f"  Skipped (already suffixed): {stats['skipped_already_suffixed']}")
-    console.print(f"  Skipped (no match): {stats['skipped_no_match']}")
-    console.print(f"  Skipped (negative block): {stats['skipped_negative_block']}")
-    console.print(f"  Errors (exiftool): {stats['errors_exiftool']}")
-    console.print(f"  Errors (rename): {stats['errors_rename']}")
+        console.print(f"  Do zmiany (dry-run): {stats['would_rename']}")
+    console.print(f"  Konflikty: {stats['conflicts']}")
+    console.print(f"  Pominięto (już z suffixem): {stats['skipped_already_suffixed']}")
+    console.print(f"  Pominięto (brak dopasowania): {stats['skipped_no_match']}")
+    console.print(f"  Błędy exiftool: {stats['errors_exiftool']}")
+    console.print(f"  Błędy rename: {stats['errors_rename']}")
 
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
-
+    console = Console()
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Przerwano przez użytkownika.[/yellow]")
+        sys.exit(130)
+    except Exception as e:
+        console.print(f"\n[bold red]Nieoczekiwany błąd:[/bold red] {e!r}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
