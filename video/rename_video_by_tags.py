@@ -418,14 +418,14 @@ def main(argv: List[str]) -> int:
             
             if old_suffix_info:
                 old_delim, old_suf = old_suffix_info
-                # Jeśli ma już ten sam suffix - zawsze pomijamy
-                if old_suf.lower() == suffix.lower() and old_delim == delimiter:
+                # Jeśli ma już ten sam suffix i NIE normalizujemy - pomijamy
+                if not args.normalize and old_suf.lower() == suffix.lower() and old_delim == delimiter:
                     stats["skipped_already_suffixed"] += 1
                     progress.advance(task)
                     continue
                 
-                # Jeśli ma INNY znany suffix i NIE ma --force - pomijamy (nowe domyślne zachowanie)
-                if not args.force:
+                # Jeśli ma INNY znany suffix i NIE ma --force i NIE normalizujemy - pomijamy
+                if not args.force and not args.normalize and (old_suf.lower() != suffix.lower() or old_delim != delimiter):
                     stats["skipped_already_suffixed"] += 1
                     if args.debug:
                         console.print(f"  [yellow]SKIP[/yellow] plik ma już suffix {old_delim}{old_suf} (użyj --force aby zmienić)")
