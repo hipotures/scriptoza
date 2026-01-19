@@ -192,6 +192,9 @@ def get_exif_tag(data: Dict[str, Any], keys: List[str]) -> Any:
 
 def get_normalized_stem(meta: Dict[str, Any], original_stem: str) -> str:
     """Tworzy bazową nazwę na podstawie metadanych: data_WxH_fps_rozmiar."""
+    def sanitize(v: Any) -> str:
+        return str(v).replace("/", "-").replace("\\", "-").replace(":", "-")
+
     # 1. Data (CreateDate lub fallback na oryginał)
     raw_date = get_exif_tag(meta, ['CreateDate', 'MediaCreateDate', 'DateTimeOriginal'])
     if not raw_date or str(raw_date).startswith('0000'):
@@ -203,7 +206,7 @@ def get_normalized_stem(meta: Dict[str, Any], original_stem: str) -> str:
     # 2. Rozdzielczość
     w = get_exif_tag(meta, ['SourceImageWidth', 'ImageWidth', 'VideoWidth']) or '???'
     h = get_exif_tag(meta, ['SourceImageHeight', 'ImageHeight', 'VideoHeight']) or '???'
-    wh = f"{w}x{h}"
+    wh = f"{sanitize(w)}x{sanitize(h)}"
 
     # 3. FPS
     raw_fps = get_exif_tag(meta, ['VideoFrameRate', 'VideoAvgFrameRate', 'FrameRate'])
@@ -211,13 +214,13 @@ def get_normalized_stem(meta: Dict[str, Any], original_stem: str) -> str:
         try:
             fps_val = str(int(round(float(raw_fps)))) + 'fps'
         except (ValueError, TypeError):
-            fps_val = f"{raw_fps}fps"
+            fps_val = f"{sanitize(raw_fps)}fps"
     else:
         fps_val = 'unknownfps'
 
     # 4. Rozmiar (MediaDataSize - w bajtach)
     raw_size = get_exif_tag(meta, ['MediaDataSize', 'FileSize'])
-    size_str = str(raw_size) if raw_size is not None else 'unknown'
+    size_str = sanitize(raw_size) if raw_size is not None else 'unknown'
 
     return f"{date_part}_{wh}_{fps_val}_{size_str}"
 
