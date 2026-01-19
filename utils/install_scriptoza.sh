@@ -1,37 +1,39 @@
 #!/bin/bash
 
-# Scriptoza Installer - Wersja KOPIUJĄCA
-# Kopiuje skrypty i konfigurację do katalogów użytkownika.
-
+# Scriptoza Installer - Wersja Precyzyjna
 set -e
 
 BIN_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/scriptoza"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "🚀 Kopiowanie Scriptoza do systemu..."
+echo "🚀 Instalacja wybranych skryptów..."
 
-# 1. Przygotowanie katalogów
 mkdir -p "$BIN_DIR"
 mkdir -p "$CONFIG_DIR"
 
-# 2. Kopiowanie konfiguracji (.yaml)
-echo "📂 Kopiowanie konfiguracji do $CONFIG_DIR..."
-find "$REPO_DIR" -name "*.yaml" -not -path "*/.*" | while read -r config_file; do
-    cp -v "$config_file" "$CONFIG_DIR/"
-done
+# Funkcja pomocnicza do bezpiecznego kopiowania
+install_script() {
+    local src="$1"
+    local dest_name="$2"
+    if [ -f "$src" ]; then
+        cp -v "$src" "$BIN_DIR/$dest_name"
+        chmod 755 "$BIN_DIR/$dest_name"
+    else
+        echo "⚠️ Nie znaleziono: $src"
+    fi
+}
 
-# 3. Kopiowanie skryptów (.py, .sh)
-echo "📜 Kopiowanie skryptów do $BIN_DIR..."
-find "$REPO_DIR/video" "$REPO_DIR/photo" "$REPO_DIR/utils" -maxdepth 1 \( -name "*.py" -o -name "*.sh" \) | while read -r script_file; do
-    filename=$(basename "$script_file")
-    
-    # Kopiujemy plik i nadajemy uprawnienia wykonywania
-    cp -v "$script_file" "$BIN_DIR/"
-    chmod +x "$BIN_DIR/$filename"
-done
+# 1. Kopiowanie skryptów z nazwami o które prosiłeś
+# Dodaję rename-video-by-tags i zostawiam rename-video jako skrót
+install_script "$REPO_DIR/video/rename_video_by_tags.py" "rename-video-by-tags"
+install_script "$REPO_DIR/video/rename_video_by_tags.py" "rename-video"
+install_script "$REPO_DIR/video/check_4k.py"            "check-4k"
+install_script "$REPO_DIR/video/sort_dji.py"            "sort-dji"
+install_script "$REPO_DIR/photo/rename_photo.py"        "rename-photo"
 
-echo ""
-echo "✅ Gotowe! Skrypty zostały skopiowane do $BIN_DIR"
-echo "Możesz je teraz wywoływać z dowolnego miejsca, np. wpisując: rename_video_by_tags.py"
-echo "Upewnij się, że $BIN_DIR jest w Twoim PATH."
+# 2. Kopiowanie konfiguracji
+cp -v "$REPO_DIR/video/rename_video.yaml" "$CONFIG_DIR/"
+
+echo "✅ Instalacja zakończona."
+echo "Skrypt 'by tags' jest dostępny jako: rename-video-by-tags"

@@ -295,6 +295,7 @@ def main(argv: List[str]) -> int:
         "skipped_no_match": 0,
         "errors_exiftool": 0,
         "errors_rename": 0,
+        "presets_matched": {},  # Nowy licznik: {preset_name: count}
     }
 
     if not files:
@@ -342,6 +343,8 @@ def main(argv: List[str]) -> int:
                 if decision.should_rename:
                     matched_preset_name = preset_name
                     final_decision = decision
+                    # Zliczanie dopasowania
+                    stats["presets_matched"][preset_name] = stats["presets_matched"].get(preset_name, 0) + 1
                     break
 
             if not final_decision or not final_decision.should_rename:
@@ -390,6 +393,11 @@ def main(argv: List[str]) -> int:
     console.print("\n[bold]Podsumowanie[/bold]")
     console.print(f"  Przeskanowano: {stats['scanned']}")
     console.print(f"  Zmieniono nazwy: {stats['renamed']}")
+    
+    if stats["presets_matched"]:
+        preset_lines = [f"    - {name}: {count}" for name, count in stats["presets_matched"].items()]
+        console.print("  Dopasowane presety:\n" + "\n".join(preset_lines))
+
     if args.dry_run:
         console.print(f"  Do zmiany (dry-run): {stats['would_rename']}")
     console.print(f"  Konflikty: {stats['conflicts']}")
