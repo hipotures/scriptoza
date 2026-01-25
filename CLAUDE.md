@@ -31,6 +31,19 @@ python3 utils/safe_rename_tt.py /path/to/tiktok/downloads/
 ./utils/session_stats.sh
 ```
 
+## UI/UX & Progress Bars
+
+- **Use `rich.progress`** for any script processing more than one file.
+- **Layout:** Use a left-justified, non-expanding layout (`expand=False`).
+- **Standard Columns:** 
+    - `SpinnerColumn()`
+    - `TextColumn("[progress.description]{task.description}")`
+    - `BarColumn(bar_width=40)`
+    - `MofNCompleteColumn()`
+    - `TaskProgressColumn()`
+    - `TimeElapsedColumn()`
+- **Alignment:** Ensure task descriptions have a consistent width (e.g., using `.ljust(25)`) to prevent the progress bar from shifting horizontally.
+
 ## Testing
 
 Manual testing only. Run scripts with sample inputs and verify outputs. If you add automated tests later, document how to run them.

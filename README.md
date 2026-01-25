@@ -6,6 +6,7 @@ Collection of small utility scripts organized by category. Each category has its
 
 ### Video (video/)
 
+- `rename_video_univ.py` - Universal video renaming using robust EXIF tag fallback
 - `rename_video.py` - Universal video renaming (DJI, Panasonic, Sony)
 - `check_4k.py` - Scans MP4 tree for 4K/non-4K classification
 - `check_collisions.py` - Detects basename collisions

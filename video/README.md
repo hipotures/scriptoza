@@ -1,5 +1,35 @@
 # Video Tools
 
+## rename_video_univ.py
+
+Universal and robust video file renaming tool with deep EXIF tag fallback. Designed to handle various camera models and edge cases (like missing FPS or zeroed dates).
+
+### Features
+
+- **Robust Fallback**: Uses a wide range of EXIF tags for date, resolution, and FPS detection.
+- **Handles "n/a"**: Specifically designed to handle cases where `VideoFrameRate` is reported as `n/a`.
+- **Universal Format Support**: Works with `.mp4`, `.mov`, `.avi`, `.mkv`, `.m4v`, `.3gp`, `.mts`.
+- **Multi-threaded**: Processes files in parallel for maximum speed.
+- **Naming Convention**: `YYYYMMDD_HHMMSS_WIDTHxHEIGHT_FPSfps_SIZE.ext`
+- **Collision Prevention**: Automatically adds numeric suffixes if a file with the target name already exists.
+
+### Requirements
+
+- Python 3.7+
+- `exiftool` installed in system `PATH`.
+
+### Usage
+
+```bash
+# Rename files in current directory
+rename-video-univ
+
+# Rename files in specific directory
+rename-video-univ /path/to/videos
+```
+
+---
+
 ## check_4k.py
 
 Classify MP4 files by resolution and write 4K/non-4K lists with bitrate and codec info.

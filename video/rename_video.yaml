@@ -49,6 +49,21 @@ presets:
           "Make": "panasonic"
           "CameraModelName": "DMC-FZ1000"
 
+  qvr2:
+    description: "Nagrania z kamery telefonu (wymaga Android i GPS) w trybiw qvr"
+    suffix: "qvr"
+    delimiter: "_"
+    rules:
+      require:
+        keys:
+          - "AndroidVersion"
+        matches:
+          "Rotation": "90"
+      exclude:
+        matches:
+          "Make": "panasonic"
+          "CameraModelName": "DMC-FZ1000"
+
   scr:
     description: "Nagrania ekranu telefonu (brak GPS, rozdzielczość pionowa 2220, VideoHandle)"
     suffix: "scr"

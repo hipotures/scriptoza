@@ -26,6 +26,7 @@ install_script() {
 
 # 1. Kopiowanie skryptów z nazwami o które prosiłeś
 # Dodaję rename-video-by-tags i zostawiam rename-video jako skrót
+install_script "$REPO_DIR/video/rename_video_univ.py"    "rename-video-univ"
 install_script "$REPO_DIR/video/rename_video_by_tags.py" "rename-video-by-tags"
 install_script "$REPO_DIR/video/rename_video_by_tags.py" "rename-video"
 install_script "$REPO_DIR/video/check_4k.py"            "check-4k"
