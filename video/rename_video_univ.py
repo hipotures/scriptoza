@@ -7,11 +7,11 @@ import sys
 import argparse
 from pathlib import Path
 from rich.progress import (
-    Progress, 
-    SpinnerColumn, 
-    TextColumn, 
-    BarColumn, 
-    TaskProgressColumn, 
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
     MofNCompleteColumn,
     TimeElapsedColumn
 )
@@ -20,7 +20,7 @@ from rich.live import Live
 from rich.text import Text
 from rich.prompt import Confirm
 
-# Konfiguracja
+# Configuration
 MAX_THREADS = 8
 EXTENSIONS = ('.mp4', '.mov', '.avi', '.mkv', '.m4v', '.3gp', '.mts')
 
@@ -45,11 +45,11 @@ def format_fps(raw_fps):
     try: return f"{int(round(float(raw_fps)))}fps"
     except (ValueError, TypeError): return "0fps"
 
-def get_metadata_mediainfo(nazwa_pliku):
+def get_metadata_mediainfo(filename):
     try:
-        wynik = subprocess.run(['mediainfo', '--Output=JSON', nazwa_pliku], capture_output=True, text=True, check=True)
-        dane = json.loads(wynik.stdout)
-        tracks = dane.get('media', {}).get('track', [])
+        result = subprocess.run(['mediainfo', '--Output=JSON', filename], capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        tracks = data.get('media', {}).get('track', [])
         general = next((t for t in tracks if t.get('@type') == 'General'), {})
         video = next((t for t in tracks if t.get('@type') == 'Video'), {})
         raw_date = general.get('File_Modified_Date_Local') or general.get('Encoded_Date')
@@ -58,17 +58,17 @@ def get_metadata_mediainfo(nazwa_pliku):
             'width': video.get('Width', '0'),
             'height': video.get('Height', '0'),
             'fps': format_fps(video.get('FrameRate')),
-            'size': general.get('FileSize') or str(os.path.getsize(nazwa_pliku))
+            'size': general.get('FileSize') or str(os.path.getsize(filename))
         }
     except: return None
 
-def get_metadata_exif(nazwa_pliku):
+def get_metadata_exif(filename):
     try:
-        wynik = subprocess.run(['exiftool', '-json', nazwa_pliku], capture_output=True, text=True, check=True)
-        dane_exif = json.loads(wynik.stdout)[0]
+        result = subprocess.run(['exiftool', '-json', filename], capture_output=True, text=True, check=True)
+        exif_data = json.loads(result.stdout)[0]
         def get_tag(keys):
             for k in keys:
-                val = dane_exif.get(k)
+                val = exif_data.get(k)
                 if val is not None and str(val).lower() not in ('n/a', '', 'none', '0000:00:00 00:00:00'): return val
             return None
         return {
@@ -76,13 +76,13 @@ def get_metadata_exif(nazwa_pliku):
             'width': get_tag(TAG_ALIASES_EXIF['width']) or '0',
             'height': get_tag(TAG_ALIASES_EXIF['height']) or '0',
             'fps': format_fps(get_tag(TAG_ALIASES_EXIF['fps'])),
-            'size': str(get_tag(['MediaDataSize'])) or str(os.path.getsize(nazwa_pliku))
+            'size': str(get_tag(['MediaDataSize'])) or str(os.path.getsize(filename))
         }
     except: return None
 
-def bezpieczna_zmiana_nazwy(src, dst):
+def safe_rename(src, dst):
     if os.path.exists(dst):
-        return False, "Cel już istnieje"
+        return False, "Destination already exists"
     try:
         os.link(src, dst)
         os.unlink(src)
@@ -94,51 +94,53 @@ def bezpieczna_zmiana_nazwy(src, dst):
         except Exception as e_inner:
             return False, str(e_inner)
 
-def zmien_nazwe_pliku(nazwa_pliku, mode, debug, progress, task_id, root_path):
-    stara_nazwa_base = os.path.basename(nazwa_pliku)
+def rename_file(filename, mode, debug, progress, task_id, root_path):
+    old_name_base = os.path.basename(filename)
     if debug:
-        rel_path = os.path.relpath(nazwa_pliku, root_path)
+        rel_path = os.path.relpath(filename, root_path)
         status_line.plain = f" → {rel_path}"
 
-    meta = get_metadata_mediainfo(nazwa_pliku) if mode == 'mediainfo' else get_metadata_exif(nazwa_pliku)
+    meta = get_metadata_mediainfo(filename) if mode == 'mediainfo' else get_metadata_exif(filename)
     
     if meta:
-        date_part = meta['date'] or os.path.splitext(stara_nazwa_base)[0]
+        date_part = meta['date'] or os.path.splitext(old_name_base)[0]
         res = f"{meta['width']}x{meta['height']}"
-        ext = os.path.splitext(nazwa_pliku)[1].lower()
+        ext = os.path.splitext(filename)[1].lower()
         base_new_name = f"{date_part}_{res}_{meta['fps']}_{meta['size']}"
-        nowa_nazwa = f"{base_new_name}{ext}"
+        new_name = f"{base_new_name}{ext}"
 
-        if nowa_nazwa != stara_nazwa_base:
-            folder = os.path.dirname(nazwa_pliku) or '.'
-            pelna_nowa_sciezka = os.path.join(folder, nowa_nazwa)
-            licznik = 1
-            while os.path.exists(pelna_nowa_sciezka):
-                nowa_nazwa = f"{base_new_name}_{licznik}{ext}"
-                pelna_nowa_sciezka = os.path.join(folder, nowa_nazwa)
-                licznik += 1
-            ok, err = bezpieczna_zmiana_nazwy(nazwa_pliku, pelna_nowa_sciezka)
+        if new_name != old_name_base:
+            folder = os.path.dirname(filename) or '.'
+            full_new_path = os.path.join(folder, new_name)
+            
+            counter = 1
+            while os.path.exists(full_new_path):
+                new_name = f"{base_new_name}_{counter}{ext}"
+                full_new_path = os.path.join(folder, new_name)
+                counter += 1
+            
+            ok, err = safe_rename(filename, full_new_path)
             if not ok and debug:
-                status_line.plain = f" [red]BŁĄD:[/red] {stara_nazwa_base} -> {err}"
+                status_line.plain = f" [red]ERROR:[/red] {old_name_base} -> {err}"
     
     progress.advance(task_id)
 
 def main():
     try:
-        parser = argparse.ArgumentParser(description="Uniwersalny skrypt do zmiany nazw wideo.")
-        parser.add_argument("path", nargs="?", default=".", help="Ścieżka do folderu lub pliku")
-        parser.add_argument("--debug", action="store_true", help="Pokaż aktualnie przetwarzany plik pod paskiem")
+        parser = argparse.ArgumentParser(description="Universal video renaming script.")
+        parser.add_argument("path", nargs="?", default=".", help="Path to folder or file")
+        parser.add_argument("--debug", action="store_true", help="Show currently processed file under the progress bar")
         group = parser.add_mutually_exclusive_group()
-        group.add_argument("--exif", action="store_const", dest="mode", const="exif", help="Użyj ExifTool")
-        group.add_argument("--mediainfo", action="store_const", dest="mode", const="mediainfo", help="Użyj MediaInfo (domyślne)")
+        group.add_argument("--exif", action="store_const", dest="mode", const="exif", help="Use ExifTool")
+        group.add_argument("--mediainfo", action="store_const", dest="mode", const="mediainfo", help="Use MediaInfo (default)")
         parser.set_defaults(mode="mediainfo")
         
         args = parser.parse_args()
         target = Path(args.path).resolve()
 
         if target.is_file():
-            zmien_nazwe_pliku(str(target), args.mode, False, type('Mock', (object,), {'update': lambda *a, **k: None, 'advance': lambda *a, **k: None})(), None, target.parent)
-            console.print(f"[green]Przetworzono:[/green] {target}")
+            rename_file(str(target), args.mode, False, type('Mock', (object,), {'update': lambda *a, **k: None, 'advance': lambda *a, **k: None})(), None, target.parent)
+            console.print(f"[green]Processed:[/green] {target}")
             return
 
         positional_args = [a for a in sys.argv[1:] if not a.startswith('-')]
@@ -146,22 +148,22 @@ def main():
         recursive = False
         
         if subdirs and not positional_args:
-            if Confirm.ask("Nie podano argumentów. Czy skanować bieżący katalog i podkatalogi?", default=False):
+            if Confirm.ask("No arguments provided. Scan current directory and subdirectories?", default=False):
                 recursive = True
             else:
-                console.print("[yellow]Anulowano.[/yellow]")
+                console.print("[yellow]Cancelled.[/yellow]")
                 return
 
         if recursive:
-            pliki = [str(p) for p in target.rglob("*") if p.is_file() and p.suffix.lower() in EXTENSIONS]
+            files = [str(p) for p in target.rglob("*") if p.is_file() and p.suffix.lower() in EXTENSIONS]
         else:
-            pliki = [str(p) for p in target.iterdir() if p.is_file() and p.suffix.lower() in EXTENSIONS]
+            files = [str(p) for p in target.iterdir() if p.is_file() and p.suffix.lower() in EXTENSIONS]
 
-        if not pliki:
-            console.print("[yellow]Brak plików wideo w wybranym trybie.[/yellow]")
+        if not files:
+            console.print("[yellow]No video files found in selected mode.[/yellow]")
             return
         
-        pliki.sort()
+        files.sort()
 
         progress = Progress(
             SpinnerColumn(),
@@ -175,8 +177,8 @@ def main():
             auto_refresh=False
         )
 
-        desc = f"Zmiana nazw ({args.mode})".ljust(25)
-        task_id = progress.add_task(desc, total=len(pliki))
+        desc = f"Renaming ({args.mode})".ljust(25)
+        task_id = progress.add_task(desc, total=len(files))
         
         ui_elements = [progress]
         if args.debug: ui_elements.append(status_line)
@@ -184,15 +186,15 @@ def main():
 
         with Live(ui_group, console=console, refresh_per_second=10):
             with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-                futures = [executor.submit(zmien_nazwe_pliku, p, args.mode, args.debug, progress, task_id, target) for p in pliki]
+                futures = [executor.submit(rename_file, p, args.mode, args.debug, progress, task_id, target) for p in files]
                 concurrent.futures.wait(futures)
             
             if args.debug: status_line.plain = ""
-            progress.update(task_id, description="[bold green]Zakończono![/bold green]".ljust(25))
+            progress.update(task_id, description="[bold green]Finished![/bold green]".ljust(25))
             progress.refresh()
 
     except KeyboardInterrupt:
-        console.print("\n[yellow]Przerwano przez użytkownika (Ctrl-C).[/yellow]")
+        console.print("\n[yellow]Interrupted by user (Ctrl-C).[/yellow]")
         sys.exit(130)
 
 if __name__ == "__main__":
