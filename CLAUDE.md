@@ -15,6 +15,7 @@ Each category has its own `README.md` with requirements and usage. VBC is mainta
 ## Conventions
 
 - Keep scripts self-contained and easy to run.
+- **DO NOT add comments** to the code unless explicitly requested by the user.
 - Avoid cross-category dependencies unless there is a clear shared need.
 - Update the category `README.md` when you add or change scripts.
 - Update the root `README.md` with a one-line description of new scripts.

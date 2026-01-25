@@ -5,6 +5,7 @@ import os
 import concurrent.futures
 import sys
 import argparse
+from pathlib import Path
 from rich.progress import (
     Progress, 
     SpinnerColumn, 
@@ -17,6 +18,7 @@ from rich.progress import (
 from rich.console import Console, Group
 from rich.live import Live
 from rich.text import Text
+from rich.prompt import Confirm
 
 # Konfiguracja
 MAX_THREADS = 8
@@ -31,7 +33,6 @@ TAG_ALIASES_EXIF = {
 }
 
 console = Console()
-# Obiekt tekstowy do wyświetlania aktualnego pliku pod paskiem
 status_line = Text("", style="dim blue")
 
 def clean_date(raw_date):
@@ -79,11 +80,25 @@ def get_metadata_exif(nazwa_pliku):
         }
     except: return None
 
-def zmien_nazwe_pliku(nazwa_pliku, mode, debug, progress, task_id):
+def bezpieczna_zmiana_nazwy(src, dst):
+    if os.path.exists(dst):
+        return False, "Cel już istnieje"
+    try:
+        os.link(src, dst)
+        os.unlink(src)
+        return True, None
+    except OSError:
+        try:
+            os.rename(src, dst)
+            return True, None
+        except Exception as e_inner:
+            return False, str(e_inner)
+
+def zmien_nazwe_pliku(nazwa_pliku, mode, debug, progress, task_id, root_path):
     stara_nazwa_base = os.path.basename(nazwa_pliku)
-    
     if debug:
-        status_line.plain = f" → {stara_nazwa_base}"
+        rel_path = os.path.relpath(nazwa_pliku, root_path)
+        status_line.plain = f" → {rel_path}"
 
     meta = get_metadata_mediainfo(nazwa_pliku) if mode == 'mediainfo' else get_metadata_exif(nazwa_pliku)
     
@@ -102,65 +117,83 @@ def zmien_nazwe_pliku(nazwa_pliku, mode, debug, progress, task_id):
                 nowa_nazwa = f"{base_new_name}_{licznik}{ext}"
                 pelna_nowa_sciezka = os.path.join(folder, nowa_nazwa)
                 licznik += 1
-            os.rename(nazwa_pliku, pelna_nowa_sciezka)
+            ok, err = bezpieczna_zmiana_nazwy(nazwa_pliku, pelna_nowa_sciezka)
+            if not ok and debug:
+                status_line.plain = f" [red]BŁĄD:[/red] {stara_nazwa_base} -> {err}"
     
     progress.advance(task_id)
 
 def main():
-    parser = argparse.ArgumentParser(description="Uniwersalny skrypt do zmiany nazw wideo.")
-    parser.add_argument("path", nargs="?", default=".", help="Ścieżka do folderu lub pliku")
-    parser.add_argument("--debug", action="store_true", help="Pokaż aktualnie przetwarzany plik pod paskiem")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--exif", action="store_const", dest="mode", const="exif", help="Użyj ExifTool")
-    group.add_argument("--mediainfo", action="store_const", dest="mode", const="mediainfo", help="Użyj MediaInfo (domyślne)")
-    parser.set_defaults(mode="mediainfo")
-    
-    args = parser.parse_args()
-    target = args.path
-
-    if os.path.isfile(target):
-        zmien_nazwe_pliku(target, args.mode, False, type('Mock', (object,), {'update': lambda *a, **k: None, 'advance': lambda *a, **k: None})(), None)
-        console.print(f"[green]Przetworzono:[/green] {target}")
-        return
-
-    pliki = sorted([os.path.join(target, f) for f in os.listdir(target) if f.lower().endswith(EXTENSIONS)])
-    if not pliki:
-        console.print("[yellow]Brak plików wideo w folderze.[/yellow]")
-        return
-
-    # Pasek postępu (auto_refresh=False bo używamy Live)
-    progress = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(bar_width=40),
-        MofNCompleteColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        console=console,
-        expand=False,
-        auto_refresh=False
-    )
-
-    desc = f"Zmiana nazw ({args.mode})".ljust(25)
-    task_id = progress.add_task(desc, total=len(pliki))
-    
-    # Składamy UI: progress bar + opcjonalna linia statusu pod spodem
-    ui_elements = [progress]
-    if args.debug:
-        ui_elements.append(status_line)
-    
-    ui_group = Group(*ui_elements)
-
-    with Live(ui_group, console=console, refresh_per_second=10):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-            futures = [executor.submit(zmien_nazwe_pliku, p, args.mode, args.debug, progress, task_id) for p in pliki]
-            concurrent.futures.wait(futures)
+    try:
+        parser = argparse.ArgumentParser(description="Uniwersalny skrypt do zmiany nazw wideo.")
+        parser.add_argument("path", nargs="?", default=".", help="Ścieżka do folderu lub pliku")
+        parser.add_argument("--debug", action="store_true", help="Pokaż aktualnie przetwarzany plik pod paskiem")
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument("--exif", action="store_const", dest="mode", const="exif", help="Użyj ExifTool")
+        group.add_argument("--mediainfo", action="store_const", dest="mode", const="mediainfo", help="Użyj MediaInfo (domyślne)")
+        parser.set_defaults(mode="mediainfo")
         
-        # Finalny status
-        if args.debug:
-            status_line.plain = ""
-        progress.update(task_id, description="[bold green]Zakończono![/bold green]".ljust(25))
-        progress.refresh()
+        args = parser.parse_args()
+        target = Path(args.path).resolve()
+
+        if target.is_file():
+            zmien_nazwe_pliku(str(target), args.mode, False, type('Mock', (object,), {'update': lambda *a, **k: None, 'advance': lambda *a, **k: None})(), None, target.parent)
+            console.print(f"[green]Przetworzono:[/green] {target}")
+            return
+
+        positional_args = [a for a in sys.argv[1:] if not a.startswith('-')]
+        subdirs = [d for d in target.iterdir() if d.is_dir()]
+        recursive = False
+        
+        if subdirs and not positional_args:
+            if Confirm.ask("Nie podano argumentów. Czy skanować bieżący katalog i podkatalogi?", default=False):
+                recursive = True
+            else:
+                console.print("[yellow]Anulowano.[/yellow]")
+                return
+
+        if recursive:
+            pliki = [str(p) for p in target.rglob("*") if p.is_file() and p.suffix.lower() in EXTENSIONS]
+        else:
+            pliki = [str(p) for p in target.iterdir() if p.is_file() and p.suffix.lower() in EXTENSIONS]
+
+        if not pliki:
+            console.print("[yellow]Brak plików wideo w wybranym trybie.[/yellow]")
+            return
+        
+        pliki.sort()
+
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=40),
+            MofNCompleteColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            console=console,
+            expand=False,
+            auto_refresh=False
+        )
+
+        desc = f"Zmiana nazw ({args.mode})".ljust(25)
+        task_id = progress.add_task(desc, total=len(pliki))
+        
+        ui_elements = [progress]
+        if args.debug: ui_elements.append(status_line)
+        ui_group = Group(*ui_elements)
+
+        with Live(ui_group, console=console, refresh_per_second=10):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+                futures = [executor.submit(zmien_nazwe_pliku, p, args.mode, args.debug, progress, task_id, target) for p in pliki]
+                concurrent.futures.wait(futures)
+            
+            if args.debug: status_line.plain = ""
+            progress.update(task_id, description="[bold green]Zakończono![/bold green]".ljust(25))
+            progress.refresh()
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Przerwano przez użytkownika (Ctrl-C).[/yellow]")
+        sys.exit(130)
 
 if __name__ == "__main__":
     main()
