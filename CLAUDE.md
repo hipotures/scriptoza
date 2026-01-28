@@ -1,7 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Repository Overview
 
 Scriptoza is a collection of standalone utility scripts organized by category:
@@ -15,6 +11,7 @@ Each category has its own `README.md` with requirements and usage. VBC is mainta
 ## Conventions
 
 - Keep scripts self-contained and easy to run.
+- **Language:** All code, comments, and user interface text (messages, help, logs) must be exclusively in English.
 - **DO NOT add comments** to the code unless explicitly requested by the user.
 - Avoid cross-category dependencies unless there is a clear shared need.
 - Update the category `README.md` when you add or change scripts.

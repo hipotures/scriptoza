@@ -51,6 +51,9 @@ tests/data/
 !tests/**/
 !tests/**/*.py
 
+# Ignore environment files
+.env
+
 # Ignore Python cache
 __pycache__/
 *.pyc
