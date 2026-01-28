@@ -23,6 +23,7 @@ from rich.progress import (
     SpinnerColumn,
     TextColumn,
     BarColumn,
+    TaskProgressColumn,
     MofNCompleteColumn,
     TimeElapsedColumn,
     FileSizeColumn,
@@ -157,7 +158,7 @@ def get_files_to_move(src_dir, age_seconds):
                     except OSError:
                         pass
     except OSError as e:
-        console.print(f"[red]Błąd odczytu katalogu {src_dir}: {e}[/red]")
+        console.print(f"[red]Error reading directory {src_dir}: {e}[/red]")
         
     return to_move
 
