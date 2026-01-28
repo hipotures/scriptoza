@@ -2,7 +2,7 @@
 """
 migrate.py
 
-Migrates files older than 24h from the largest subdirectories in the source to the archive.
+Migrates files older than a specified age (default 12h) from the largest subdirectories in the source to the archive.
 Features:
 - Configurable number of directories to process (top N by size).
 - Rich progress bars and detailed debug output.
@@ -39,8 +39,7 @@ load_dotenv()
 # Defaults
 DEFAULT_SOURCE = os.getenv("MIGRATE_SOURCE")
 DEFAULT_ARCHIVE = os.getenv("MIGRATE_ARCHIVE")
-AGE_LIMIT_HOURS = 24
-AGE_LIMIT_SECONDS = AGE_LIMIT_HOURS * 3600
+DEFAULT_AGE_HOURS = int(os.getenv("MIGRATE_AGE_HOURS", "12"))
 MIN_FREE_SPACE_BUFFER = 100 * 1024 * 1024  # 100 MB buffer
 
 console = Console()
@@ -65,8 +64,9 @@ def validate_args(args):
         console.print("Create a .env file in the root directory and add:")
         console.print("  MIGRATE_SOURCE=\"/path/to/source\"")
         console.print("  MIGRATE_ARCHIVE=\"/path/to/archive\"")
+        console.print("  MIGRATE_AGE_HOURS=\"12\"")
         console.print("\n[bold cyan]Option 2: Command line[/bold cyan]")
-        console.print("  ./utils/migrate.py -s /path/to/source -a /path/to/archive")
+        console.print("  ./utils/migrate.py -s /path/to/source -a /path/to/archive -t 12")
         sys.exit(1)
 
 def signal_handler(sig, frame):
@@ -199,15 +199,18 @@ def main():
     parser.add_argument("-c", "--count", type=int, default=1, help="Number of directories to migrate (default 1)")
     parser.add_argument("-s", "--source", default=DEFAULT_SOURCE, help="Source directory (defaults to .env MIGRATE_SOURCE)")
     parser.add_argument("-a", "--archive", default=DEFAULT_ARCHIVE, help="Archive directory (defaults to .env MIGRATE_ARCHIVE)")
+    parser.add_argument("-t", "--time", type=int, default=DEFAULT_AGE_HOURS, help=f"File age in hours (default {DEFAULT_AGE_HOURS})")
     parser.add_argument("--debug", action="store_true", help="Show details of processed files")
     
     args = parser.parse_args()
     validate_args(args)
+
+    age_seconds = args.time * 3600
     
     console.print(Panel(f"[bold blue]Migrating the {args.count} largest directories[/bold blue]\n" 
                         f"Source:  {args.source}\n" 
                         f"Archive: {args.archive}\n" 
-                        f"File age: > {AGE_LIMIT_HOURS}h", border_style="blue"))
+                        f"File age: > {args.time}h", border_style="blue"))
 
     if not os.path.exists(args.source):
         console.print(f"[red]Error: Source directory '{args.source}' does not exist.[/red]")
@@ -237,10 +240,10 @@ def main():
         console.print(f"\n[bold cyan]#{idx}/{total_targets} Directory: {dir_name}[/bold cyan] (Total size: {format_bytes(dir_size)})\n[dim]({dir_path})[/dim]")
         
         # Prepare Scan
-        files_to_move = get_files_to_move(dir_path, AGE_LIMIT_SECONDS)
+        files_to_move = get_files_to_move(dir_path, age_seconds)
         
         if not files_to_move:
-            console.print("  [dim]No files older than 24h found.[/dim]")
+            console.print(f"  [dim]No files older than {args.time}h found.[/dim]")
             stats['dirs_processed'] += 1
             continue
             
