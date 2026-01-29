@@ -5,6 +5,7 @@ import os
 import concurrent.futures
 import sys
 import argparse
+import re
 from pathlib import Path
 from rich.progress import (
     Progress,
@@ -60,7 +61,14 @@ def get_metadata_mediainfo(filename, use_vbc_size=False):
         tracks = data.get('media', {}).get('track', [])
         general = next((t for t in tracks if t.get('@type') == 'General'), {})
         video = next((t for t in tracks if t.get('@type') == 'Video'), {})
-        raw_date = general.get('Encoded_Date') or general.get('Tagged_Date')
+        
+        # Prioritize internal creation dates over file system modification dates
+        raw_date = (
+            general.get('Encoded_Date') or 
+            general.get('Tagged_Date') or 
+            general.get('Recorded_Date') or
+            general.get('DateTimeOriginal')
+        )
         
         file_size = general.get('FileSize') or str(os.path.getsize(filename))
         if use_vbc_size:
