@@ -12,6 +12,7 @@ Collection of small utility scripts organized by category. Each category has its
 - `check_collisions.py` - Detects basename collisions
 - `sort_video_qvr.sh` - Organizes QVR files by date
 - `sort_video_sr.sh` - Organizes Screen Recordings by date
+- `sort_video_dated.py` - Organizes files starting with YYYYMMDD into date folders
 - `sort_dji.py` - Sorts DJI Pocket files into a separate folder
 - `find_vbc.py` - Lists videos with or without VBC metadata tags
 

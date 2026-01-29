@@ -31,6 +31,7 @@ install_script "$REPO_DIR/video/rename_video_by_tags.py" "rename-video-by-tags"
 install_script "$REPO_DIR/video/rename_video_by_tags.py" "rename-video"
 install_script "$REPO_DIR/video/check_4k.py"            "check-4k"
 install_script "$REPO_DIR/video/sort_dji.py"            "sort-dji"
+install_script "$REPO_DIR/video/sort_video_dated.py"    "sort-video-dated"
 install_script "$REPO_DIR/photo/rename_photo.py"        "rename-photo"
 
 # 2. Kopiowanie konfiguracji

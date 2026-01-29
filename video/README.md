@@ -140,6 +140,29 @@ Example:
 
 ---
 
+## sort_video_dated.py
+
+Organizes files starting with `YYYYMMDD_HHMMSS` into subdirectories named `YYYYMMDD`.
+
+### Features
+
+- Automatically detects date prefix from filenames.
+- Creates `YYYYMMDD/` directory structure.
+- Safe: handles filename collisions and checks for file existence.
+- Rich progress bar for tracking operations.
+
+### Usage
+
+```bash
+# Sort files in current directory
+python video/sort_video_dated.py
+
+# Dry-run (show what would happen)
+python video/sort_video_dated.py --dry-run
+```
+
+---
+
 ## sort_video_qvr.sh
 
 Organizes QVR video files into date-based directory structure.
