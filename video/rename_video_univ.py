@@ -45,7 +45,15 @@ def format_fps(raw_fps):
     try: return f"{int(round(float(raw_fps)))}fps"
     except (ValueError, TypeError): return "0fps"
 
-def get_metadata_mediainfo(filename):
+def get_exif_value(filename, tag):
+    try:
+        result = subprocess.run(['exiftool', '-json', filename], capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)[0]
+        return data.get(tag)
+    except:
+        return None
+
+def get_metadata_mediainfo(filename, use_vbc_size=False):
     try:
         result = subprocess.run(['mediainfo', '--Output=JSON', filename], capture_output=True, text=True, check=True)
         data = json.loads(result.stdout)
@@ -53,16 +61,32 @@ def get_metadata_mediainfo(filename):
         general = next((t for t in tracks if t.get('@type') == 'General'), {})
         video = next((t for t in tracks if t.get('@type') == 'Video'), {})
         raw_date = general.get('File_Modified_Date_Local') or general.get('Encoded_Date')
+        
+        file_size = general.get('FileSize') or str(os.path.getsize(filename))
+        if use_vbc_size:
+            # Try to find VBCOriginalSize in General or Video tracks
+            custom = general.get('VBCOriginalSize')
+            if not custom:
+                # Fallback: MediaInfo often doesn't show VBCOriginalSize. Try ExifTool specifically for this tag.
+                try:
+                    et_result = subprocess.run(['exiftool', '-json', '-VBCOriginalSize', filename], capture_output=True, text=True, check=True)
+                    et_data = json.loads(et_result.stdout)[0]
+                    custom = et_data.get('VBCOriginalSize')
+                except Exception:
+                    pass
+            
+            if custom: file_size = str(custom)
+
         return {
             'date': clean_date(raw_date),
             'width': video.get('Width', '0'),
             'height': video.get('Height', '0'),
             'fps': format_fps(video.get('FrameRate')),
-            'size': general.get('FileSize') or str(os.path.getsize(filename))
+            'size': file_size
         }
     except: return None
 
-def get_metadata_exif(filename):
+def get_metadata_exif(filename, use_vbc_size=False):
     try:
         result = subprocess.run(['exiftool', '-json', filename], capture_output=True, text=True, check=True)
         exif_data = json.loads(result.stdout)[0]
@@ -71,12 +95,22 @@ def get_metadata_exif(filename):
                 val = exif_data.get(k)
                 if val is not None and str(val).lower() not in ('n/a', '', 'none', '0000:00:00 00:00:00'): return val
             return None
+        
+        size_val = None
+        if use_vbc_size:
+            size_val = exif_data.get('VBCOriginalSize')
+            
+        if not size_val:
+            size_val = str(get_tag(['MediaDataSize'])) or str(os.path.getsize(filename))
+        else:
+            size_val = str(size_val)
+
         return {
             'date': clean_date(get_tag(TAG_ALIASES_EXIF['date'])),
             'width': get_tag(TAG_ALIASES_EXIF['width']) or '0',
             'height': get_tag(TAG_ALIASES_EXIF['height']) or '0',
             'fps': format_fps(get_tag(TAG_ALIASES_EXIF['fps'])),
-            'size': str(get_tag(['MediaDataSize'])) or str(os.path.getsize(filename))
+            'size': size_val
         }
     except: return None
 
@@ -94,13 +128,13 @@ def safe_rename(src, dst):
         except Exception as e_inner:
             return False, str(e_inner)
 
-def rename_file(filename, mode, debug, progress, task_id, root_path):
+def rename_file(filename, mode, debug, progress, task_id, root_path, use_vbc_size=False):
     old_name_base = os.path.basename(filename)
     if debug:
         rel_path = os.path.relpath(filename, root_path)
         status_line.plain = f" → {rel_path}"
 
-    meta = get_metadata_mediainfo(filename) if mode == 'mediainfo' else get_metadata_exif(filename)
+    meta = get_metadata_mediainfo(filename, use_vbc_size) if mode == 'mediainfo' else get_metadata_exif(filename, use_vbc_size)
     
     if meta:
         date_part = meta['date'] or os.path.splitext(old_name_base)[0]
@@ -130,6 +164,7 @@ def main():
         parser = argparse.ArgumentParser(description="Universal video renaming script.")
         parser.add_argument("path", nargs="?", default=".", help="Path to folder or file")
         parser.add_argument("--debug", action="store_true", help="Show currently processed file under the progress bar")
+        parser.add_argument("--use-vbc-size", action="store_true", help="Use VBCOriginalSize tag for file size if available")
         group = parser.add_mutually_exclusive_group()
         group.add_argument("--exif", action="store_const", dest="mode", const="exif", help="Use ExifTool")
         group.add_argument("--mediainfo", action="store_const", dest="mode", const="mediainfo", help="Use MediaInfo (default)")
@@ -139,7 +174,7 @@ def main():
         target = Path(args.path).resolve()
 
         if target.is_file():
-            rename_file(str(target), args.mode, False, type('Mock', (object,), {'update': lambda *a, **k: None, 'advance': lambda *a, **k: None})(), None, target.parent)
+            rename_file(str(target), args.mode, False, type('Mock', (object,), {'update': lambda *a, **k: None, 'advance': lambda *a, **k: None})(), None, target.parent, args.use_vbc_size)
             console.print(f"[green]Processed:[/green] {target}")
             return
 
@@ -186,7 +221,7 @@ def main():
 
         with Live(ui_group, console=console, refresh_per_second=10):
             with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-                futures = [executor.submit(rename_file, p, args.mode, args.debug, progress, task_id, target) for p in files]
+                futures = [executor.submit(rename_file, p, args.mode, args.debug, progress, task_id, target, args.use_vbc_size) for p in files]
                 concurrent.futures.wait(futures)
             
             if args.debug: status_line.plain = ""
