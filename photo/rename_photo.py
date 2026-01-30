@@ -5,11 +5,31 @@ import json
 import os
 import concurrent.futures
 import threading
+import sys
+import argparse
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+    MofNCompleteColumn,
+    TimeElapsedColumn
+)
+from rich.console import Console, Group
+from rich.live import Live
+from rich.text import Text
+from rich.prompt import Confirm
 
-MAX_THREADS = 24  # You can change to 8 or another number
+MAX_THREADS = 24
+console = Console()
+status_line = Text("", style="dim blue")
 
-def rename_photo_file(filename):
+def rename_photo_file(filename, progress, task_id, debug=False):
     try:
+        if debug:
+            status_line.plain = f" → {os.path.basename(filename)}"
+            
         result = subprocess.run(['exiftool', '-json', filename], capture_output=True, text=True, check=True)
         exif_data = json.loads(result.stdout)[0]
 
@@ -32,20 +52,33 @@ def rename_photo_file(filename):
             time_without_ms = create_date[9:] if len(create_date) > 8 else '000000'
             milliseconds = '000'
         else:
-            print(f"Thread {threading.current_thread().name}: No CreateDate tag in file: {filename}")
+            # No CreateDate tag
+            progress.advance(task_id)
             return
 
+        model = exif_data.get('Model', '')
         filesize = os.path.getsize(filename)
 
-        base_name = f"{date_part}_{time_without_ms}_{milliseconds}"
-        _, extension = os.path.splitext(filename)
-        new_name_with_extension = f"{base_name}{extension.lower()}"
+        if 'ILCE-7M3' in model:
+            # Format: [data]_[czas]_[seq number:3]_[size w bajtach]
+            raw_seq = exif_data.get('SequenceNumber', 0)
+            try:
+                # Force to integer if possible, otherwise default to 0
+                seq_val = int(raw_seq)
+            except (ValueError, TypeError):
+                seq_val = 0
+            
+            seq_num = str(seq_val).zfill(3)
+            base_name = f"{date_part}_{time_without_ms}_{seq_num}_{filesize}"
+        else:
+            base_name = f"{date_part}_{time_without_ms}_{milliseconds}"
 
-        if new_name_with_extension != filename:
-            folder = os.path.dirname(filename)
-            if not folder:
-                folder = "."
-            full_new_name = os.path.join(folder, new_name_with_extension)
+        _, extension = os.path.splitext(filename)
+        new_name = f"{base_name}{extension.lower()}"
+
+        if new_name != os.path.basename(filename):
+            folder = os.path.dirname(filename) or "."
+            full_new_name = os.path.join(folder, new_name)
 
             counter = 1
             while os.path.exists(full_new_name):
@@ -53,26 +86,87 @@ def rename_photo_file(filename):
                 full_new_name = os.path.join(folder, new_name_with_counter)
                 counter += 1
 
-            os.rename(filename, full_new_name)
-            print(f"Thread {threading.current_thread().name}: Renamed: {filename} -> {os.path.basename(full_new_name)}")
-        else:
-            print(f"Thread {threading.current_thread().name}: File name {filename} already matches pattern.")
+            try:
+                os.rename(filename, full_new_name)
+            except Exception as e:
+                if debug:
+                    console.print(f"[red]Error renaming {filename}: {e}[/red]")
+        
+        progress.advance(task_id)
 
-    except FileNotFoundError:
-        print("Error: exiftool not found. Make sure it's installed.")
-    except subprocess.CalledProcessError as e:
-        print(f"Thread {threading.current_thread().name}: Error executing exiftool for {filename}: {e}")
-    except json.JSONDecodeError:
-        print(f"Thread {threading.current_thread().name}: JSON parsing error for file: {filename}")
-    except KeyError as e:
-        print(f"Thread {threading.current_thread().name}: Missing required EXIF tag in file {filename}: {e}")
+    except Exception as e:
+        if debug:
+            console.print(f"[red]Error processing {filename}: {e}[/red]")
+        progress.advance(task_id)
+
+def main():
+    parser = argparse.ArgumentParser(description="Rename photos based on EXIF data.")
+    parser.add_argument("path", nargs="?", default=".", help="Path to folder or file")
+    parser.add_argument("--debug", action="store_true", help="Show currently processed file")
+    args = parser.parse_args()
+
+    from pathlib import Path
+    target = Path(args.path).resolve()
+    extensions = ('.arw', '.jpg', '.jpeg')
+
+    if target.is_file():
+        files = [str(target)]
+    elif target.is_dir():
+        # Smart recursion logic from video script
+        positional_args = [a for a in sys.argv[1:] if not a.startswith('-')]
+        subdirs = [d for d in target.iterdir() if d.is_dir()]
+        recursive = False
+        
+        if subdirs and not positional_args:
+            if Confirm.ask("No arguments provided. Scan current directory and subdirectories?", default=False):
+                recursive = True
+            else:
+                # If user says no, we just scan the top level
+                recursive = False
+
+        if recursive:
+            files = [str(p) for p in target.rglob("*") if p.is_file() and p.suffix.lower() in extensions]
+        else:
+            files = [str(p) for p in target.iterdir() if p.is_file() and p.suffix.lower() in extensions]
+    else:
+        console.print(f"[red]Error: {args.path} is not a directory or file.[/red]")
+        sys.exit(1)
+
+    if not files:
+        console.print("[yellow]No photo files found.[/yellow]")
+        return
+
+    files.sort()
+
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=40),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        expand=False,
+        auto_refresh=False
+    )
+
+    desc = "Renaming photos".ljust(25)
+    task_id = progress.add_task(desc, total=len(files))
+
+    ui_elements = [progress]
+    if args.debug:
+        ui_elements.append(status_line)
+    ui_group = Group(*ui_elements)
+
+    with Live(ui_group, console=console, refresh_per_second=10):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+            futures = [executor.submit(rename_photo_file, f, progress, task_id, args.debug) for f in files]
+            concurrent.futures.wait(futures)
+        
+        if args.debug:
+            status_line.plain = ""
+        progress.update(task_id, description="[bold green]Finished![/bold green]".ljust(25))
+        progress.refresh()
 
 if __name__ == "__main__":
-    folder = "."  # Current folder
-    files = [os.path.join(folder, file) for file in os.listdir(folder)
-             if file.lower().endswith(('.arw', '.jpg', '.jpeg'))]
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-        executor.map(rename_photo_file, files)
-
-    print("Finished renaming files.")
+    main()
