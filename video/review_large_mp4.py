@@ -52,7 +52,9 @@ def main():
             })
             progress.update(task, advance=1)
         
-        progress.update(task, description="Sorting files...".ljust(25))
+        # Once search is done, update total to show X/X instead of X/?
+        total_found = len(mp4_files)
+        progress.update(task, total=total_found, description="Sorting files...".ljust(25))
         mp4_files.sort(key=lambda x: x["size"], reverse=True)
         
     top_n = mp4_files[:args.n]

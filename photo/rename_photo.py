@@ -21,11 +21,13 @@ from rich.live import Live
 from rich.text import Text
 from rich.prompt import Confirm
 
+from rich.table import Table
+
 MAX_THREADS = 24
 console = Console()
 status_line = Text("", style="dim blue")
 
-def rename_photo_file(filename, progress, task_id, debug=False):
+def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
     try:
         if debug:
             status_line.plain = f" → {os.path.basename(filename)}"
@@ -59,7 +61,13 @@ def rename_photo_file(filename, progress, task_id, debug=False):
         model = exif_data.get('Model', '')
         filesize = os.path.getsize(filename)
 
-        if 'ILCE-7M3' in model:
+        category = "Other"
+        if "ILCE-7M3" in model:
+            category = "ILCE-7M3"
+        elif "ILCE-7RM5" in model:
+            category = "ILCE-7RM5"
+
+        if any(m in model for m in ['ILCE-7M3', 'ILCE-7RM5']):
             # Format: [data]_[czas]_[seq number:3]_[size w bajtach]
             raw_seq = exif_data.get('SequenceNumber', 0)
             try:
@@ -88,6 +96,8 @@ def rename_photo_file(filename, progress, task_id, debug=False):
 
             try:
                 os.rename(filename, full_new_name)
+                with lock:
+                    stats[category] += 1
             except Exception as e:
                 if debug:
                     console.print(f"[red]Error renaming {filename}: {e}[/red]")
@@ -153,6 +163,9 @@ def main():
     desc = "Renaming photos".ljust(25)
     task_id = progress.add_task(desc, total=len(files))
 
+    stats = {"ILCE-7M3": 0, "ILCE-7RM5": 0, "Other": 0}
+    stats_lock = threading.Lock()
+
     ui_elements = [progress]
     if args.debug:
         ui_elements.append(status_line)
@@ -160,13 +173,28 @@ def main():
 
     with Live(ui_group, console=console, refresh_per_second=10):
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-            futures = [executor.submit(rename_photo_file, f, progress, task_id, args.debug) for f in files]
+            futures = [executor.submit(rename_photo_file, f, progress, task_id, stats, stats_lock, args.debug) for f in files]
             concurrent.futures.wait(futures)
         
         if args.debug:
             status_line.plain = ""
         progress.update(task_id, description="[bold green]Finished![/bold green]".ljust(25))
         progress.refresh()
+
+    # Summary table
+    table = Table(title="Renaming Summary", expand=False)
+    table.add_column("Model", style="cyan")
+    table.add_column("Renamed Files", justify="right", style="green")
+
+    total_renamed = 0
+    for model, count in stats.items():
+        table.add_row(model, str(count))
+        total_renamed += count
+    
+    table.add_section()
+    table.add_row("[bold]Total[/bold]", f"[bold]{total_renamed}[/bold]")
+    
+    console.print(table)
 
 if __name__ == "__main__":
     main()
