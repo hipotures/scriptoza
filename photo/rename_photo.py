@@ -66,8 +66,10 @@ def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
             category = "ILCE-7M3"
         elif "ILCE-7RM5" in model:
             category = "ILCE-7RM5"
+        elif "X-H2S" in model:
+            category = "X-H2S"
 
-        if any(m in model for m in ['ILCE-7M3', 'ILCE-7RM5']):
+        if any(m in model for m in ['ILCE-7M3', 'ILCE-7RM5', 'X-H2S']):
             # Format: [data]_[czas]_[seq number:3]_[size w bajtach]
             raw_seq = exif_data.get('SequenceNumber', 0)
             try:
@@ -119,7 +121,7 @@ def main():
 
     from pathlib import Path
     target = Path(args.path).resolve()
-    extensions = ('.arw', '.jpg', '.jpeg')
+    extensions = ('.arw', '.jpg', '.jpeg', '.hif')
 
     if target.is_file():
         files = [str(target)]
@@ -167,7 +169,7 @@ def main():
     desc = "Renaming photos".ljust(25)
     task_id = progress.add_task(desc, total=len(files))
 
-    stats = {"ILCE-7M3": 0, "ILCE-7RM5": 0, "Other": 0}
+    stats = {"ILCE-7M3": 0, "ILCE-7RM5": 0, "X-H2S": 0, "Other": 0}
     stats_lock = threading.Lock()
 
     ui_elements = [progress]

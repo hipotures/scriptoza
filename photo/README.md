@@ -9,7 +9,7 @@ Universal photo file renaming tool supporting multiple camera brands (Sony, Pana
 - Automatic camera detection from EXIF metadata
 - Multi-threaded processing (up to 24 threads)
 - Standardized naming: `YYYYMMDD_HHMMSS_MMM.ext` (with milliseconds)
-- Supports RAW (.arw) and JPEG (.jpg, .jpeg) formats
+- Supports RAW (.arw), JPEG (.jpg, .jpeg) and HEIF (.hif) formats
 - Automatic collision handling with numeric suffixes
 - Preserves matching names for RAW+JPG pairs when possible
 - Fallback to CreateDate when SubSecCreateDate unavailable
@@ -64,10 +64,12 @@ If collision occurs (rare, during burst shooting), automatic counter is added:
 
 ### Supported Cameras
 
-- **Sony**: ILCE-7RM5, and other E-mount cameras (ARW + JPG)
+- **Sony**: ILCE-7RM5, ILCE-7M3, and other E-mount cameras (ARW, JPG, HIF)
+- **Fujifilm**: X-H2S (HIF, JPG)
 - **Panasonic**: DC-GH7, and other Lumix cameras (JPG)
 
 ### Supported File Types
 
 - **RAW**: .arw (Sony)
 - **JPEG**: .jpg, .jpeg (Sony, Panasonic)
+- **HEIF**: .hif (Sony)
