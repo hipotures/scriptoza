@@ -113,6 +113,8 @@ def main():
     parser = argparse.ArgumentParser(description="Rename photos based on EXIF data.")
     parser.add_argument("path", nargs="?", default=".", help="Path to folder or file")
     parser.add_argument("--debug", action="store_true", help="Show currently processed file")
+    parser.add_argument("-r", "--recursive", action="store_true", help="Recursive scan")
+    parser.add_argument("--no-recursive", action="store_true", help="Non-recursive scan")
     args = parser.parse_args()
 
     from pathlib import Path
@@ -122,17 +124,19 @@ def main():
     if target.is_file():
         files = [str(target)]
     elif target.is_dir():
-        # Smart recursion logic from video script
-        positional_args = [a for a in sys.argv[1:] if not a.startswith('-')]
-        subdirs = [d for d in target.iterdir() if d.is_dir()]
-        recursive = False
-        
-        if subdirs and not positional_args:
-            if Confirm.ask("No arguments provided. Scan current directory and subdirectories?", default=False):
-                recursive = True
-            else:
-                # If user says no, we just scan the top level
-                recursive = False
+        # Determine recursion
+        if args.recursive:
+            recursive = True
+        elif args.no_recursive:
+            recursive = False
+        else:
+            # Smart recursion logic from video script
+            positional_args = [a for a in sys.argv[1:] if not a.startswith('-')]
+            subdirs = [d for d in target.iterdir() if d.is_dir()]
+            recursive = False
+            
+            if subdirs and not positional_args:
+                recursive = Confirm.ask("No arguments provided. Scan current directory and subdirectories?", default=False)
 
         if recursive:
             files = [str(p) for p in target.rglob("*") if p.is_file() and p.suffix.lower() in extensions]

@@ -27,6 +27,8 @@ def get_file_size(path):
 def main():
     parser = argparse.ArgumentParser(description="Find and review top N largest mp4 files.")
     parser.add_argument("n", type=int, help="Number of largest files to show.")
+    parser.add_argument("-r", "--recursive", action="store_true", default=True, help="Recursive scan (default)")
+    parser.add_argument("--no-recursive", action="store_false", dest="recursive", help="Non-recursive scan")
     args = parser.parse_args()
 
     console = Console()
@@ -36,16 +38,15 @@ def main():
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        BarColumn(bar_width=40),
-        MofNCompleteColumn(),
-        TaskProgressColumn(),
+        TextColumn("[bold blue]{task.completed}[/bold blue] files found"),
         TimeElapsedColumn(),
         expand=False,
         console=console
     ) as progress:
         task = progress.add_task("Searching for mp4 files...".ljust(25), total=None)
         
-        for path in Path(".").rglob("*.mp4"):
+        search_glob = "**/*.mp4" if args.recursive else "*.mp4"
+        for path in Path(".").glob(search_glob):
             mp4_files.append({
                 "path": path,
                 "size": get_file_size(path)
