@@ -35,23 +35,24 @@ presets:
         matches:
           "HandlerVendorID": "Apple"
 
-  qvr:
+  qvr180:
     description: "Nagrania z kamery telefonu (wymaga Android i GPS) w trybiw qvr"
-    suffix: "qvr"
+    suffix: "qvr180"
     delimiter: "_"
     rules:
       require:
         keys:
           - "AndroidVersion"
-          - "GPSCoordinates"
+        matches:
+          "Rotation": "180"
       exclude:
         matches:
           "Make": "panasonic"
           "CameraModelName": "DMC-FZ1000"
 
-  qvr2:
+  qvr90:
     description: "Nagrania z kamery telefonu (wymaga Android i GPS) w trybiw qvr"
-    suffix: "qvr"
+    suffix: "qvr90"
     delimiter: "_"
     rules:
       require:
@@ -63,6 +64,37 @@ presets:
         matches:
           "Make": "panasonic"
           "CameraModelName": "DMC-FZ1000"
+
+  qvr270:
+    description: "Nagrania z kamery telefonu (wymaga Android i GPS) w trybiw qvr"
+    suffix: "qvr270"
+    delimiter: "_"
+    rules:
+      require:
+        keys:
+          - "AndroidVersion"
+        matches:
+          "Rotation": "270"
+      exclude:
+        matches:
+          "Make": "panasonic"
+          "CameraModelName": "DMC-FZ1000"
+
+  qvr0:
+    description: "Nagrania z kamery telefonu (wymaga Android i GPS) w trybiw qvr"
+    suffix: "qvr0"
+    delimiter: "_"
+    rules:
+      require:
+        keys:
+          - "AndroidVersion"
+        matches:
+          "Rotation": "0"
+      exclude:
+        matches:
+          "Make": "panasonic"
+          "CameraModelName": "DMC-FZ1000"
+
 
   scr:
     description: "Nagrania ekranu telefonu (brak GPS, rozdzielczość pionowa 2220, VideoHandle)"

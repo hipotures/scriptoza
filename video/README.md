@@ -253,3 +253,30 @@ python video/find_vbc.py /path/to/videos --without-vbc
 # Non-recursive search
 python video/find_vbc.py . --with-vbc --no-recursive
 ```
+
+---
+
+## review_large_mp4.py
+
+Finds and reviews the N largest MP4 files in the current directory and subdirectories.
+
+### Features
+
+- **Recursive Search**: Scans for all `.mp4` files starting from the current directory.
+- **Top N Sorting**: Lists the N largest files with their relative paths and sizes.
+- **Interactive Review**: Optionally plays each file using `smplayer`.
+- **Cleanup**: Prompts to delete or keep each file after viewing.
+- **Progress Bar**: Shows progress while searching and sorting files.
+
+### Requirements
+
+- Python 3.9+
+- `rich` library
+- `smplayer` installed in system `PATH`.
+
+### Usage
+
+```bash
+# List and review the 10 largest MP4 files
+python video/review_large_mp4.py 10
+```
