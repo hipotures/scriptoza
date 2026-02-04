@@ -29,9 +29,6 @@ status_line = Text("", style="dim blue")
 
 def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
     try:
-        if debug:
-            status_line.plain = f" → {os.path.basename(filename)}"
-            
         result = subprocess.run(['exiftool', '-json', filename], capture_output=True, text=True, check=True)
         exif_data = json.loads(result.stdout)[0]
 
@@ -55,6 +52,8 @@ def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
             milliseconds = '000'
         else:
             # No CreateDate tag
+            if debug:
+                status_line.plain = f" [No Date] {os.path.basename(filename)} - Skipping"
             progress.advance(task_id)
             return
 
@@ -92,6 +91,9 @@ def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
 
         _, extension = os.path.splitext(filename)
         new_name = f"{base_name}{extension.lower()}"
+
+        if debug:
+            status_line.plain = f" [{model}] {os.path.basename(filename)} -> {new_name}"
 
         if new_name != os.path.basename(filename):
             folder = os.path.dirname(filename) or "."
