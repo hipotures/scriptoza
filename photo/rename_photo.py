@@ -68,10 +68,15 @@ def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
             category = "ILCE-7RM5"
         elif "X-H2S" in model:
             category = "X-H2S"
+        elif "Z 7_2" in model:
+            category = "Nikon Z7II"
+        elif "EOS R5" in model:
+            category = "Canon R5"
 
-        if any(m in model for m in ['ILCE-7M3', 'ILCE-7RM5', 'X-H2S']):
+        if any(m in model for m in ['ILCE-7M3', 'ILCE-7RM5', 'X-H2S', 'Z 7_2', 'EOS R5']):
             # Format: [data]_[czas]_[seq number:3]_[size w bajtach]
-            raw_seq = exif_data.get('SequenceNumber', 0)
+            # Try SequenceNumber (Sony/Fuji/Nikon) then ShotNumberInContinuousBurst (Canon)
+            raw_seq = exif_data.get('SequenceNumber') or exif_data.get('ShotNumberInContinuousBurst') or 0
             try:
                 # Force to integer if possible, otherwise default to 0
                 seq_val = int(raw_seq)
@@ -121,7 +126,7 @@ def main():
 
     from pathlib import Path
     target = Path(args.path).resolve()
-    extensions = ('.arw', '.jpg', '.jpeg', '.hif')
+    extensions = ('.arw', '.jpg', '.jpeg', '.hif', '.heif', '.nef', '.cr3')
 
     if target.is_file():
         files = [str(target)]
@@ -169,7 +174,7 @@ def main():
     desc = "Renaming photos".ljust(25)
     task_id = progress.add_task(desc, total=len(files))
 
-    stats = {"ILCE-7M3": 0, "ILCE-7RM5": 0, "X-H2S": 0, "Other": 0}
+    stats = {"ILCE-7M3": 0, "ILCE-7RM5": 0, "X-H2S": 0, "Nikon Z7II": 0, "Canon R5": 0, "Other": 0}
     stats_lock = threading.Lock()
 
     ui_elements = [progress]
