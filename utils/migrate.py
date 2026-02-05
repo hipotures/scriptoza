@@ -195,7 +195,7 @@ def safe_move(src, dst):
         return False, None, str(e)
 
 def get_disk_stats(path):
-    """Returns a string with disk usage: Used/Total GB and Percentage."""
+    """Returns a string with disk usage: Free Percentage."""
     try:
         # Find the first existing parent directory to check disk usage
         check_path = os.path.abspath(path)
@@ -203,12 +203,10 @@ def get_disk_stats(path):
             check_path = os.path.dirname(check_path)
             
         usage = shutil.disk_usage(check_path)
-        total_gb = usage.total / (1024**3)
-        used_gb = usage.used / (1024**3)
-        percent = (usage.used / usage.total) * 100
-        return f"{used_gb:.3f}/{total_gb:.3f} GB ({percent:.1f}%)"
+        percent_free = (usage.free / usage.total) * 100
+        return f"(Free: {percent_free:.1f}%)"
     except Exception:
-        return "N/A"
+        return "(Free: N/A)"
 
 def main():
     parser = argparse.ArgumentParser(description="Migrate old files from largest directories safely.")
@@ -223,12 +221,12 @@ def main():
 
     age_seconds = args.time * 3600
     
-    src_stats = get_disk_stats(args.source) if args.source else "N/A"
-    dst_stats = get_disk_stats(args.archive) if args.archive else "N/A"
+    src_stats = get_disk_stats(args.source) if args.source else "(Free: N/A)"
+    dst_stats = get_disk_stats(args.archive) if args.archive else "(Free: N/A)"
 
     console.print(Panel(f"[bold blue]Migrating the {args.count} largest directories[/bold blue]\n" 
-                        f"Source:  {args.source} [dim]({src_stats})[/dim]\n" 
-                        f"Archive: {args.archive} [dim]({dst_stats})[/dim]\n" 
+                        f"Source:  [dim]{src_stats}[/dim] {args.source}\n" 
+                        f"Archive: [dim]{dst_stats}[/dim] {args.archive}\n" 
                         f"File age: > {args.time}h", border_style="blue"))
 
     if not os.path.exists(args.source):
