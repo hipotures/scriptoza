@@ -33,6 +33,7 @@ install_script "$REPO_DIR/video/check_4k.py"            "check-4k"
 install_script "$REPO_DIR/video/sort_dji.py"            "sort-dji"
 install_script "$REPO_DIR/video/sort_video_dated.py"    "sort-video-dated"
 install_script "$REPO_DIR/photo/rename_photo.py"        "rename-photo"
+install_script "$REPO_DIR/utils/migrate.py"            "migrate-tt"
 
 # 2. Kopiowanie konfiguracji
 cp -v "$REPO_DIR/video/rename_video.yaml" "$CONFIG_DIR/"
