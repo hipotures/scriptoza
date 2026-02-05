@@ -173,9 +173,7 @@ def safe_rename(src, dst):
 def rename_file(filename, mode, debug, progress, task_id, root_path, use_vbc_size=False, date_tag=None):
     old_name_base = os.path.basename(filename)
     old_name_no_ext = os.path.splitext(old_name_base)[0]
-    if debug:
-        rel_path = os.path.relpath(filename, root_path)
-        status_line.plain = f" → {rel_path}"
+    rel_path = os.path.relpath(filename, root_path)
 
     meta = get_metadata_mediainfo(filename, use_vbc_size, date_tag) if mode == 'mediainfo' else get_metadata_exif(filename, use_vbc_size, date_tag)
     
@@ -195,6 +193,9 @@ def rename_file(filename, mode, debug, progress, task_id, root_path, use_vbc_siz
         base_new_name = f"{date_part}_{res}_{meta['fps']}_{meta['size']}"
         new_name = f"{base_new_name}{ext}"
 
+        if debug:
+            status_line.plain = f" [{mode}] {rel_path} -> {new_name}"
+
         if new_name != old_name_base:
             folder = os.path.dirname(filename) or '.'
             full_new_path = os.path.join(folder, new_name)
@@ -207,7 +208,9 @@ def rename_file(filename, mode, debug, progress, task_id, root_path, use_vbc_siz
             
             ok, err = safe_rename(filename, full_new_path)
             if not ok and debug:
-                status_line.plain = f" [red]ERROR:[/red] {old_name_base} -> {err}"
+                status_line.plain = f" [red]ERROR:[/red] {rel_path} -> {err}"
+    elif debug:
+        status_line.plain = f" [{mode}] {rel_path} - No metadata found"
     
     progress.advance(task_id)
 
