@@ -105,8 +105,8 @@ def get_metadata_mediainfo(filename, use_vbc_size=False, date_tag=None):
             if custom: file_size = str(custom)
 
         # Handle rotation for resolution
-        width = video.get('Width', '0')
-        height = video.get('Height', '0')
+        width = video.get('Width') or general.get('Width') or '0'
+        height = video.get('Height') or general.get('Height') or '0'
         rotation = video.get('Rotation', '0')
         try:
             if float(rotation) in (90.0, 270.0):
@@ -121,7 +121,7 @@ def get_metadata_mediainfo(filename, use_vbc_size=False, date_tag=None):
             'date': clean_date(raw_date),
             'width': clean_num(width),
             'height': clean_num(height),
-            'fps': format_fps(video.get('FrameRate')),
+            'fps': format_fps(video.get('FrameRate') or general.get('FrameRate')),
             'size': clean_num(file_size)
         }
     except: return None
@@ -146,13 +146,31 @@ def get_metadata_exif(filename, use_vbc_size=False, date_tag=None):
             size_val = str(size_val)
 
         date_keys = [date_tag] + TAG_ALIASES_EXIF['date'] if date_tag else TAG_ALIASES_EXIF['date']
+        
+        width = get_tag(TAG_ALIASES_EXIF['width']) or '0'
+        height = get_tag(TAG_ALIASES_EXIF['height']) or '0'
+        
+        # Support for VideoSize tag (e.g. "3840x2160")
+        if width == '0' or height == '0':
+            video_size = exif_data.get('VideoSize')
+            if video_size and 'x' in str(video_size):
+                try:
+                    parts = str(video_size).split('x')
+                    if len(parts) == 2:
+                        w, h = parts
+                        if width == '0': width = w.strip()
+                        if height == '0': height = h.strip()
+                except: pass
+
+        def clean_num(val):
+            return ''.join(filter(str.isdigit, str(val))) or '0'
 
         return {
             'date': clean_date(get_tag(date_keys)),
-            'width': get_tag(TAG_ALIASES_EXIF['width']) or '0',
-            'height': get_tag(TAG_ALIASES_EXIF['height']) or '0',
+            'width': clean_num(width),
+            'height': clean_num(height),
             'fps': format_fps(get_tag(TAG_ALIASES_EXIF['fps'])),
-            'size': size_val
+            'size': clean_num(size_val)
         }
     except: return None
 
@@ -177,6 +195,21 @@ def rename_file(filename, mode, debug, progress, task_id, root_path, use_vbc_siz
 
     meta = get_metadata_mediainfo(filename, use_vbc_size, date_tag) if mode == 'mediainfo' else get_metadata_exif(filename, use_vbc_size, date_tag)
     
+    # Fallback to the other tool if resolution or FPS is missing
+    if not meta or meta['width'] == '0' or meta['height'] == '0' or meta['fps'] == '0fps':
+        alt_mode = 'exif' if mode == 'mediainfo' else 'mediainfo'
+        alt_meta = get_metadata_exif(filename, use_vbc_size, date_tag) if alt_mode == 'exif' else get_metadata_mediainfo(filename, use_vbc_size, date_tag)
+        
+        if alt_meta:
+            if not meta:
+                meta = alt_meta
+            else:
+                # Merge: prefer non-zero values from fallback
+                if meta['width'] == '0': meta['width'] = alt_meta['width']
+                if meta['height'] == '0': meta['height'] = alt_meta['height']
+                if meta['fps'] == '0fps': meta['fps'] = alt_meta['fps']
+                if not meta['date']: meta['date'] = alt_meta['date']
+
     if meta:
         date_part = meta['date']
         if not date_part:
