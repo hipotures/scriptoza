@@ -88,12 +88,10 @@ def main():
 
     console.print(table)
     
-    console.print(f"
-[bold green]✅ Installation finished successfully![/bold green]")
+    console.print(f"\n[bold green]✅ Installation finished successfully![/bold green]")
     console.print(f"[dim]Scripts installed to: {bin_dir}[/dim]")
     console.print(f"[dim]Configs installed to: {config_dir}[/dim]")
-    console.print("
-[yellow]Note:[/yellow] The 'by tags' script is available as both [bold cyan]rename-video-by-tags[/bold cyan] and [bold cyan]rename-video[/bold cyan].")
+    console.print("\n[yellow]Note:[/yellow] The 'by tags' script is available as both [bold cyan]rename-video-by-tags[/bold cyan] and [bold cyan]rename-video[/bold cyan].")
 
 if __name__ == "__main__":
     main()
