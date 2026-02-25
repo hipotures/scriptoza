@@ -67,7 +67,7 @@ If collision occurs (rare, during burst shooting), automatic counter is added:
 - **Sony**: ILCE-7RM5, ILCE-7M3, and other E-mount cameras (ARW, JPG, HIF)
 - **Fujifilm**: X-H2S (HIF, JPG)
 - **Nikon**: Z 7 II, and other Z-series cameras (NEF, JPG)
-- **Canon**: EOS R5, and other R-series cameras (CR3, JPG)
+- **Canon**: EOS R5 and other EOS models (including DSLR bodies like EOS 7D) (CR3, JPG)
 - **Panasonic**: DC-GH7, and other Lumix cameras (JPG)
 
 ### Supported File Types

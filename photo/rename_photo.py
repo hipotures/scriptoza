@@ -57,7 +57,8 @@ def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
             progress.advance(task_id)
             return
 
-        model = exif_data.get('Model', '')
+        model = exif_data.get('Model', '').strip()
+        make = exif_data.get('Make', '').strip()
         filesize = os.path.getsize(filename)
 
         category = "Other"
@@ -67,14 +68,18 @@ def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
             category = "ILCE-7RM5"
         elif "X-H2S" in model:
             category = "X-H2S"
-        elif "Z 7_2" in model:
+        elif "Z 7_2" in model or "Z 7 II" in model:
             category = "Nikon Z7II"
+        elif "EOS 7D" in model:
+            category = "Canon EOS 7D"
         elif "EOS R5" in model:
             category = "Canon R5"
+        elif "Canon" in make and "EOS" in model:
+            category = "Canon EOS (Other)"
         elif "DC-GH7" in model:
             category = "Panasonic GH7"
 
-        if any(m in model for m in ['ILCE-7M3', 'ILCE-7RM5', 'X-H2S', 'Z 7_2', 'EOS R5', 'DC-GH7']):
+        if any(m in model for m in ['ILCE-7M3', 'ILCE-7RM5', 'X-H2S', 'Z 7_2', 'Z 7 II', 'EOS R5', 'DC-GH7']):
             # Format: [data]_[czas]_[seq number:3]_[size w bajtach]
             # Try SequenceNumber (Sony/Fuji/Nikon) then ShotNumberInContinuousBurst (Canon)
             raw_seq = exif_data.get('SequenceNumber') or exif_data.get('ShotNumberInContinuousBurst') or 0
@@ -178,7 +183,17 @@ def main():
     desc = "Renaming photos".ljust(25)
     task_id = progress.add_task(desc, total=len(files))
 
-    stats = {"ILCE-7M3": 0, "ILCE-7RM5": 0, "X-H2S": 0, "Nikon Z7II": 0, "Canon R5": 0, "Panasonic GH7": 0, "Other": 0}
+    stats = {
+        "ILCE-7M3": 0,
+        "ILCE-7RM5": 0,
+        "X-H2S": 0,
+        "Nikon Z7II": 0,
+        "Canon EOS 7D": 0,
+        "Canon R5": 0,
+        "Canon EOS (Other)": 0,
+        "Panasonic GH7": 0,
+        "Other": 0
+    }
     stats_lock = threading.Lock()
 
     ui_elements = [progress]
