@@ -87,6 +87,10 @@ def build_operations(files: List[Path], root: Path) -> List[Operation]:
             operations.append(Operation(source=source, destination=None, date_folder=None, state="no_date"))
             continue
 
+        if source.parent.name == date_folder:
+            operations.append(Operation(source=source, destination=source, date_folder=date_folder, state="already_organized"))
+            continue
+
         destination = root / date_folder / source.name
         if source.resolve() == destination.resolve():
             operations.append(Operation(source=source, destination=destination, date_folder=date_folder, state="already_organized"))
@@ -258,14 +262,6 @@ def main() -> int:
         return 0
 
     operations = build_operations(files, root)
-    planned_moves = sum(1 for operation in operations if operation.state == "planned")
-
-    if not args.dry_run and planned_moves > 0:
-        noun = "file" if planned_moves == 1 else "files"
-        if not Confirm.ask(f"Move {planned_moves} {noun} into date folders?", default=False):
-            console.print("[yellow]Cancelled.[/yellow]")
-            return 0
-
     stats = {
         "scanned": 0,
         "matched_date": 0,
