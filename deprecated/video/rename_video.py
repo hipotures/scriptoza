@@ -5,6 +5,7 @@ import os
 import concurrent.futures
 import threading
 import math
+import sys
 
 MAX_THREADS = 4  # You can change to 8 or another number
 
@@ -97,6 +98,7 @@ def rename_video_file(filename):
 
 
 if __name__ == "__main__":
+    print("DEPRECATED: use video/rename_video_univ.py instead.", file=sys.stderr)
     folder = "."
     files = [os.path.join(folder, f) for f in os.listdir(folder)
              if f.lower().endswith(('.mp4', '.mov', '.avi'))]

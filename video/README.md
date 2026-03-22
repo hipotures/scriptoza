@@ -88,59 +88,6 @@ python video/check_collisions.py /path/to/videos
 
 ---
 
-## rename_video.py
-
-Universal video file renaming tool supporting multiple camera brands (DJI, Panasonic, Sony).
-
-### Features
-
-- Automatic camera detection from EXIF metadata
-- Multi-threaded processing (up to 24 threads)
-- Standardized naming: `YYYYMMDD_HHMMSS_WIDTHxHEIGHT_FPSfps_FILESIZE.ext`
-- Supports multiple video formats (.mp4, .mov, .avi)
-- Automatic collision handling with numeric suffixes
-- Fallback to original filename when date is missing
-
-### Requirements
-
-- Python 3.7+
-- exiftool
-
-### Installation
-
-```bash
-# Install exiftool (Manjaro/Arch)
-sudo pacman -S perl-image-exiftool
-
-# Ubuntu/Debian
-sudo apt install libimage-exiftool-perl
-```
-
-### Usage
-
-```bash
-# Run in directory containing video files
-cd /path/to/videos
-python /path/to/scriptoza/video/rename_video.py
-```
-
-### Output Format
-
-Files are renamed to: `YYYYMMDD_HHMMSS_WIDTHxHEIGHT_FPSfps_FILESIZE.ext`
-
-Example:
-- `20251025_150032_3840x2160_60fps_785976622.mp4`
-- `20251025_150757_5728x3024_60fps_412841693.mov`
-
-### Technical Features
-
-- TAG_ALIASES for flexible EXIF field detection
-- Thread-safe file operations
-- Automatic lowercase extension normalization
-- Handles missing or invalid EXIF data gracefully
-
----
-
 ## sort_video_dated.py
 
 Organizes files starting with `YYYYMMDD_HHMMSS` into subdirectories named `YYYYMMDD`.

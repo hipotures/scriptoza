@@ -7,7 +7,6 @@ Collection of small utility scripts organized by category. Each category has its
 ### Video (video/)
 
 - `rename_video_univ.py` - Universal video renaming using robust EXIF tag fallback
-- `rename_video.py` - Universal video renaming (DJI, Panasonic, Sony)
 - `check_4k.py` - Scans MP4 tree for 4K/non-4K classification
 - `check_collisions.py` - Detects basename collisions
 - `sort_video_qvr.sh` - Organizes QVR files by date
@@ -29,6 +28,10 @@ Collection of small utility scripts organized by category. Each category has its
 - `organize_by_date.py` - Safe universal organizer that groups files into YYYYMMDD folders from filename dates
 - `safe_rename_tt.py` - Safe date-based renamer for TikTok downloads
 - `scan_mp4_to_json.py` - Scans MP4 files and outputs metadata as JSON
+
+### Deprecated (deprecated/)
+
+- `video/rename_video.py` - Deprecated legacy video renamer kept for reference and excluded from installation
 
 ## Notes
 
