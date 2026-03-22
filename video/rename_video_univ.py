@@ -210,6 +210,14 @@ def rename_file(filename, mode, debug, progress, task_id, root_path, use_vbc_siz
                 if meta['fps'] == '0fps': meta['fps'] = alt_meta['fps']
                 if not meta['date']: meta['date'] = alt_meta['date']
 
+    result = {
+        "processed": 1,
+        "renamed": 0,
+        "unchanged": 0,
+        "unchanged_no_metadata": 0,
+        "rename_errors": 0,
+    }
+
     if meta:
         date_part = meta['date']
         if not date_part:
@@ -242,10 +250,20 @@ def rename_file(filename, mode, debug, progress, task_id, root_path, use_vbc_siz
             ok, err = safe_rename(filename, full_new_path)
             if not ok and debug:
                 status_line.plain = f" [red]ERROR:[/red] {rel_path} -> {err}"
+            if ok:
+                result["renamed"] = 1
+            else:
+                result["rename_errors"] = 1
+        else:
+            result["unchanged"] = 1
     elif debug:
         status_line.plain = f" [{mode}] {rel_path} - No metadata found"
+        result["unchanged_no_metadata"] = 1
+    else:
+        result["unchanged_no_metadata"] = 1
     
     progress.advance(task_id)
+    return result
 
 def main():
     try:
@@ -263,8 +281,13 @@ def main():
         target = Path(args.path).resolve()
 
         if target.is_file():
-            rename_file(str(target), args.mode, False, type('Mock', (object,), {'update': lambda *a, **k: None, 'advance': lambda *a, **k: None})(), None, target.parent, args.use_vbc_size, args.date_tag)
-            console.print(f"[green]Processed:[/green] {target}")
+            result = rename_file(str(target), args.mode, False, type('Mock', (object,), {'update': lambda *a, **k: None, 'advance': lambda *a, **k: None})(), None, target.parent, args.use_vbc_size, args.date_tag)
+            if result["renamed"]:
+                console.print(f"[green]Renamed:[/green] {target}")
+            elif result["rename_errors"]:
+                console.print(f"[red]Rename failed:[/red] {target}")
+            else:
+                console.print(f"[yellow]No change:[/yellow] {target}")
             return
 
         positional_args = [a for a in sys.argv[1:] if not a.startswith('-')]
@@ -303,6 +326,13 @@ def main():
 
         desc = f"Renaming ({args.mode})".ljust(25)
         task_id = progress.add_task(desc, total=len(files))
+        stats = {
+            "processed": 0,
+            "renamed": 0,
+            "unchanged": 0,
+            "unchanged_no_metadata": 0,
+            "rename_errors": 0,
+        }
         
         ui_elements = [progress]
         if args.debug: ui_elements.append(status_line)
@@ -312,10 +342,23 @@ def main():
             with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
                 futures = [executor.submit(rename_file, p, args.mode, args.debug, progress, task_id, target, args.use_vbc_size, args.date_tag) for p in files]
                 concurrent.futures.wait(futures)
+                for future in futures:
+                    result = future.result()
+                    for key in stats:
+                        stats[key] += result[key]
             
             if args.debug: status_line.plain = ""
             progress.update(task_id, description="[bold green]Finished![/bold green]".ljust(25))
             progress.refresh()
+
+        not_renamed = stats["unchanged"] + stats["unchanged_no_metadata"] + stats["rename_errors"]
+        console.print("\n[bold]Summary[/bold]")
+        console.print(f"  Processed: {stats['processed']}")
+        console.print(f"  Renamed: {stats['renamed']}")
+        console.print(f"  Not renamed: {not_renamed}")
+        console.print(f"  Already matching target name: {stats['unchanged']}")
+        console.print(f"  No metadata / no rename decision: {stats['unchanged_no_metadata']}")
+        console.print(f"  Rename errors: {stats['rename_errors']}")
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted by user (Ctrl-C).[/yellow]")

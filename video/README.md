@@ -12,6 +12,7 @@ Universal and robust video file renaming tool with deep EXIF tag fallback. Desig
 - **Multi-threaded**: Processes files in parallel for maximum speed.
 - **Naming Convention**: `YYYYMMDD_HHMMSS_WIDTHxHEIGHT_FPSfps_SIZE.ext`
 - **Collision Prevention**: Automatically adds numeric suffixes if a file with the target name already exists.
+- **Clear Summary**: Reports how many files were renamed, left unchanged, or failed during rename.
 
 ### Requirements
 
