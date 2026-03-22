@@ -29,6 +29,7 @@ def main():
         ("video/sort_dji.py", "sort-dji"),
         ("video/sort_video_dated.py", "sort-video-dated"),
         ("photo/rename_photo.py", "rename-photo"),
+        ("utils/organize_by_date.py", "organize-by-date"),
         ("utils/migrate.py", "migrate-tt"),
     ]
 

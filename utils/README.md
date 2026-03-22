@@ -241,6 +241,42 @@ The system uses **INSERT OR REPLACE** strategy:
 
 ## 🎵 Other Utilities
 
+### organize_by_date.py
+
+Safe universal organizer that moves files into `YYYYMMDD/` folders based on date patterns found in filenames.
+
+**Features:**
+- Works with arbitrary regular files, not just media
+- Recognizes dates anywhere in the filename
+- Supports smart recursion prompt, `--recursive`, and `--no-recursive`
+- Dry-run support
+- Never overwrites or auto-resolves destination conflicts
+- Reports conflicts and move errors for manual review
+
+**Usage:**
+
+```bash
+# Dry run in current directory
+python utils/organize_by_date.py --dry-run
+
+# Organize a directory recursively
+python utils/organize_by_date.py /path/to/files --recursive
+```
+
+**Supported Date Patterns:**
+- `YYYYMMDD_HHMMSS`
+- `YYYY-MM-DD`
+- `YYYY_MM_DD`
+- `YYYY.MM.DD`
+- plain `YYYYMMDD`
+
+**Examples:**
+
+```
+Screen_Recording_20260126_221000_TikTok.mp4 -> 20260126/
+20250325_083514_5728x3024_60fps_4965761424.mov -> 20250325/
+```
+
 ### safe_rename_tt.py
 
 Safe, multi-format date-based renamer for TikTok downloads.

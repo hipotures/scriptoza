@@ -26,6 +26,7 @@ Collection of small utility scripts organized by category. Each category has its
 - `statusline.py` - Rich status line for Claude Code with SQLite session logging
 - `session_stats.sh` - Session statistics (top sessions, costs, model usage)
 - `claude_usage_report.py` - Aggregates JSONL history into per-session/per-day totals
+- `organize_by_date.py` - Safe universal organizer that groups files into YYYYMMDD folders from filename dates
 - `safe_rename_tt.py` - Safe date-based renamer for TikTok downloads
 - `scan_mp4_to_json.py` - Scans MP4 files and outputs metadata as JSON
 
