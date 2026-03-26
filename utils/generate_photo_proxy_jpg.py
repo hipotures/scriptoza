@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import timedelta
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
@@ -41,14 +42,27 @@ class FixedMofNColumn(ProgressColumn):
 
 class EtaColumn(ProgressColumn):
     def render(self, task) -> Text:
-        if task.total is None or task.total <= 0 or task.completed <= 0 or task.elapsed is None:
+        eta_seconds = task.fields.get("eta_seconds")
+        if eta_seconds is None:
             return Text("ETA --:--:--")
-        remaining_steps = max(0.0, float(task.total) - float(task.completed))
-        if remaining_steps <= 0:
-            return Text("ETA 0:00:00")
-        seconds_per_step = float(task.elapsed) / float(task.completed)
-        seconds = max(0, int(math.ceil(seconds_per_step * remaining_steps)))
-        return Text(f"ETA {timedelta(seconds=seconds)}")
+        return Text(f"ETA {timedelta(seconds=int(eta_seconds))}")
+
+
+def estimate_eta_seconds(task) -> int | None:
+    if task.total is None or task.total <= 0 or task.completed <= 0 or task.elapsed is None:
+        return None
+    remaining_steps = max(0.0, float(task.total) - float(task.completed))
+    if remaining_steps <= 0:
+        return 0
+    seconds_per_step = float(task.elapsed) / float(task.completed)
+    return max(0, int(math.ceil(seconds_per_step * remaining_steps)))
+
+
+def get_progress_task(progress: Progress, task_id: int):
+    for task in progress.tasks:
+        if task.id == task_id:
+            return task
+    raise RuntimeError(f"Unknown progress task id: {task_id}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -478,7 +492,8 @@ def main() -> int:
         stream_task = None
         if len(selected_streams) > 1:
             stream_task = progress.add_task("Streams".ljust(25), total=len(selected_streams))
-        file_task = progress.add_task("Photos".ljust(25), total=len(selected_rows))
+        file_task = progress.add_task("Photos".ljust(25), total=len(selected_rows), eta_seconds=None)
+        last_eta_update = 0.0
         for stream_id in selected_streams:
             stream_rows = [row for row in selected_rows if row["stream_id"] == stream_id]
             if stream_task is not None:
@@ -526,8 +541,14 @@ def main() -> int:
                     }
                 )
                 progress.advance(file_task)
+                now = time.monotonic()
+                if now - last_eta_update >= 1.0:
+                    eta_seconds = estimate_eta_seconds(get_progress_task(progress, file_task))
+                    progress.update(file_task, eta_seconds=eta_seconds)
+                    last_eta_update = now
             if stream_task is not None:
                 progress.advance(stream_task)
+        progress.update(file_task, eta_seconds=0)
 
     manifest_headers = [
         "day",
