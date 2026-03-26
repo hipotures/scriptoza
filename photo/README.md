@@ -75,3 +75,50 @@ If collision occurs (rare, during burst shooting), automatic counter is added:
 - **RAW**: .arw (Sony), .nef (Nikon), .cr3 (Canon)
 - **JPEG**: .jpg, .jpeg (Universal)
 - **HEIF**: .hif, .heif (Sony, Fuji)
+
+## convert_hif_to_jpg.py
+
+Convert `.hif` and `.heif` files from the current working directory into resized `.jpg` files inside a `pX/` subdirectory, where `X` is the scale percentage.
+
+### Features
+
+- Scans only the current directory
+- Ignores subdirectories
+- Default resize is `25%` of original resolution
+- Creates output folder automatically, for example `p25/`
+- Supports overwrite control for existing JPG files
+- Uses a Rich progress bar during conversion
+- Uses high-quality JPEG settings for better 10-bit HEIF to 8-bit JPG conversion
+
+### Requirements
+
+- Python 3.7+
+- ImageMagick or ffmpeg
+
+### Usage
+
+```bash
+# Run in directory containing HIF files
+cd /path/to/photos
+python /path/to/scriptoza/photo/convert_hif_to_jpg.py
+
+# Convert to 50% resolution
+python /path/to/scriptoza/photo/convert_hif_to_jpg.py --scale 50
+
+# Overwrite existing JPG files in p25/
+python /path/to/scriptoza/photo/convert_hif_to_jpg.py --overwrite
+```
+
+### Output
+
+- Source: files in the current directory with `.hif` or `.heif` extension
+- Destination: `./pX/*.jpg`
+- Example: `20260323_145702_001_16482304.hif` -> `p25/20260323_145702_001_16482304.jpg`
+
+### Note About 10-bit HEIF
+
+JPEG output is always 8-bit per channel, so converting from 10-bit HEIF is inherently lossy.
+
+- Small tonal detail can be lost in smooth gradients or deep shadows
+- The script uses `quality=95`, `4:4:4` chroma sampling, sRGB conversion, and Lanczos resizing to minimize visible loss
+- If preserving 10-bit tonal precision is important, convert to TIFF or PNG instead of JPG

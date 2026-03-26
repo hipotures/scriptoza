@@ -19,6 +19,7 @@ Collection of small utility scripts organized by category. Each category has its
 ### Photo (photo/)
 
 - `rename_photo.py` - Universal photo renaming tool (Sony RAW/JPG, Panasonic JPG)
+- `convert_hif_to_jpg.py` - Converts HIF/HEIF files from the current directory into resized JPG files in a `pX` subfolder
 
 ### Utils (utils/)
 
