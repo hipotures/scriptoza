@@ -29,6 +29,17 @@ Collection of small utility scripts organized by category. Each category has its
 - `organize_by_date.py` - Safe universal organizer that groups files into YYYYMMDD folders from filename dates
 - `safe_rename_tt.py` - Safe date-based renamer for TikTok downloads
 - `scan_mp4_to_json.py` - Scans MP4 files and outputs metadata as JSON
+- `export_event_media_csv.py` - Exports per-day media metadata from `p-*/v-*` device folders into `_workspace/*.csv`
+- `merge_event_media_csv.py` - Merges per-stream day CSV files from `_workspace/` into normalized video/photo/all day CSVs
+- `estimate_video_sync_map.py` - Estimates constant audio-based sync corrections between video streams and writes `sync_map.csv`
+- `apply_video_sync_map.py` - Applies `sync_map.csv` to merged video rows and writes `merged_video_synced.csv`
+- `transcribe_video_batch.py` - Batch-runs WhisperX on synced video rows and writes transcripts plus a manifest
+- `transcribe_video_batch_api.py` - Batch-runs WhisperX through the Python API and reuses one loaded model while writing into the normal transcript workspace
+- `extract_announcement_candidates.py` - Parses WhisperX JSON transcripts and extracts candidate `numer X` announcement rows with absolute local timestamps
+- `build_performance_timeline.py` - Converts announcement candidates into buffered performance intervals in `performance_timeline.csv`
+- `assign_photos_to_timeline.py` - Assigns exported photo rows to timeline intervals and writes review and unassigned CSVs without generating moves
+- `generate_photo_proxy_jpg.py` - Generates rotated proxy JPG files from exported photo CSV rows into `_workspace/proxy_jpg/` for fast visual review
+- `generate_mv_commands_from_timeline.py` - Generates `mkdir`/`mv` commands from exported photo CSV files and a performance timeline CSV
 
 ### Deprecated (deprecated/)
 

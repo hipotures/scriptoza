@@ -196,7 +196,7 @@ def get_demo_data() -> dict:
             }
         },
         "workspace": {
-            "current_dir": "/home/xai/DEV/scriptoza"
+            "current_dir": "/path/to/project"
         }
     }
 

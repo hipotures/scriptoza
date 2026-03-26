@@ -59,6 +59,7 @@ tests/data/
 
 # Ignore environment files
 .env
+.venv/
 
 # Ignore Python cache
 __pycache__/

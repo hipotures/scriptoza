@@ -2,6 +2,44 @@
 
 Collection of utility scripts for various tasks.
 
+## Event Media Workflow
+
+### generate_photo_proxy_jpg.py
+
+Generate fast proxy JPG files from exported photo CSV rows into the day workspace.
+
+**Features:**
+- Reads exported `p-*.csv` files from `DAY/_workspace/`
+- Writes proxy JPG files to `DAY/_workspace/proxy_jpg/<stream>/`
+- Uses `magick` with `-auto-orient` when available
+- Resizes to a configurable longer-edge target instead of percentage scaling
+- Supports stream filtering and `--max-files` limits for quick review passes
+- Writes `photo_proxy_manifest.csv` with source/proxy/status rows
+
+**Usage:**
+
+```bash
+# Generate 100 sample proxies for one stream
+python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5 --max-files 100
+
+# Generate all proxies for one stream with a larger review size
+python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5 --long-edge 1200
+
+# Regenerate existing proxies
+python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5 --overwrite
+
+# Continue without prompting when proxy files already exist
+python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5 --continue-existing
+```
+
+**Notes:**
+- In continue mode, `--max-files N` means "create up to N new missing proxy files"
+- In overwrite mode, `--max-files N` means "process the first N selected rows"
+
+**Output:**
+- Proxy JPG files: `DAY/_workspace/proxy_jpg/<stream>/*.jpg`
+- Manifest: `DAY/_workspace/photo_proxy_manifest.csv`
+
 ## 📊 Claude Code Session Management
 
 Suite of tools for tracking, analyzing, and managing Claude Code sessions with SQLite-based logging.
@@ -85,8 +123,8 @@ Comprehensive session statistics and analytics dashboard.
 ┌──────────┬─────────────────────────┬────────┬────────┬─────────────────────┐
 │    id    │         project         │  cost  │ tokens │     last_update     │
 ├──────────┼─────────────────────────┼────────┼────────┼─────────────────────┤
-│ 8552743b │ /home/xai/DEV/scriptoza │ $12.41 │ 141k   │ 2025-12-25 18:30:50 │
-│ f2af13c2 │ /home/xai/DEV/scriptoza │ $8.03  │ 102k   │ 2025-12-25 17:55:31 │
+│ 8552743b │ /path/to/project-a      │ $12.41 │ 141k   │ 2025-12-25 18:30:50 │
+│ f2af13c2 │ /path/to/project-a      │ $8.03  │ 102k   │ 2025-12-25 17:55:31 │
 ```
 
 **2. Suma kosztów per projekt**
@@ -94,8 +132,8 @@ Comprehensive session statistics and analytics dashboard.
 ┌─────────────────────────┬────────────┬──────────┬──────────────┐
 │         project         │ total_cost │ sessions │ total_tokens │
 ├─────────────────────────┼────────────┼──────────┼──────────────┤
-│ /home/xai/DEV/scriptoza │ $34.04     │ 12       │ 376k         │
-│ /home/xai/ml/kaggle     │ $1.60      │ 1        │ 24k          │
+│ /path/to/project-a      │ $34.04     │ 12       │ 376k         │
+│ /path/to/project-b      │ $1.60      │ 1        │ 24k          │
 ```
 
 **3. Cost & Tokens per day**
@@ -240,6 +278,366 @@ The system uses **INSERT OR REPLACE** strategy:
 ---
 
 ## 🎵 Other Utilities
+
+### export_event_media_csv.py
+
+Export normalized media metadata for a single event day into per-stream CSV files stored in that day's `_workspace/` directory.
+
+### Expected Day Layout
+
+The script works on one day directory at a time, for example:
+
+```bash
+/path/to/day/20260323/
+├── p-a7r5/
+├── v-a7r5/
+├── v-gh7/
+├── v-pocket3/
+└── _workspace/
+```
+
+- `p-a7r5` - Sony A7R5 photos
+- `v-a7r5` - Sony A7R5 video
+- `v-gh7` - Panasonic GH7 video
+- `v-pocket3` - DJI Pocket 3 video
+- `bvr/` is ignored on purpose
+
+### Features
+
+- Works on a single day directory, not the event root
+- Writes one CSV per selected stream into `DAY/_workspace/`
+- Supports selective rescan with `--targets`, for example `p-a7r5` or `v-gh7`
+- Shows progress for both selected streams and processed files
+- Exports raw timestamp tags alongside normalized fields so later merge steps can work only on CSV files
+- Skips symlinked duplicate files inside stream folders
+
+### Timestamp Mapping
+
+Normalized fields are written with stable names like `start_local`, `end_local`, `duration_seconds`, `device`, and `stream_id`.
+
+- `p-a7r5`: `start_local` comes from EXIF timestamps with fallback to file dates
+- `v-a7r5`: `start_local` comes from normalized video metadata with fallback to file dates
+- `v-pocket3`: `start_local` comes from normalized video metadata with fallback to file dates
+- `v-gh7`: `start_local` comes from normalized video metadata with fallback to file dates
+
+The CSV keeps raw fields such as:
+
+- `create_date_raw`
+- `track_create_date_raw`
+- `media_create_date_raw`
+- `datetime_original_raw`
+- `subsec_datetime_original_raw`
+- `subsec_create_date_raw`
+- `file_modify_date_raw`
+- `file_create_date_raw`
+
+This allows a later merge step to use one normalized schema while preserving device-specific source tags for debugging.
+
+For `2026-03-23` and `2026-03-24` in `Europe/Warsaw`, the working timeline should be treated as local time. The exporter does not use timestamps parsed from filenames.
+
+### Usage
+
+```bash
+# List detected streams for one day
+python utils/export_event_media_csv.py /path/to/day/20260323 --list-targets
+
+# Export all detected streams into DAY/_workspace/
+python utils/export_event_media_csv.py /path/to/day/20260323
+
+# Rescan only selected streams
+python utils/export_event_media_csv.py /path/to/day/20260323 --targets p-a7r5 v-gh7
+```
+
+### Output
+
+- `DAY/_workspace/p-a7r5.csv`
+- `DAY/_workspace/v-a7r5.csv`
+- `DAY/_workspace/v-gh7.csv`
+- `DAY/_workspace/v-pocket3.csv`
+- `DAY/_workspace/summary.csv`
+
+### merge_event_media_csv.py
+
+Merge per-stream CSV files from `DAY/_workspace/` into one normalized day-level CSV.
+
+### Features
+
+- Works on one day directory at a time
+- Reads only `p-*.csv` and `v-*.csv` from `DAY/_workspace/`
+- Supports `--media-type video|photo|all`, with `video` as the default
+- Keeps `stream_id`, `device`, and `media_type` in the merged output
+- Preserves normalized fields and raw source timestamp fields
+- Supports selective merge with `--targets`
+
+### Usage
+
+```bash
+# List mergeable stream CSV files
+python utils/merge_event_media_csv.py /path/to/day/20260323 --list-targets
+
+# Merge all video stream CSV files from DAY/_workspace/ into merged_video.csv
+python utils/merge_event_media_csv.py /path/to/day/20260323
+
+# Merge only selected video streams
+python utils/merge_event_media_csv.py /path/to/day/20260323 --targets v-gh7 v-pocket3
+
+# Merge photo streams into merged_photo.csv
+python utils/merge_event_media_csv.py /path/to/day/20260323 --media-type photo
+
+# Merge both photo and video streams into merged_media.csv
+python utils/merge_event_media_csv.py /path/to/day/20260323 --media-type all
+```
+
+### Output
+
+- `DAY/_workspace/merged_video.csv` for `--media-type video`
+- `DAY/_workspace/merged_photo.csv` for `--media-type photo`
+- `DAY/_workspace/merged_media.csv` for `--media-type all`
+
+The merged file uses one stable schema across photo and video rows. Photo-only or video-only fields remain empty where they do not apply.
+
+### estimate_video_sync_map.py
+
+Estimate per-stream constant sync corrections for video using audio correlation on overlapping clips.
+
+### Features
+
+- Works on one day directory at a time
+- Reads `DAY/_workspace/merged_video.csv`
+- Auto-selects the reference stream with the longest total duration unless `--reference-stream` is provided
+- Finds overlapping clip pairs between the reference stream and each target stream
+- Extracts short audio windows with `ffmpeg` and estimates corrections with cross-correlation
+- Writes both a filtered `sync_map.csv` and detailed `sync_diagnostics.csv`
+
+### Usage
+
+```bash
+# Estimate sync corrections for all non-reference video streams
+python utils/estimate_video_sync_map.py /path/to/day/20260323
+
+# Use an explicit reference stream
+python utils/estimate_video_sync_map.py /path/to/day/20260323 --reference-stream v-gh7
+```
+
+### Output
+
+- `DAY/_workspace/sync_map.csv`
+- `DAY/_workspace/sync_diagnostics.csv`
+
+### apply_video_sync_map.py
+
+Apply `sync_map.csv` corrections to `merged_video.csv` and write a synced video timeline CSV.
+
+### Features
+
+- Works on one day directory at a time
+- Reads `DAY/_workspace/merged_video.csv` and `DAY/_workspace/sync_map.csv`
+- Writes `start_synced` and `end_synced` per clip
+- Preserves the original metadata-based `start_local` and `end_local`
+
+### Usage
+
+```bash
+python utils/apply_video_sync_map.py /path/to/day/20260323
+```
+
+### Output
+
+- `DAY/_workspace/merged_video_synced.csv`
+
+### transcribe_video_batch.py
+
+Batch transcription wrapper for WhisperX using synced video rows from `merged_video_synced.csv`.
+
+### Features
+
+- Works on one day directory at a time
+- Uses `.venv/bin/whisperx` when available
+- Defaults to `model=large`, `device=cuda`, `compute_type=float16`, `batch_size=16`, `chunk_size=10`, `threads=8`, `language=pl`, `output_format=json`, and disabled alignment
+- Defaults to the reference stream from `sync_map.csv`; `--all-streams` or `--streams ...` can override that
+- Writes transcripts to `DAY/_workspace/transcripts/<stream_id>/`
+- Writes one manifest CSV for downstream processing
+- Marks empty JSON transcripts as `done_empty` in the manifest when no segments are detected
+- Uses fixed-width progress counters so `completed/total` stays vertically aligned across tasks
+- Shows the current stream name on the `Streams` row while `Files` remains a global file counter
+- Handles `Ctrl+C` gracefully by finishing the current file, writing the manifest, and stopping without a traceback
+- Skips existing outputs unless `--force` is used
+
+### Usage
+
+```bash
+# List available streams
+python utils/transcribe_video_batch.py /path/to/day/20260323 --list-streams
+
+# Transcribe the reference stream only
+python utils/transcribe_video_batch.py /path/to/day/20260323
+
+# Transcribe specific streams
+python utils/transcribe_video_batch.py /path/to/day/20260323 --streams v-pocket3 v-gh7
+
+# Transcribe all video streams
+python utils/transcribe_video_batch.py /path/to/day/20260323 --all-streams
+
+# Skip very short clips during selection
+python utils/transcribe_video_batch.py /path/to/day/20260323 --min-duration-seconds 60
+
+# Re-enable alignment explicitly
+python utils/transcribe_video_batch.py /path/to/day/20260323 --align
+```
+
+### Output
+
+- `DAY/_workspace/transcripts/<stream_id>/<video_basename>.json`
+- `DAY/_workspace/transcripts_manifest.csv`
+
+Timestamp-bearing formats:
+
+- `json` - best for automatic parsing
+- `vtt` - yes, includes timestamps
+- `srt` - yes, includes timestamps
+- `tsv` - yes, includes timestamps
+- `txt` - no timestamps
+
+### transcribe_video_batch_api.py
+
+Batch transcription wrapper for WhisperX using the Python API so one loaded model can be reused across many clips.
+
+### Features
+
+- Works on one day directory at a time
+- Loads the WhisperX model once per run instead of once per clip
+- Defaults to `model=large`, `device=cuda`, `compute_type=float16`, `batch_size=16`, `chunk_size=10`, `threads=8`, `language=pl`, `output_format=json`, and disabled alignment
+- Defaults to the reference stream from `sync_map.csv`; `--all-streams` or `--streams ...` can override that
+- Writes transcripts to `DAY/_workspace/transcripts/<stream_id>/`
+- Writes one manifest CSV for downstream processing
+- Handles `Ctrl+C` gracefully by finishing the current file, writing the manifest, and stopping without a traceback
+
+### Usage
+
+```bash
+# List available streams
+python utils/transcribe_video_batch_api.py /path/to/day/20260323 --list-streams
+
+# Transcribe the reference stream only
+python utils/transcribe_video_batch_api.py /path/to/day/20260323
+
+# Transcribe specific streams
+python utils/transcribe_video_batch_api.py /path/to/day/20260323 --streams v-pocket3
+
+# Re-enable alignment explicitly
+python utils/transcribe_video_batch_api.py /path/to/day/20260323 --align
+```
+
+### Output
+
+- `DAY/_workspace/transcripts/<stream_id>/<video_basename>.json`
+- `DAY/_workspace/transcripts_manifest.csv`
+
+### extract_announcement_candidates.py
+
+Parse WhisperX JSON transcripts and extract candidate performance announcements like `numer 1` into one CSV with absolute local timestamps.
+
+### Features
+
+- Works on one day directory at a time
+- Reads `DAY/_workspace/merged_video_synced.csv`
+- Scans transcript JSON files from `DAY/_workspace/transcripts/<stream_id>/`
+- Converts segment-relative timestamps into absolute local timestamps using `start_synced`
+- Extracts `numer` and `nr` matches with digits or Polish number words
+- Writes one candidate CSV for downstream timeline building
+
+### Usage
+
+```bash
+# List transcript streams that already have JSON files
+python utils/extract_announcement_candidates.py /path/to/day/20260323 --list-streams
+
+# Parse every available transcript stream
+python utils/extract_announcement_candidates.py /path/to/day/20260323
+
+# Parse only selected streams
+python utils/extract_announcement_candidates.py /path/to/day/20260323 --streams v-pocket3
+```
+
+### Output
+
+- `DAY/_workspace/announcement_candidates.csv`
+
+### build_performance_timeline.py
+
+Convert announcement candidates into performance intervals by starting each item after its announcement and ending it just before the next announcement.
+
+### Features
+
+- Works on one day directory at a time
+- Reads `DAY/_workspace/announcement_candidates.csv`
+- Merges duplicate candidate rows for the same performance number when they are close in time
+- Writes `start_local` and `end_local` intervals with configurable start and end buffers
+- Marks the last item as `open_end` until a later announcement is available
+
+### Usage
+
+```bash
+python utils/build_performance_timeline.py /path/to/day/20260323
+```
+
+### Output
+
+- `DAY/_workspace/performance_timeline.csv`
+
+### assign_photos_to_timeline.py
+
+Assign exported photo rows to performance intervals from `performance_timeline.csv` and write reviewable CSV outputs without generating any move commands.
+
+### Features
+
+- Works on one day directory at a time
+- Reads `DAY/_workspace/p-*.csv`
+- Reads `DAY/_workspace/performance_timeline.csv`
+- Supports a constant photo timestamp offset for clock correction
+- Marks rows close to performance boundaries into a separate review CSV
+- Keeps photos outside known intervals in an unassigned CSV
+
+### Usage
+
+```bash
+# List available photo streams
+python utils/assign_photos_to_timeline.py /path/to/day/20260323 --list-streams
+
+# Assign photos with default settings
+python utils/assign_photos_to_timeline.py /path/to/day/20260323
+
+# Assign only one photo stream with a manual offset
+python utils/assign_photos_to_timeline.py /path/to/day/20260323 --streams p-a7r5 --photo-offset-seconds 0
+```
+
+### Output
+
+- `DAY/_workspace/photo_assignments.csv`
+- `DAY/_workspace/photo_review.csv`
+- `DAY/_workspace/photo_unassigned.csv`
+- `DAY/_workspace/photo_assignment_summary.csv`
+
+### generate_mv_commands_from_timeline.py
+
+Generate a shell script with `mkdir -p` and `mv` commands from exported photo CSV files and a timeline CSV containing performance intervals.
+
+### Timeline CSV Columns
+
+- `day`
+- `performance_number`
+- `start_local`
+- `end_local`
+- optional `target_dir`
+
+### Usage
+
+```bash
+python utils/generate_mv_commands_from_timeline.py \
+  /path/to/day/20260323/_workspace \
+  /path/to/performance_timeline.csv \
+  --output-script /path/to/mv_commands.sh
+```
 
 ### organize_by_date.py
 
