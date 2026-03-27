@@ -648,7 +648,7 @@ Assign exported photo rows to performance intervals from `performance_timeline.c
 - Reads `DAY/_workspace/p-*.csv`
 - Reads `DAY/_workspace/performance_timeline.csv`
 - Supports a constant photo timestamp offset for clock correction
-- Marks rows close to performance boundaries into a separate review CSV
+- Marks rows close to neighboring set photo edges into a separate review CSV
 - Keeps photos outside known intervals in an unassigned CSV
 
 ### Usage

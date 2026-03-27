@@ -53,11 +53,12 @@ def build_summary_table(performance_count: int, photo_count: int, missing_proxy_
     return table
 
 
-def performance_sort_key(value: str) -> tuple[int, str]:
-    try:
-        return (0, f"{int(value):09d}")
-    except ValueError:
-        return (1, value)
+def set_sort_key(row: Dict[str, str]) -> tuple[str, str, str]:
+    return (
+        row.get("performance_start_local", ""),
+        row.get("set_id", ""),
+        row.get("adjusted_start_local", ""),
+    )
 
 
 def main() -> int:
@@ -83,11 +84,12 @@ def main() -> int:
         return 1
 
     rows = read_csv_rows(assignments_csv)
-    rows.sort(key=lambda row: (performance_sort_key(row["performance_number"]), row["adjusted_start_local"], row["filename"]))
+    rows.sort(key=set_sort_key)
 
     performances: Dict[str, Dict] = {}
     missing_proxy_count = 0
     for row in rows:
+        set_id = row.get("set_id") or row["performance_number"]
         performance_number = row["performance_number"]
         stream_id = row["stream_id"]
         proxy_path = proxy_root / stream_id / f"{Path(row['filename']).stem}.jpg"
@@ -95,9 +97,12 @@ def main() -> int:
         if not proxy_exists:
             missing_proxy_count += 1
         performance = performances.setdefault(
-            performance_number,
+            set_id,
             {
+                "set_id": set_id,
                 "performance_number": performance_number,
+                "occurrence_index": row.get("occurrence_index", ""),
+                "duplicate_status": row.get("duplicate_status", "normal"),
                 "target_dir": row["target_dir"],
                 "timeline_status": row["timeline_status"],
                 "performance_start_local": row["performance_start_local"],
@@ -139,7 +144,13 @@ def main() -> int:
             }
         )
 
-    performance_list = [performances[key] for key in sorted(performances, key=performance_sort_key)]
+    performance_list = sorted(
+        performances.values(),
+        key=lambda item: (
+            item.get("performance_start_local", ""),
+            item.get("set_id", ""),
+        ),
+    )
     payload = {
         "day": day_dir.name,
         "workspace_dir": str(workspace_dir),

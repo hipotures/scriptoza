@@ -26,6 +26,7 @@ DAY_PATTERN = re.compile(r"^\d{8}$")
 
 ASSIGNMENT_HEADERS = [
     "day",
+    "set_id",
     "stream_id",
     "device",
     "filename",
@@ -35,6 +36,8 @@ ASSIGNMENT_HEADERS = [
     "adjusted_start_local",
     "photo_offset_seconds",
     "performance_number",
+    "occurrence_index",
+    "duplicate_status",
     "target_dir",
     "timeline_status",
     "performance_start_local",
@@ -65,7 +68,10 @@ UNASSIGNED_HEADERS = [
 
 SUMMARY_HEADERS = [
     "day",
+    "set_id",
     "performance_number",
+    "occurrence_index",
+    "duplicate_status",
     "target_dir",
     "timeline_status",
     "performance_start_local",
@@ -129,8 +135,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--review-margin-seconds",
         type=float,
-        default=15.0,
-        help="Mark assigned photos near boundaries for review. Default: 15.0",
+        default=30.0,
+        help="Mark assigned photos near neighboring set photo edges for review. Default: 30.0",
     )
     parser.add_argument(
         "--include-open-end",
@@ -283,9 +289,8 @@ def build_assignment_row(
     photo_row: Dict[str, str],
     adjusted_dt: datetime,
     photo_offset_seconds: float,
-    review_margin_seconds: float,
     timeline_item: Dict[str, object],
-) -> Tuple[Dict[str, str], bool]:
+) -> Dict[str, str]:
     timeline_row = timeline_item["row"]
     start = timeline_item["start"]
     end = timeline_item["end"]
@@ -296,18 +301,13 @@ def build_assignment_row(
     if end is None:
         assignment_status = "provisional_open_end"
         assignment_reason = "matched_open_end_interval"
-        needs_review = True
-    elif nearest_boundary <= review_margin_seconds:
-        assignment_status = "review"
-        assignment_reason = "near_interval_boundary"
-        needs_review = True
     else:
         assignment_status = "assigned"
         assignment_reason = "matched_complete_interval"
-        needs_review = False
 
     row = {
         "day": photo_row.get("day", ""),
+        "set_id": timeline_row.get("set_id", ""),
         "stream_id": photo_row.get("stream_id", ""),
         "device": photo_row.get("device", ""),
         "filename": photo_row.get("filename", ""),
@@ -317,6 +317,8 @@ def build_assignment_row(
         "adjusted_start_local": format_datetime(adjusted_dt),
         "photo_offset_seconds": format_seconds(photo_offset_seconds),
         "performance_number": timeline_row.get("performance_number", ""),
+        "occurrence_index": timeline_row.get("occurrence_index", ""),
+        "duplicate_status": timeline_row.get("duplicate_status", ""),
         "target_dir": timeline_row.get("target_dir", ""),
         "timeline_status": timeline_row.get("status", ""),
         "performance_start_local": timeline_row.get("start_local", ""),
@@ -327,7 +329,7 @@ def build_assignment_row(
         "assignment_status": assignment_status,
         "assignment_reason": assignment_reason,
     }
-    return row, needs_review
+    return row
 
 
 def classify_unassigned_reason(
@@ -377,26 +379,104 @@ def build_unassigned_row(
     }
 
 
+def parse_assignment_datetime(row: Dict[str, str]) -> datetime:
+    value = parse_local_datetime(row.get("adjusted_start_local", ""))
+    if value is None:
+        raise ValueError(f"Invalid adjusted_start_local: {row.get('adjusted_start_local', '')}")
+    return value
+
+
+def apply_neighbor_review_margin(
+    assignment_rows: Sequence[Dict[str, str]],
+    review_margin_seconds: float,
+) -> List[Dict[str, str]]:
+    if review_margin_seconds <= 0:
+        return list(assignment_rows)
+
+    set_bounds: Dict[str, Dict[str, datetime]] = {}
+    ordered_set_ids: List[str] = []
+    for row in assignment_rows:
+        set_id = row.get("set_id", "")
+        if not set_id:
+            continue
+        adjusted_dt = parse_assignment_datetime(row)
+        bounds = set_bounds.get(set_id)
+        if bounds is None:
+            set_bounds[set_id] = {"first": adjusted_dt, "last": adjusted_dt}
+            ordered_set_ids.append(set_id)
+            continue
+        if adjusted_dt < bounds["first"]:
+            bounds["first"] = adjusted_dt
+        if adjusted_dt > bounds["last"]:
+            bounds["last"] = adjusted_dt
+
+    previous_last_by_set: Dict[str, Optional[datetime]] = {}
+    next_first_by_set: Dict[str, Optional[datetime]] = {}
+    for index, set_id in enumerate(ordered_set_ids):
+        previous_last_by_set[set_id] = set_bounds[ordered_set_ids[index - 1]]["last"] if index > 0 else None
+        next_first_by_set[set_id] = (
+            set_bounds[ordered_set_ids[index + 1]]["first"] if index + 1 < len(ordered_set_ids) else None
+        )
+
+    updated_rows: List[Dict[str, str]] = []
+    for row in assignment_rows:
+        if row["assignment_status"] == "provisional_open_end":
+            updated_rows.append(row)
+            continue
+        set_id = row.get("set_id", "")
+        adjusted_dt = parse_assignment_datetime(row)
+        candidate_distances: List[Tuple[float, str]] = []
+
+        previous_last = previous_last_by_set.get(set_id)
+        if previous_last is not None:
+            previous_gap = (adjusted_dt - previous_last).total_seconds()
+            if 0 <= previous_gap <= review_margin_seconds:
+                candidate_distances.append((previous_gap, "near_previous_set_photos"))
+
+        next_first = next_first_by_set.get(set_id)
+        if next_first is not None:
+            next_gap = (next_first - adjusted_dt).total_seconds()
+            if 0 <= next_gap <= review_margin_seconds:
+                candidate_distances.append((next_gap, "near_next_set_photos"))
+
+        if candidate_distances:
+            nearest_distance, reason = min(candidate_distances, key=lambda item: item[0])
+            updated_row = dict(row)
+            updated_row["assignment_status"] = "review"
+            updated_row["assignment_reason"] = reason
+            updated_row["seconds_to_nearest_boundary"] = format_seconds(nearest_distance)
+            updated_rows.append(updated_row)
+            continue
+
+        updated_rows.append(row)
+
+    return updated_rows
+
+
 def build_summary_rows(
     timeline_rows: Sequence[Dict[str, object]],
     assignment_rows: Sequence[Dict[str, str]],
 ) -> List[Dict[str, str]]:
     grouped: Dict[str, List[Dict[str, str]]] = {}
     for row in assignment_rows:
-        grouped.setdefault(row["performance_number"], []).append(row)
+        grouped.setdefault(row["set_id"], []).append(row)
 
     output_rows: List[Dict[str, str]] = []
     for item in timeline_rows:
         timeline_row = item["row"]
+        set_id = timeline_row.get("set_id", "")
         performance_number = timeline_row.get("performance_number", "")
-        rows = grouped.get(performance_number, [])
+        rows = grouped.get(set_id, [])
         review_count = sum(1 for row in rows if row["assignment_status"] != "assigned")
         first_photo = rows[0]["adjusted_start_local"] if rows else ""
         last_photo = rows[-1]["adjusted_start_local"] if rows else ""
         output_rows.append(
             {
                 "day": timeline_row.get("day", ""),
+                "set_id": set_id,
                 "performance_number": performance_number,
+                "occurrence_index": timeline_row.get("occurrence_index", ""),
+                "duplicate_status": timeline_row.get("duplicate_status", ""),
                 "target_dir": timeline_row.get("target_dir", ""),
                 "timeline_status": timeline_row.get("status", ""),
                 "performance_start_local": timeline_row.get("start_local", ""),
@@ -513,16 +593,13 @@ def main() -> int:
                 adjusted_dt = photo_dt + offset_delta
                 matched = find_assignment(adjusted_dt, timeline_rows)
                 if matched is not None:
-                    assignment_row, needs_review = build_assignment_row(
+                    assignment_row = build_assignment_row(
                         photo_row,
                         adjusted_dt,
                         args.photo_offset_seconds,
-                        args.review_margin_seconds,
                         matched,
                     )
                     assignment_rows.append(assignment_row)
-                    if needs_review:
-                        review_rows.append(assignment_row)
                 else:
                     reason, previous_item, next_item = classify_unassigned_reason(adjusted_dt, timeline_rows)
                     unassigned_rows.append(
@@ -540,6 +617,8 @@ def main() -> int:
             progress.advance(streams_task)
 
     assignment_rows.sort(key=lambda row: (row["adjusted_start_local"], row["stream_id"], row["filename"]))
+    assignment_rows = apply_neighbor_review_margin(assignment_rows, args.review_margin_seconds)
+    review_rows = [row for row in assignment_rows if row["assignment_status"] != "assigned"]
     review_rows.sort(key=lambda row: (row["adjusted_start_local"], row["stream_id"], row["filename"]))
     unassigned_rows.sort(key=lambda row: (row["adjusted_start_local"], row["stream_id"], row["filename"]))
     summary_rows = build_summary_rows(timeline_rows, assignment_rows)

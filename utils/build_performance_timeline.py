@@ -17,7 +17,10 @@ DAY_PATTERN = re.compile(r"^\d{8}$")
 
 OUTPUT_HEADERS = [
     "day",
+    "set_id",
     "performance_number",
+    "occurrence_index",
+    "duplicate_status",
     "target_dir",
     "start_local",
     "end_local",
@@ -67,6 +70,12 @@ def parse_args() -> argparse.Namespace:
         default=12.0,
         help="Maximum gap for merging duplicate candidate rows of the same performance number. Default: 12.0",
     )
+    parser.add_argument(
+        "--duplicate-far-gap-seconds",
+        type=float,
+        default=600.0,
+        help="Mark repeated performance numbers as far duplicates when the gap is larger than this. Default: 600.0",
+    )
     return parser.parse_args()
 
 
@@ -112,7 +121,7 @@ def candidate_sort_key(row: Dict[str, str]) -> tuple:
 
 
 def merge_candidates(rows: Sequence[Dict[str, str]], merge_gap_seconds: float) -> List[Dict[str, str]]:
-    sorted_rows = sorted(rows, key=lambda row: (int(row["performance_number"]), parse_local_datetime(row["segment_start_local"])))
+    sorted_rows = sorted(rows, key=candidate_sort_key)
     merged: List[Dict[str, str]] = []
     current_group: List[Dict[str, str]] = []
 
@@ -160,10 +169,13 @@ def build_timeline_rows(
     merged_candidates: Sequence[Dict[str, str]],
     start_buffer_seconds: float,
     end_buffer_seconds: float,
+    duplicate_far_gap_seconds: float,
 ) -> List[Dict[str, str]]:
     output_rows: List[Dict[str, str]] = []
     start_buffer = timedelta(seconds=start_buffer_seconds)
     end_buffer = timedelta(seconds=end_buffer_seconds)
+    occurrence_counts: Dict[str, int] = {}
+    previous_start_by_number: Dict[str, datetime] = {}
 
     for index, row in enumerate(merged_candidates):
         announcement_start = parse_local_datetime(row["announcement_start_local"])
@@ -183,11 +195,28 @@ def build_timeline_rows(
                 status = "invalid_overlap"
                 notes = ",".join(part for part in [notes, "next_announcement_overlaps"] if part)
 
+        performance_number = row["performance_number"]
+        occurrence_index = occurrence_counts.get(performance_number, 0) + 1
+        previous_start = previous_start_by_number.get(performance_number)
+        duplicate_status = "normal"
+        if previous_start is not None:
+            gap_seconds = (announcement_start - previous_start).total_seconds()
+            if gap_seconds > duplicate_far_gap_seconds:
+                duplicate_status = "duplicate_far"
+            else:
+                duplicate_status = "duplicate_near"
+        occurrence_counts[performance_number] = occurrence_index
+        previous_start_by_number[performance_number] = announcement_start
+        target_dir = performance_number if occurrence_index == 1 else f"{performance_number}__dup{occurrence_index}"
+
         output_rows.append(
             {
                 "day": row["day"],
-                "performance_number": row["performance_number"],
-                "target_dir": row["performance_number"],
+                "set_id": f"{performance_number}@{format_datetime(start_local)}",
+                "performance_number": performance_number,
+                "occurrence_index": str(occurrence_index),
+                "duplicate_status": duplicate_status,
+                "target_dir": target_dir,
                 "start_local": format_datetime(start_local),
                 "end_local": format_datetime(end_local),
                 "announcement_start_local": row["announcement_start_local"],
@@ -207,6 +236,8 @@ def build_summary_table(rows: Sequence[Dict[str, str]]) -> Table:
     complete = sum(1 for row in rows if row["status"] == "complete")
     open_end = sum(1 for row in rows if row["status"] == "open_end")
     invalid = sum(1 for row in rows if row["status"] == "invalid_overlap")
+    duplicate_far = sum(1 for row in rows if row["duplicate_status"] == "duplicate_far")
+    duplicate_near = sum(1 for row in rows if row["duplicate_status"] == "duplicate_near")
     table = Table(title="Performance Timeline Summary", expand=False)
     table.add_column("Metric", style="cyan")
     table.add_column("Value", justify="right", style="green")
@@ -214,6 +245,8 @@ def build_summary_table(rows: Sequence[Dict[str, str]]) -> Table:
     table.add_row("Complete", str(complete))
     table.add_row("Open End", str(open_end))
     table.add_row("Invalid Overlap", str(invalid))
+    table.add_row("Duplicate Near", str(duplicate_near))
+    table.add_row("Duplicate Far", str(duplicate_far))
     if rows:
         table.add_row("First Performance", rows[0]["performance_number"])
         table.add_row("Last Performance", rows[-1]["performance_number"])
@@ -250,6 +283,7 @@ def main() -> int:
         merged_candidates,
         args.start_buffer_seconds,
         args.end_buffer_seconds,
+        args.duplicate_far_gap_seconds,
     )
     written = write_csv(output_path, OUTPUT_HEADERS, timeline_rows)
     console.print(build_summary_table(timeline_rows))

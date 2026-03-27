@@ -53,6 +53,7 @@ TREE_ICON_SIZE_MINI = 24
 TREE_ICON_SIZE_FULL_MINI = 96
 PREVIEW_CACHE_LIMIT = 4096
 LONG_SET_THRESHOLD_SECONDS = 360
+PHOTO_GAP_THRESHOLD_SECONDS = 600
 
 
 def parse_args() -> argparse.Namespace:
@@ -172,7 +173,7 @@ class MainWindow(QMainWindow):
         tree_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         tree_header.setSectionResizeMode(3, QHeaderView.Stretch)
         tree_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.tree.setColumnWidth(0, 120)
+        self.tree.setColumnWidth(0, self.minimum_set_column_width())
         self.tree.itemSelectionChanged.connect(self.on_selection_changed)
         self.tree.itemExpanded.connect(self.on_item_expanded)
         self.tree.previousPerformanceRequested.connect(self.select_previous_set)
@@ -240,7 +241,9 @@ class MainWindow(QMainWindow):
         self.info_dock.hide()
 
         self.setStatusBar(QStatusBar())
+        self.migrate_split_state_keys()
         self.rebuild_display_sets()
+        self.migrate_review_state_keys()
         self.build_tree()
         self.install_actions()
         self.preload_set_images()
@@ -377,9 +380,23 @@ class MainWindow(QMainWindow):
         end = datetime.fromisoformat(last_value)
         return max(0, int((end - start).total_seconds()))
 
+    def max_internal_photo_gap_seconds(self, photos: List[Dict]) -> int:
+        if len(photos) < 2:
+            return 0
+        max_gap = 0.0
+        previous_dt: Optional[datetime] = None
+        for photo in photos:
+            current_dt = datetime.fromisoformat(photo["adjusted_start_local"])
+            if previous_dt is not None:
+                gap_seconds = (current_dt - previous_dt).total_seconds()
+                if gap_seconds > max_gap:
+                    max_gap = gap_seconds
+            previous_dt = current_dt
+        return max(0, int(max_gap))
+
     def default_review_state(self) -> Dict:
         return {
-            "version": 1,
+            "version": 2,
             "day": self.payload["day"],
             "updated_at": "",
             "performances": {},
@@ -406,6 +423,114 @@ class MainWindow(QMainWindow):
             payload["splits"] = {}
         return payload
 
+    def load_state_file(self, path: Path) -> Dict:
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def viewed_count(self, payload: Dict) -> int:
+        performances = payload.get("performances", {})
+        if not isinstance(performances, dict):
+            return 0
+        return sum(1 for entry in performances.values() if isinstance(entry, dict) and entry.get("viewed"))
+
+    def best_saved_viewed_count(self) -> int:
+        return max(
+            self.viewed_count(self.load_state_file(self.state_path)),
+            self.viewed_count(self.load_state_file(self.state_backup_path)),
+        )
+
+    def base_set_sort_key(self, item: Dict) -> tuple[str, str]:
+        return (item.get("performance_start_local", ""), item.get("set_id", ""))
+
+    def base_set_candidates_for_number(self, performance_number: str) -> List[Dict]:
+        candidates = [item for item in self.raw_performances if item.get("performance_number", "") == performance_number]
+        return sorted(candidates, key=self.base_set_sort_key)
+
+    def migrate_split_state_keys(self) -> None:
+        splits = self.review_state.setdefault("splits", {})
+        if not isinstance(splits, dict):
+            self.review_state["splits"] = {}
+            self.state_dirty = True
+            return
+        valid_base_ids = {item.get("set_id", "") for item in self.raw_performances}
+        migrated: Dict[str, List[Dict]] = {}
+        changed = False
+        for key, value in splits.items():
+            mapped_key = key
+            if mapped_key not in valid_base_ids:
+                candidates = self.base_set_candidates_for_number(key)
+                if candidates:
+                    mapped_key = candidates[0].get("set_id", key)
+            if mapped_key != key:
+                changed = True
+            target = migrated.setdefault(mapped_key, [])
+            if isinstance(value, list):
+                target.extend(spec for spec in value if isinstance(spec, dict))
+        if changed:
+            self.review_state["splits"] = migrated
+            self.review_state["version"] = 2
+            self.state_dirty = True
+
+    def map_legacy_review_key(self, key: str) -> str:
+        if any(item.get("set_id", "") == key for item in self.display_sets):
+            return key
+        if "::" in key:
+            base_key, filename = key.split("::", 1)
+            for display_set in self.display_sets:
+                if display_set["set_id"].endswith(f"::{filename}") and display_set["original_performance_number"] == base_key:
+                    return display_set["set_id"]
+        candidates = [item for item in self.display_sets if item["original_performance_number"] == key]
+        if candidates:
+            return candidates[0]["set_id"]
+        return ""
+
+    def merge_review_entries(self, target: Dict, source: Dict) -> Dict:
+        target["viewed"] = bool(target.get("viewed")) or bool(source.get("viewed"))
+        target["view_count"] = max(int(target.get("view_count") or 0), int(source.get("view_count") or 0))
+        first_values = [value for value in [target.get("first_viewed_at", ""), source.get("first_viewed_at", "")] if value]
+        last_values = [value for value in [target.get("last_viewed_at", ""), source.get("last_viewed_at", "")] if value]
+        target["first_viewed_at"] = min(first_values) if first_values else ""
+        target["last_viewed_at"] = max(last_values) if last_values else ""
+        return target
+
+    def migrate_review_state_keys(self) -> None:
+        performances = self.review_state.setdefault("performances", {})
+        if not isinstance(performances, dict):
+            self.review_state["performances"] = {}
+            self.state_dirty = True
+            return
+        migrated: Dict[str, Dict] = {}
+        changed = False
+        for key, value in performances.items():
+            if not isinstance(value, dict):
+                changed = True
+                continue
+            mapped_key = self.map_legacy_review_key(key)
+            if not mapped_key:
+                changed = True
+                continue
+            if mapped_key != key:
+                changed = True
+            target = migrated.setdefault(
+                mapped_key,
+                {
+                    "viewed": False,
+                    "first_viewed_at": "",
+                    "last_viewed_at": "",
+                    "view_count": 0,
+                },
+            )
+            migrated[mapped_key] = self.merge_review_entries(target, value)
+        if changed:
+            self.review_state["performances"] = migrated
+            self.review_state["version"] = 2
+            self.state_dirty = True
+
     def review_entry(self, set_id: str) -> Dict:
         performances = self.review_state.setdefault("performances", {})
         entry = performances.get(set_id)
@@ -419,20 +544,27 @@ class MainWindow(QMainWindow):
             performances[set_id] = entry
         return entry
 
-    def split_specs_for_original(self, original_performance_number: str) -> List[Dict]:
+    def split_specs_for_original(self, original_set_id: str) -> List[Dict]:
         splits = self.review_state.setdefault("splits", {})
-        specs = splits.get(original_performance_number)
+        specs = splits.get(original_set_id)
         if not isinstance(specs, list):
             specs = []
-            splits[original_performance_number] = specs
+            splits[original_set_id] = specs
         return specs
 
     def apply_review_font(self, item: QTreeWidgetItem, set_id: str) -> None:
         entry = self.review_entry(set_id)
-        font = QFont(self.tree.font())
-        font.setBold(not bool(entry.get("viewed")))
+        display_set = item.data(0, Qt.UserRole) or {}
+        display_name = display_set.get("display_name", item.text(0))
+        is_viewed = bool(entry.get("viewed"))
+        item.setText(0, display_name)
+        font = QFont(QApplication.font())
+        font.setBold(not is_viewed)
+        font.setWeight(QFont.Normal if is_viewed else QFont.Bold)
+        font.setItalic(False)
         for column in range(self.tree.columnCount()):
             item.setFont(column, font)
+            item.setForeground(column, QColor("#000000"))
 
     def reset_review_fonts(self) -> None:
         for set_id, item in self.item_by_set_id.items():
@@ -457,6 +589,7 @@ class MainWindow(QMainWindow):
     def rebuild_display_sets(self) -> None:
         display_sets: List[Dict] = []
         for original in self.raw_performances:
+            base_set_id = original.get("set_id") or original["performance_number"]
             original_number = original["performance_number"]
             photos = list(original["photos"])
             if not photos:
@@ -464,7 +597,7 @@ class MainWindow(QMainWindow):
 
             photo_index = {photo["filename"]: index for index, photo in enumerate(photos)}
             valid_specs = []
-            for spec in self.split_specs_for_original(original_number):
+            for spec in self.split_specs_for_original(base_set_id):
                 start_filename = spec.get("start_filename", "")
                 if start_filename not in photo_index:
                     continue
@@ -479,7 +612,7 @@ class MainWindow(QMainWindow):
 
             segment_starts = [0] + [spec["start_index"] for spec in valid_specs]
             segment_names = [original_number] + [spec["new_name"] or original_number for spec in valid_specs]
-            segment_ids = [original_number] + [f"{original_number}::{spec['start_filename']}" for spec in valid_specs]
+            segment_ids = [base_set_id] + [f"{base_set_id}::{spec['start_filename']}" for spec in valid_specs]
 
             for segment_number, start_index in enumerate(segment_starts):
                 end_index = segment_starts[segment_number + 1] if segment_number + 1 < len(segment_starts) else len(photos)
@@ -493,6 +626,7 @@ class MainWindow(QMainWindow):
                 for photo in segment_photos:
                     photo_entry = dict(photo)
                     photo_entry["original_performance_number"] = original_number
+                    photo_entry["base_set_id"] = base_set_id
                     photo_entry["display_set_id"] = segment_ids[segment_number]
                     photo_entry["display_name"] = segment_names[segment_number]
                     normalized_photos.append(photo_entry)
@@ -504,8 +638,11 @@ class MainWindow(QMainWindow):
                 display_sets.append(
                     {
                         "set_id": segment_ids[segment_number],
+                        "base_set_id": base_set_id,
                         "display_name": segment_names[segment_number],
                         "original_performance_number": original_number,
+                        "occurrence_index": original.get("occurrence_index", ""),
+                        "duplicate_status": original.get("duplicate_status", "normal"),
                         "timeline_status": original["timeline_status"],
                         "performance_start_local": original["performance_start_local"],
                         "performance_end_local": original["performance_end_local"],
@@ -517,6 +654,7 @@ class MainWindow(QMainWindow):
                             normalized_photos[0]["adjusted_start_local"],
                             normalized_photos[-1]["adjusted_start_local"],
                         ),
+                        "max_internal_photo_gap_seconds": self.max_internal_photo_gap_seconds(normalized_photos),
                         "first_proxy_path": first_proxy_path,
                         "last_proxy_path": last_proxy_path,
                         "first_source_path": normalized_photos[0]["source_path"],
@@ -546,11 +684,16 @@ class MainWindow(QMainWindow):
             self.item_by_set_id[display_set["set_id"]] = item
             self.display_items.append(item)
             self.apply_review_font(item, display_set["set_id"])
-            is_original_numeric_set = (
-                display_set["set_id"] == display_set["original_performance_number"]
-                and str(display_set["display_name"]).isdigit()
-            )
-            if is_original_numeric_set and display_set["duration_seconds"] > LONG_SET_THRESHOLD_SECONDS:
+            is_original_numeric_set = display_set["set_id"] == display_set["base_set_id"] and str(display_set["display_name"]).isdigit()
+            if display_set["duplicate_status"] == "duplicate_far" and display_set["set_id"] == display_set["base_set_id"]:
+                muted_red = QColor("#6e2a2a")
+                for column in range(self.tree.columnCount()):
+                    item.setBackground(column, muted_red)
+            elif is_original_numeric_set and display_set["max_internal_photo_gap_seconds"] > PHOTO_GAP_THRESHOLD_SECONDS:
+                muted_red = QColor("#6e2a2a")
+                for column in range(self.tree.columnCount()):
+                    item.setBackground(column, muted_red)
+            elif is_original_numeric_set and display_set["duration_seconds"] > LONG_SET_THRESHOLD_SECONDS:
                 muted_red = QColor("#6e2a2a")
                 for column in range(self.tree.columnCount()):
                     item.setBackground(column, muted_red)
@@ -560,9 +703,17 @@ class MainWindow(QMainWindow):
         if self.tree.columnWidth(0) < self.minimum_set_column_width():
             self.tree.setColumnWidth(0, self.minimum_set_column_width())
 
-    def flush_review_state(self) -> bool:
+    def flush_review_state(self, allow_viewed_drop: bool = False) -> bool:
         payload = dict(self.review_state)
         payload["updated_at"] = self.current_timestamp()
+        current_viewed_count = self.viewed_count(payload)
+        best_saved_viewed_count = self.best_saved_viewed_count()
+        if not allow_viewed_drop and current_viewed_count < best_saved_viewed_count:
+            self.state_save_disabled = True
+            self.statusBar().showMessage(
+                f"State save blocked: viewed count would drop from {best_saved_viewed_count} to {current_viewed_count}"
+            )
+            return False
         encoded = json.dumps(payload, indent=2, ensure_ascii=True).encode("utf-8")
         try:
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -638,7 +789,7 @@ class MainWindow(QMainWindow):
                     photo["filename"],
                     photo["assignment_status"],
                     photo["stream_id"],
-                    photo["adjusted_start_local"],
+                    self.display_time(photo["adjusted_start_local"]),
                 ]
             )
             child.setData(0, Qt.UserRole, photo)
@@ -696,9 +847,12 @@ class MainWindow(QMainWindow):
                     [
                         f"Set: {display_set['display_name']}",
                         f"Original performance: {display_set['original_performance_number']}",
+                    f"Set ID: {display_set['set_id']}",
+                    f"Duplicate: {display_set['duplicate_status']}",
                     f"Photos: {display_set['photo_count']}",
                     f"Review: {display_set['review_count']}",
                     f"Duration: {display_set['duration_seconds']} s",
+                    f"Max photo gap: {display_set['max_internal_photo_gap_seconds']} s",
                     f"Timeline: {display_set['timeline_status']}",
                     f"Start: {display_set['performance_start_local']}",
                     f"End: {display_set['performance_end_local']}",
@@ -718,6 +872,7 @@ class MainWindow(QMainWindow):
                 [
                     f"Set: {photo['display_name']}",
                     f"Original performance: {photo['original_performance_number']}",
+                    f"Base set: {photo['base_set_id']}",
                     f"File: {photo['filename']}",
                     f"Time: {photo['adjusted_start_local']}",
                     f"Status: {photo['assignment_status']}",
@@ -785,7 +940,7 @@ class MainWindow(QMainWindow):
         self.state_dirty = True
         self.state_save_disabled = False
         self.rebuild_tree_after_state_change()
-        if self.flush_review_state():
+        if self.flush_review_state(allow_viewed_drop=True):
             self.statusBar().showMessage("Review state reset")
         else:
             self.statusBar().showMessage("Review state reset in memory, but save failed")
@@ -811,8 +966,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Split Set", "Custom set name cannot contain only digits.")
             return
         original_number = photo["original_performance_number"]
+        base_set_id = photo["base_set_id"]
         start_filename = photo["filename"]
-        split_specs = self.split_specs_for_original(original_number)
+        split_specs = self.split_specs_for_original(base_set_id)
         for spec in split_specs:
             if spec.get("start_filename") == start_filename:
                 QMessageBox.warning(
@@ -830,7 +986,7 @@ class MainWindow(QMainWindow):
         )
         self.review_state["updated_at"] = self.current_timestamp()
         self.state_dirty = True
-        preferred_set_id = f"{original_number}::{start_filename}"
+        preferred_set_id = f"{base_set_id}::{start_filename}"
         self.rebuild_tree_after_state_change(preferred_set_id=preferred_set_id, preferred_filename=start_filename)
         self.statusBar().showMessage(f"Split created: {new_name}")
 
@@ -891,7 +1047,9 @@ class MainWindow(QMainWindow):
         self.show_single_preview(photo["proxy_path"], "Selected")
 
     def rebuild_tree_after_state_change(self, preferred_set_id: str = "", preferred_filename: str = "") -> None:
+        self.migrate_split_state_keys()
         self.rebuild_display_sets()
+        self.migrate_review_state_keys()
         self.build_tree()
         self.preload_set_images()
         self.apply_view_mode()
