@@ -45,6 +45,7 @@ configure_qt_logging()
 from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QImageReader, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QDialog,
@@ -242,6 +243,7 @@ class MainWindow(QMainWindow):
         self.display_sets: List[Dict] = []
         self.item_by_set_id: Dict[str, QTreeWidgetItem] = {}
         self.display_items: List[QTreeWidgetItem] = []
+        self.selection_order_ids: List[str] = []
         self.view_mode = 1
         self.tree_icon_mode = "mini"
         self.base_font = QFont(QApplication.font())
@@ -256,18 +258,21 @@ class MainWindow(QMainWindow):
         self.resize(1600, 1000)
 
         self.tree = PerformanceTree()
-        self.tree.setColumnCount(5)
-        self.tree.setHeaderLabels(["Set", "Photos", "Review", "First", "Len"])
+        self.tree.setColumnCount(6)
+        self.tree.setHeaderLabels(["", "Set", "Photos", "Review", "First", "Len"])
         self.tree.setUniformRowHeights(True)
+        self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.apply_tree_icon_mode()
         tree_header = self.tree.header()
         tree_header.setStretchLastSection(False)
         tree_header.setSectionResizeMode(0, QHeaderView.Interactive)
-        tree_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        tree_header.setSectionResizeMode(1, QHeaderView.Interactive)
         tree_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        tree_header.setSectionResizeMode(3, QHeaderView.Stretch)
-        tree_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.tree.setColumnWidth(0, self.minimum_set_column_width())
+        tree_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        tree_header.setSectionResizeMode(4, QHeaderView.Stretch)
+        tree_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.tree.setColumnWidth(0, self.minimum_preview_column_width())
+        self.tree.setColumnWidth(1, 120)
         self.tree.itemSelectionChanged.connect(self.on_selection_changed)
         self.tree.itemExpanded.connect(self.on_item_expanded)
         self.tree.previousPerformanceRequested.connect(self.select_previous_set)
@@ -389,7 +394,7 @@ class MainWindow(QMainWindow):
 
         merge_action = QAction(self)
         merge_action.setShortcut(QKeySequence("M"))
-        merge_action.triggered.connect(self.confirm_merge_with_next_set)
+        merge_action.triggered.connect(self.confirm_merge_selected_sets)
         self.addAction(merge_action)
 
         no_photos_action = QAction(self)
@@ -454,14 +459,14 @@ class MainWindow(QMainWindow):
             return TREE_ICON_SIZE_MINI
         return TREE_ICON_SIZE_FULL_MINI
 
-    def minimum_set_column_width(self) -> int:
-        return max(120, self.tree_icon_size() + 72)
+    def minimum_preview_column_width(self) -> int:
+        return max(44, self.tree_icon_size() + 12)
 
     def apply_tree_icon_mode(self) -> None:
         icon_size = self.tree_icon_size()
         self.tree.setIconSize(QSize(icon_size, icon_size))
-        if self.tree.columnWidth(0) < self.minimum_set_column_width():
-            self.tree.setColumnWidth(0, self.minimum_set_column_width())
+        if self.tree.columnWidth(0) < self.minimum_preview_column_width():
+            self.tree.setColumnWidth(0, self.minimum_preview_column_width())
         self.tree.viewport().update()
 
     def toggle_tree_icon_mode(self) -> None:
@@ -543,18 +548,6 @@ class MainWindow(QMainWindow):
         except Exception:
             return {}
         return payload if isinstance(payload, dict) else {}
-
-    def viewed_count(self, payload: Dict) -> int:
-        performances = payload.get("performances", {})
-        if not isinstance(performances, dict):
-            return 0
-        return sum(1 for entry in performances.values() if isinstance(entry, dict) and entry.get("viewed"))
-
-    def best_saved_viewed_count(self) -> int:
-        return max(
-            self.viewed_count(self.load_state_file(self.state_path)),
-            self.viewed_count(self.load_state_file(self.state_backup_path)),
-        )
 
     def base_set_sort_key(self, item: Dict) -> tuple[str, str]:
         return (item.get("performance_start_local", ""), item.get("set_id", ""))
@@ -675,12 +668,63 @@ class MainWindow(QMainWindow):
             self.review_state["merges"] = merges
         return merges
 
+    def selected_top_level_items(self) -> List[QTreeWidgetItem]:
+        selected_by_id: Dict[str, QTreeWidgetItem] = {}
+        for item in self.tree.selectedItems():
+            while item.parent() is not None:
+                item = item.parent()
+            display_set = item.data(0, Qt.UserRole)
+            if not display_set:
+                continue
+            selected_by_id[display_set["set_id"]] = item
+        ordered_items: List[QTreeWidgetItem] = []
+        for set_id in self.selection_order_ids:
+            item = selected_by_id.pop(set_id, None)
+            if item is not None:
+                ordered_items.append(item)
+        remaining = sorted(
+            selected_by_id.values(),
+            key=lambda item: self.display_items.index(item) if item in self.display_items else 10**9,
+        )
+        ordered_items.extend(remaining)
+        return ordered_items
+
+    def update_selection_order(self) -> None:
+        selected_items = []
+        selected_ids = set()
+        for item in self.tree.selectedItems():
+            while item.parent() is not None:
+                item = item.parent()
+            display_set = item.data(0, Qt.UserRole)
+            if not display_set:
+                continue
+            set_id = display_set["set_id"]
+            if set_id in selected_ids:
+                continue
+            selected_ids.add(set_id)
+            selected_items.append(item)
+        self.selection_order_ids = [set_id for set_id in self.selection_order_ids if set_id in selected_ids]
+        current = self.current_top_level_item()
+        if current is not None:
+            current_display_set = current.data(0, Qt.UserRole)
+            if current_display_set:
+                current_set_id = current_display_set["set_id"]
+                if current_set_id in selected_ids and current_set_id not in self.selection_order_ids:
+                    self.selection_order_ids.append(current_set_id)
+        for item in selected_items:
+            display_set = item.data(0, Qt.UserRole)
+            if not display_set:
+                continue
+            set_id = display_set["set_id"]
+            if set_id not in self.selection_order_ids:
+                self.selection_order_ids.append(set_id)
+
     def apply_review_font(self, item: QTreeWidgetItem, set_id: str) -> None:
         entry = self.review_entry(set_id)
         display_set = item.data(0, Qt.UserRole) or {}
-        display_name = display_set.get("display_name", item.text(0))
+        display_name = display_set.get("display_name", item.text(1))
         is_viewed = bool(entry.get("viewed"))
-        item.setText(0, display_name)
+        item.setText(1, display_name)
         font = QFont(QApplication.font())
         font.setBold(not is_viewed)
         font.setWeight(QFont.Normal if is_viewed else QFont.Bold)
@@ -704,7 +748,12 @@ class MainWindow(QMainWindow):
         self.state_dirty = True
         self.apply_review_font(item, set_id)
         state_text = "enabled" if entry["no_photos_confirmed"] else "disabled"
-        self.statusBar().showMessage(f"no_photos_confirmed {state_text} for set {display_set['display_name']}")
+        if self.flush_review_state():
+            self.statusBar().showMessage(f"no_photos_confirmed {state_text} for set {display_set['display_name']}")
+        else:
+            self.statusBar().showMessage(
+                f"no_photos_confirmed {state_text} for set {display_set['display_name']} in memory, but save failed"
+            )
 
     def reset_review_fonts(self) -> None:
         for set_id, item in self.item_by_set_id.items():
@@ -825,6 +874,7 @@ class MainWindow(QMainWindow):
                         ),
                         "max_internal_photo_gap_seconds": max_gap_seconds,
                         "gap_boundary_filenames": gap_boundary_filenames,
+                        "merged_manually": False,
                         "first_proxy_path": first_proxy_path,
                         "last_proxy_path": last_proxy_path,
                         "first_source_path": normalized_photos[0]["source_path"],
@@ -850,8 +900,6 @@ class MainWindow(QMainWindow):
                 continue
             target_index = index_by_set_id[target_set_id]
             source_index = index_by_set_id[source_set_id]
-            if source_index != target_index + 1:
-                continue
             target_set = merged_sets[target_index]
             source_set = merged_sets[source_index]
             combined_photos = target_set["photos"] + source_set["photos"]
@@ -883,10 +931,15 @@ class MainWindow(QMainWindow):
             target_set["duration_seconds"] = duration_seconds
             target_set["max_internal_photo_gap_seconds"] = max_gap_seconds
             target_set["gap_boundary_filenames"] = gap_boundary_filenames
+            target_set["merged_manually"] = True
             target_set["first_proxy_path"] = first_proxy_path
             target_set["last_proxy_path"] = last_proxy_path
             target_set["first_source_path"] = first_source_path
             target_set["last_source_path"] = last_source_path
+            target_set["performance_start_local"] = min(
+                value for value in [target_set.get("performance_start_local", ""), source_set.get("performance_start_local", "")]
+                if value
+            )
             target_set["performance_end_local"] = source_set.get("performance_end_local", target_set["performance_end_local"])
             target_set["timeline_status"] = source_set.get("timeline_status", target_set["timeline_status"])
             merged_sets.pop(source_index)
@@ -900,6 +953,7 @@ class MainWindow(QMainWindow):
             first_display_time = display_set["first_photo_local"] or display_set["performance_start_local"]
             item = QTreeWidgetItem(
                 [
+                    "",
                     display_set["display_name"],
                     str(display_set["photo_count"]),
                     str(display_set["review_count"]),
@@ -916,35 +970,30 @@ class MainWindow(QMainWindow):
             self.display_items.append(item)
             self.apply_review_font(item, display_set["set_id"])
             is_original_numeric_set = display_set["set_id"] == display_set["base_set_id"] and str(display_set["display_name"]).isdigit()
-            if display_set["duplicate_status"] == "duplicate_far" and display_set["set_id"] == display_set["base_set_id"]:
+            highlight_candidate = is_original_numeric_set and not display_set.get("merged_manually", False)
+            if highlight_candidate and display_set["duplicate_status"] == "duplicate_far" and display_set["set_id"] == display_set["base_set_id"]:
                 muted_red = QColor("#6e2a2a")
                 for column in range(self.tree.columnCount()):
                     item.setBackground(column, muted_red)
-            elif is_original_numeric_set and display_set["max_internal_photo_gap_seconds"] > PHOTO_GAP_THRESHOLD_SECONDS:
+            elif highlight_candidate and display_set["max_internal_photo_gap_seconds"] > PHOTO_GAP_THRESHOLD_SECONDS:
                 muted_red = QColor("#6e2a2a")
                 for column in range(self.tree.columnCount()):
                     item.setBackground(column, muted_red)
-            elif is_original_numeric_set and display_set["duration_seconds"] > LONG_SET_THRESHOLD_SECONDS:
+            elif highlight_candidate and display_set["duration_seconds"] > LONG_SET_THRESHOLD_SECONDS:
                 muted_red = QColor("#6e2a2a")
                 for column in range(self.tree.columnCount()):
                     item.setBackground(column, muted_red)
-        self.tree.resizeColumnToContents(1)
         self.tree.resizeColumnToContents(2)
-        self.tree.resizeColumnToContents(4)
-        if self.tree.columnWidth(0) < self.minimum_set_column_width():
-            self.tree.setColumnWidth(0, self.minimum_set_column_width())
+        self.tree.resizeColumnToContents(3)
+        self.tree.resizeColumnToContents(5)
+        if self.tree.columnWidth(0) < self.minimum_preview_column_width():
+            self.tree.setColumnWidth(0, self.minimum_preview_column_width())
+        if self.tree.columnWidth(1) < 120:
+            self.tree.setColumnWidth(1, 120)
 
-    def flush_review_state(self, allow_viewed_drop: bool = False) -> bool:
+    def flush_review_state(self) -> bool:
         payload = dict(self.review_state)
         payload["updated_at"] = self.current_timestamp()
-        current_viewed_count = self.viewed_count(payload)
-        best_saved_viewed_count = self.best_saved_viewed_count()
-        if not allow_viewed_drop and current_viewed_count < best_saved_viewed_count:
-            self.state_save_disabled = True
-            self.statusBar().showMessage(
-                f"State save blocked: viewed count would drop from {best_saved_viewed_count} to {current_viewed_count}"
-            )
-            return False
         encoded = json.dumps(payload, indent=2, ensure_ascii=True).encode("utf-8")
         try:
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -997,8 +1046,8 @@ class MainWindow(QMainWindow):
                 item = self.item_by_set_id.get(display_set["set_id"])
                 if item is not None:
                     item.setIcon(0, QIcon(pixmap))
-                    if self.tree.columnWidth(0) < self.minimum_set_column_width():
-                        self.tree.setColumnWidth(0, self.minimum_set_column_width())
+                    if self.tree.columnWidth(0) < self.minimum_preview_column_width():
+                        self.tree.setColumnWidth(0, self.minimum_preview_column_width())
         else:
             self.store_preview(path, pixmap)
             if path in self.current_display_paths:
@@ -1014,15 +1063,19 @@ class MainWindow(QMainWindow):
         if item.childCount() > 0:
             return
         display_set = item.data(0, Qt.UserRole)
-        gap_boundary_filenames = set(display_set.get("gap_boundary_filenames", []))
+        is_original_numeric_set = display_set["set_id"] == display_set["base_set_id"] and str(display_set["display_name"]).isdigit()
+        show_gap_boundary = is_original_numeric_set and not display_set.get("merged_manually", False)
+        gap_boundary_filenames = set(display_set.get("gap_boundary_filenames", [])) if show_gap_boundary else set()
         gap_highlight = QColor("#6e2a2a")
         for photo in display_set["photos"]:
             child = QTreeWidgetItem(
                 [
+                    "",
                     photo["filename"],
                     photo["assignment_status"],
                     photo["stream_id"],
                     self.display_time(photo["adjusted_start_local"]),
+                    "",
                 ]
             )
             child.setData(0, Qt.UserRole, photo)
@@ -1072,6 +1125,7 @@ class MainWindow(QMainWindow):
         item = self.tree.currentItem()
         if item is None:
             return
+        self.update_selection_order()
         top_level_item = self.current_top_level_item()
         if top_level_item is not None:
             display_set = top_level_item.data(0, Qt.UserRole)
@@ -1153,8 +1207,10 @@ class MainWindow(QMainWindow):
                     "1: single-preview mode",
                     "2: dual-preview mode",
                     "I: toggle info panel",
-                    "M: merge the current set with the next set",
+                    "M: merge selected sets into the first selected set",
                     "T: toggle tree icon size",
+                    "Ctrl-click: add or remove sets from the selection",
+                    "Shift-click: select a range of sets",
                     "Ctrl+=: increase UI scale",
                     "Ctrl+-: decrease UI scale",
                     "Ctrl+0: reset UI scale to auto",
@@ -1181,7 +1237,7 @@ class MainWindow(QMainWindow):
         self.state_dirty = True
         self.state_save_disabled = False
         self.rebuild_tree_after_state_change()
-        if self.flush_review_state(allow_viewed_drop=True):
+        if self.flush_review_state():
             self.statusBar().showMessage("Review state reset")
         else:
             self.statusBar().showMessage("Review state reset in memory, but save failed")
@@ -1230,54 +1286,86 @@ class MainWindow(QMainWindow):
         self.state_dirty = True
         preferred_set_id = f"{base_set_id}::{start_filename}"
         self.rebuild_tree_after_state_change(preferred_set_id=preferred_set_id, preferred_filename=start_filename)
-        self.statusBar().showMessage(f"Split created: {new_name}")
+        if self.flush_review_state():
+            self.statusBar().showMessage(f"Split created: {new_name}")
+        else:
+            self.statusBar().showMessage(f"Split created: {new_name} in memory, but save failed")
 
-    def confirm_merge_with_next_set(self) -> None:
-        item = self.current_top_level_item()
-        if item is None:
+    def confirm_merge_selected_sets(self) -> None:
+        selected_items = self.selected_top_level_items()
+        if not selected_items:
             QMessageBox.information(self, "Merge Sets", "Select a set before merging.")
             return
-        if item not in self.display_items:
-            QMessageBox.information(self, "Merge Sets", "Select a valid set before merging.")
-            return
-        current_index = self.display_items.index(item)
-        if current_index + 1 >= len(self.display_items):
-            QMessageBox.information(self, "Merge Sets", "The current set has no next set to merge.")
-            return
-        target_item = item
-        source_item = self.display_items[current_index + 1]
+        if len(selected_items) == 1:
+            target_item = selected_items[0]
+            if target_item not in self.display_items:
+                QMessageBox.information(self, "Merge Sets", "Select a valid set before merging.")
+                return
+            current_index = self.display_items.index(target_item)
+            if current_index + 1 >= len(self.display_items):
+                QMessageBox.information(self, "Merge Sets", "The current set has no next set to merge.")
+                return
+            source_items = [self.display_items[current_index + 1]]
+        else:
+            target_item = selected_items[0]
+            source_items = selected_items[1:]
         target_set = target_item.data(0, Qt.UserRole)
-        source_set = source_item.data(0, Qt.UserRole)
+        source_sets = [source_item.data(0, Qt.UserRole) for source_item in source_items]
+        source_sets = [source_set for source_set in source_sets if source_set and source_set["set_id"] != target_set["set_id"]]
+        if not source_sets:
+            QMessageBox.information(self, "Merge Sets", "No source set selected for merge.")
+            return
         message_box = QMessageBox(self)
         message_box.setWindowTitle("Merge Sets")
         message_box.setTextFormat(Qt.RichText)
-        message_box.setText(
-            f"Add set <b>{source_set['display_name']}</b> to set <b>{target_set['display_name']}</b>?"
-        )
+        if len(source_sets) == 1:
+            message_box.setText(
+                f"Add set <b>{source_sets[0]['display_name']}</b> to set <b>{target_set['display_name']}</b>?"
+            )
+        else:
+            source_lines = "<br>".join(
+                f"{source_set['display_name']} | {self.display_time(source_set.get('performance_start_local', ''))}"
+                for source_set in source_sets
+            )
+            message_box.setText(
+                f"Add <b>{len(source_sets)}</b> selected sets to set <b>{target_set['display_name']}</b>?<br><br>{source_lines}"
+            )
         message_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         message_box.setDefaultButton(QMessageBox.No)
         if message_box.exec() != QMessageBox.Yes:
             return
-        self.merge_specs().append(
-            {
-                "target_set_id": target_set["set_id"],
-                "source_set_id": source_set["set_id"],
-                "created_at": self.current_timestamp(),
-            }
-        )
         target_entry = self.review_entry(target_set["set_id"])
-        source_entry = self.review_entry(source_set["set_id"])
-        self.review_state["performances"][target_set["set_id"]] = self.merge_review_entries(target_entry, source_entry)
-        if source_set["set_id"] in self.review_state.get("performances", {}):
-            self.review_state["performances"].pop(source_set["set_id"], None)
+        existing_pairs = {
+            (spec.get("target_set_id", ""), spec.get("source_set_id", ""))
+            for spec in self.merge_specs()
+            if isinstance(spec, dict)
+        }
+        merged_names: List[str] = []
+        for source_set in source_sets:
+            pair = (target_set["set_id"], source_set["set_id"])
+            if pair in existing_pairs:
+                continue
+            self.merge_specs().append(
+                {
+                    "target_set_id": target_set["set_id"],
+                    "source_set_id": source_set["set_id"],
+                    "created_at": self.current_timestamp(),
+                }
+            )
+            source_entry = self.review_entry(source_set["set_id"])
+            self.review_state["performances"][target_set["set_id"]] = self.merge_review_entries(target_entry, source_entry)
+            if source_set["set_id"] in self.review_state.get("performances", {}):
+                self.review_state["performances"].pop(source_set["set_id"], None)
+            merged_names.append(source_set["display_name"])
         self.review_state["updated_at"] = self.current_timestamp()
         self.state_dirty = True
         self.rebuild_tree_after_state_change(preferred_set_id=target_set["set_id"])
-        if self.flush_review_state(allow_viewed_drop=True):
-            self.statusBar().showMessage(f"Merged {source_set['display_name']} into {target_set['display_name']}")
+        if self.flush_review_state():
+            merged_label = ", ".join(merged_names) if merged_names else "selected sets"
+            self.statusBar().showMessage(f"Merged {merged_label} into {target_set['display_name']}")
         else:
             self.statusBar().showMessage(
-                f"Merged {source_set['display_name']} into {target_set['display_name']} in memory, but save failed"
+                f"Merged selected sets into {target_set['display_name']} in memory, but save failed"
             )
 
     def show_display_set(self, display_set: Dict) -> None:
