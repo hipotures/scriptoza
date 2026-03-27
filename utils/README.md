@@ -584,6 +584,9 @@ python utils/transcribe_video_batch_api.py /path/to/day/20260323
 # Transcribe specific streams
 python utils/transcribe_video_batch_api.py /path/to/day/20260323 --streams v-pocket3
 
+# Transcribe one specific clip into a side output directory
+python utils/transcribe_video_batch_api.py /path/to/day/20260323 --streams v-gh7 --filenames clip.mov --output-root /path/to/day/20260323/_workspace/transcripts_compare
+
 # Re-enable alignment explicitly
 python utils/transcribe_video_batch_api.py /path/to/day/20260323 --align
 ```
@@ -639,6 +642,55 @@ Convert announcement candidates into performance intervals by starting each item
 
 ```bash
 python utils/build_performance_timeline.py /path/to/day/20260323
+```
+
+### build_semantic_announcement_demo.py
+
+Builds chunked transcript demo files for semantic announcement extraction.
+
+- Reads `DAY/_workspace/merged_video_synced.csv`
+- Reads `DAY/_workspace/transcripts/<stream>/*.json`
+- Splits transcripts into chunks when silence gaps exceed a configurable threshold
+- Writes a summary CSV and a full JSONL with prompt-ready chunk payloads
+
+Examples:
+
+```bash
+python utils/build_semantic_announcement_demo.py /path/to/day/20260324 --streams v-pocket3
+```
+
+```bash
+python utils/build_semantic_announcement_demo.py /path/to/day/20260324 --streams v-pocket3 v-gh7 --gap-seconds 60
+```
+
+Outputs:
+
+- `DAY/_workspace/semantic_announcement_demo.csv`
+- `DAY/_workspace/semantic_announcement_demo.jsonl`
+
+### copy_reviewed_set_assets.py
+
+Copy files for one final reviewed set by applying `review_state.json` on top of `performance_proxy_index.json`.
+
+- Reads `DAY/_workspace/performance_proxy_index.json`
+- Reads `DAY/_workspace/review_state.json`
+- Reads `DAY/_workspace/merged_video_synced.csv`
+- Applies manual splits and merges from the review GUI
+- Copies the final set's photo files
+- Copies video clips that overlap the final reviewed set interval
+
+Examples:
+
+```bash
+python utils/copy_reviewed_set_assets.py /path/to/day/20260323 /tmp/out 86
+```
+
+```bash
+python utils/copy_reviewed_set_assets.py /path/to/day/20260323 /tmp/out 86 --streams p-a7r5
+```
+
+```bash
+python utils/copy_reviewed_set_assets.py /path/to/day/20260323 /tmp/out Ceremonia --streams video
 ```
 
 ### Output

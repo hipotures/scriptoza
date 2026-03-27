@@ -78,6 +78,12 @@ WRITER_OPTIONS = {
     "highlight_words": False,
 }
 
+DEFAULT_INITIAL_PROMPT = (
+    "Polish dance competition announcements. Transcribe only spoken announcer speech. "
+    "Do not translate. Ignore song lyrics, background singing, subtitles, watermarks, outros, and credits."
+)
+DEFAULT_HOTWORDS = "numer,numer startowy,kategoria,solo,duo,trio,formacja"
+
 
 def configure_runtime_noise(print_progress: bool) -> None:
     if print_progress:
@@ -147,6 +153,11 @@ def parse_args() -> argparse.Namespace:
         "--max-files",
         type=int,
         help="Optional limit for the number of files to process after filtering",
+    )
+    parser.add_argument(
+        "--filenames",
+        nargs="*",
+        help="Optional exact video filenames to process",
     )
     parser.add_argument(
         "--model",
@@ -226,6 +237,40 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable WhisperX internal progress printing",
     )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="ASR temperature. Default: 0.0",
+    )
+    parser.add_argument(
+        "--log-prob-threshold",
+        type=float,
+        default=-0.5,
+        help="ASR log probability threshold. Default: -0.5",
+    )
+    parser.add_argument(
+        "--no-speech-threshold",
+        type=float,
+        default=0.8,
+        help="ASR no-speech threshold. Default: 0.8",
+    )
+    parser.add_argument(
+        "--hallucination-silence-threshold",
+        type=float,
+        default=1.0,
+        help="ASR hallucination silence threshold. Default: 1.0",
+    )
+    parser.add_argument(
+        "--initial-prompt",
+        default=DEFAULT_INITIAL_PROMPT,
+        help="ASR initial prompt used to bias the transcription",
+    )
+    parser.add_argument(
+        "--hotwords",
+        default=DEFAULT_HOTWORDS,
+        help="Comma-separated ASR hotwords. Default: competition announcement keywords",
+    )
     return parser.parse_args()
 
 
@@ -250,6 +295,7 @@ def select_rows(
     reference_stream_id: Optional[str],
     max_files: Optional[int],
     min_duration_seconds: float,
+    filenames: Optional[Sequence[str]],
 ) -> List[Dict[str, str]]:
     available_streams = sorted({row["stream_id"] for row in rows})
     if streams:
@@ -270,6 +316,14 @@ def select_rows(
         for row in rows
         if row["stream_id"] in selected_streams and float(row.get("duration_seconds") or 0.0) >= min_duration_seconds
     ]
+    if filenames:
+        requested = set(filenames)
+        available = {row["filename"] for row in filtered}
+        missing = sorted(requested - available)
+        if missing:
+            console.print(f"[red]Error: unknown filenames: {', '.join(missing)}[/red]")
+            raise SystemExit(1)
+        filtered = [row for row in filtered if row["filename"] in requested]
     filtered.sort(key=lambda row: (row.get("start_synced", ""), row["stream_id"], row["filename"]))
     if max_files is not None:
         filtered = filtered[:max_files]
@@ -364,6 +418,7 @@ def main() -> int:
         reference_stream_id=reference_stream_id,
         max_files=args.max_files,
         min_duration_seconds=args.min_duration_seconds,
+        filenames=args.filenames,
     )
     if not selected_rows:
         console.print("[red]Error: no video rows selected for transcription.[/red]")
@@ -414,12 +469,23 @@ def main() -> int:
         }
 
         model_language = None if args.language.lower() == "auto" else args.language
+        hotwords = ",".join(part.strip() for part in args.hotwords.split(",") if part.strip()) or None
+        initial_prompt = args.initial_prompt.strip() or None
+        asr_options = {
+            "temperatures": [args.temperature],
+            "log_prob_threshold": args.log_prob_threshold,
+            "no_speech_threshold": args.no_speech_threshold,
+            "hallucination_silence_threshold": args.hallucination_silence_threshold,
+            "initial_prompt": initial_prompt,
+            "hotwords": hotwords,
+        }
         model = whisperx.load_model(
             args.model,
             device=args.device,
             compute_type=args.compute_type,
             language=model_language,
             threads=args.threads,
+            asr_options=asr_options,
         )
 
         align_model = None
