@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+
+import argparse
+import csv
+import json
+from pathlib import Path
+from typing import Dict, List
+
+from rich.console import Console
+from rich.table import Table
+
+console = Console()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Build a per-performance proxy index JSON from photo assignments and generated proxy JPG files."
+    )
+    parser.add_argument("day_dir", help="Path to a single day directory like /data/20260323")
+    parser.add_argument(
+        "--workspace-dir",
+        help="Override the workspace directory. Default: DAY/_workspace",
+    )
+    parser.add_argument(
+        "--assignments-csv",
+        help="Override the photo assignments CSV. Default: DAY/_workspace/photo_assignments.csv",
+    )
+    parser.add_argument(
+        "--proxy-root",
+        help="Override the proxy JPG root directory. Default: DAY/_workspace/proxy_jpg",
+    )
+    parser.add_argument(
+        "--output",
+        default="performance_proxy_index.json",
+        help="Output filename inside workspace or absolute path. Default: performance_proxy_index.json",
+    )
+    return parser.parse_args()
+
+
+def read_csv_rows(path: Path) -> List[Dict[str, str]]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def build_summary_table(performance_count: int, photo_count: int, missing_proxy_count: int, output_path: Path) -> Table:
+    table = Table(title="Performance Proxy Index Summary", expand=False)
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("Performances", str(performance_count))
+    table.add_row("Photos", str(photo_count))
+    table.add_row("Missing proxy files", str(missing_proxy_count))
+    table.add_row("Output", str(output_path))
+    return table
+
+
+def performance_sort_key(value: str) -> tuple[int, str]:
+    try:
+        return (0, f"{int(value):09d}")
+    except ValueError:
+        return (1, value)
+
+
+def main() -> int:
+    args = parse_args()
+
+    day_dir = Path(args.day_dir).resolve()
+    if not day_dir.exists() or not day_dir.is_dir():
+        console.print(f"[red]Error: {args.day_dir} is not a directory.[/red]")
+        return 1
+
+    workspace_dir = Path(args.workspace_dir).resolve() if args.workspace_dir else day_dir / "_workspace"
+    assignments_csv = Path(args.assignments_csv).resolve() if args.assignments_csv else workspace_dir / "photo_assignments.csv"
+    proxy_root = Path(args.proxy_root).resolve() if args.proxy_root else workspace_dir / "proxy_jpg"
+    output_path = Path(args.output)
+    if not output_path.is_absolute():
+        output_path = workspace_dir / output_path
+
+    if not assignments_csv.exists():
+        console.print(f"[red]Error: assignments CSV not found: {assignments_csv}[/red]")
+        return 1
+    if not proxy_root.exists():
+        console.print(f"[red]Error: proxy JPG root not found: {proxy_root}[/red]")
+        return 1
+
+    rows = read_csv_rows(assignments_csv)
+    rows.sort(key=lambda row: (performance_sort_key(row["performance_number"]), row["adjusted_start_local"], row["filename"]))
+
+    performances: Dict[str, Dict] = {}
+    missing_proxy_count = 0
+    for row in rows:
+        performance_number = row["performance_number"]
+        stream_id = row["stream_id"]
+        proxy_path = proxy_root / stream_id / f"{Path(row['filename']).stem}.jpg"
+        proxy_exists = proxy_path.exists()
+        if not proxy_exists:
+            missing_proxy_count += 1
+        performance = performances.setdefault(
+            performance_number,
+            {
+                "performance_number": performance_number,
+                "target_dir": row["target_dir"],
+                "timeline_status": row["timeline_status"],
+                "performance_start_local": row["performance_start_local"],
+                "performance_end_local": row["performance_end_local"],
+                "photo_count": 0,
+                "review_count": 0,
+                "first_photo_local": row["adjusted_start_local"],
+                "last_photo_local": row["adjusted_start_local"],
+                "first_proxy_path": "",
+                "first_source_path": "",
+                "last_proxy_path": "",
+                "last_source_path": "",
+                "photos": [],
+            },
+        )
+        performance["photo_count"] += 1
+        if row["assignment_status"] == "review":
+            performance["review_count"] += 1
+        performance["last_photo_local"] = row["adjusted_start_local"]
+        if not performance["first_proxy_path"] and proxy_exists:
+            performance["first_proxy_path"] = str(proxy_path)
+            performance["first_source_path"] = row["path"]
+        if proxy_exists:
+            performance["last_proxy_path"] = str(proxy_path)
+            performance["last_source_path"] = row["path"]
+        performance["photos"].append(
+            {
+                "filename": row["filename"],
+                "source_path": row["path"],
+                "proxy_path": str(proxy_path),
+                "proxy_exists": proxy_exists,
+                "photo_start_local": row["photo_start_local"],
+                "adjusted_start_local": row["adjusted_start_local"],
+                "assignment_status": row["assignment_status"],
+                "assignment_reason": row["assignment_reason"],
+                "seconds_to_nearest_boundary": row["seconds_to_nearest_boundary"],
+                "stream_id": stream_id,
+                "device": row["device"],
+            }
+        )
+
+    performance_list = [performances[key] for key in sorted(performances, key=performance_sort_key)]
+    payload = {
+        "day": day_dir.name,
+        "workspace_dir": str(workspace_dir),
+        "proxy_root": str(proxy_root),
+        "assignments_csv": str(assignments_csv),
+        "performance_count": len(performance_list),
+        "photo_count": len(rows),
+        "performances": performance_list,
+    }
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
+
+    console.print(build_summary_table(len(performance_list), len(rows), missing_proxy_count, output_path))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

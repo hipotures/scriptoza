@@ -25,20 +25,68 @@ python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5
 # Generate all proxies for one stream with a larger review size
 python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5 --long-edge 1200
 
-# Regenerate existing proxies
+# Regenerate existing proxies after confirmation
 python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5 --overwrite
-
-# Continue without prompting when proxy files already exist
-python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5 --continue-existing
 ```
 
 **Notes:**
+- By default the script continues and skips existing proxy JPG files without prompting
 - In continue mode, `--max-files N` means "create up to N new missing proxy files"
 - In overwrite mode, `--max-files N` means "process the first N selected rows"
 
 **Output:**
 - Proxy JPG files: `DAY/_workspace/proxy_jpg/<stream>/*.jpg`
 - Manifest: `DAY/_workspace/photo_proxy_manifest.csv`
+
+### build_performance_proxy_index.py
+
+Build a JSON index that groups assigned proxy JPG files by performance.
+
+**Features:**
+- Reads `DAY/_workspace/photo_assignments.csv`
+- Resolves proxy JPG paths from `DAY/_workspace/proxy_jpg/<stream>/`
+- Groups photos by performance number
+- Stores the first available proxy path for each performance
+- Writes one JSON file for the desktop review GUI
+
+**Usage:**
+
+```bash
+python3 utils/build_performance_proxy_index.py /path/to/day/20260323
+```
+
+**Output:**
+- `DAY/_workspace/performance_proxy_index.json`
+
+### review_performance_proxy_gui.py
+
+Open a simple PySide6 desktop viewer for browsing assigned proxy JPG files per performance.
+
+**Features:**
+- Left tree grouped by performance number
+- First proxy preview icon shown per performance
+- `Space` expands or collapses the current performance
+- `Left` and `Right` move to the previous or next performance
+- `1` switches to single-preview mode
+- `2` switches to dual-preview mode with the first and last proxy side by side for the selected performance
+- `I` toggles the info panel with metadata for the selected performance or photo
+- `H` shows a keyboard help dialog
+- `R` asks for confirmation and resets `review_state.json` to the first-run state
+- `S` splits the current set from the selected photo into a new named set
+- Preloads first and last performance previews in the background
+- Unreviewed performances are shown in bold until they are opened once
+- Saves review state to `DAY/_workspace/review_state.json`
+- Autosaves every 10 seconds and writes a `.old` backup before replacing the current state file
+
+**Usage:**
+
+```bash
+python3 utils/review_performance_proxy_gui.py /path/to/day/20260323
+```
+
+**Output:**
+- `DAY/_workspace/review_state.json`
+- `DAY/_workspace/review_state.json.old`
 
 ## 📊 Claude Code Session Management
 

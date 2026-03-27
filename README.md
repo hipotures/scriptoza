@@ -39,6 +39,8 @@ Collection of small utility scripts organized by category. Each category has its
 - `build_performance_timeline.py` - Converts announcement candidates into buffered performance intervals in `performance_timeline.csv`
 - `assign_photos_to_timeline.py` - Assigns exported photo rows to timeline intervals and writes review and unassigned CSVs without generating moves
 - `generate_photo_proxy_jpg.py` - Generates rotated proxy JPG files from exported photo CSV rows into `_workspace/proxy_jpg/` for fast visual review
+- `build_performance_proxy_index.py` - Builds a JSON index that groups assigned proxy JPG files by performance for the review GUI
+- `review_performance_proxy_gui.py` - Opens a PySide6 desktop viewer for browsing performances and their assigned proxy JPG files
 - `generate_mv_commands_from_timeline.py` - Generates `mkdir`/`mv` commands from exported photo CSV files and a performance timeline CSV
 
 ### Deprecated (deprecated/)

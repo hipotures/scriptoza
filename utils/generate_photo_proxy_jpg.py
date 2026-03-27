@@ -123,7 +123,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--continue-existing",
         action="store_true",
-        help="Skip existing proxy JPG files without prompting",
+        help=argparse.SUPPRESS,
     )
     return parser.parse_args()
 
@@ -357,33 +357,23 @@ def count_existing_outputs(output_dirs: Dict[str, Path]) -> int:
     return total
 
 
-def resolve_existing_output_mode(args: argparse.Namespace, output_dirs: Dict[str, Path]) -> bool:
+def resolve_existing_output_mode(args: argparse.Namespace, output_dirs: Dict[str, Path]) -> tuple[bool, int]:
     if args.overwrite and args.continue_existing:
         console.print("[red]Error: use only one of --overwrite or --continue-existing.[/red]")
         raise SystemExit(1)
     existing_count = count_existing_outputs(output_dirs)
-    if existing_count == 0:
-        return False
     if args.overwrite:
-        return True
-    if args.continue_existing:
-        return False
-    if not sys.stdin.isatty():
-        console.print(
-            "[red]Error: existing proxy JPG files detected. Re-run with --overwrite or --continue-existing.[/red]"
-        )
-        raise SystemExit(1)
-    while True:
-        answer = console.input(
-            f"Found {existing_count} existing proxy JPG files. Choose c, o, or a: "
-        ).strip().lower()
-        if answer in {"c", "continue"}:
-            return False
-        if answer in {"o", "overwrite"}:
-            return True
-        if answer in {"a", "abort"}:
-            raise SystemExit(1)
-        console.print("[red]Please answer with c, o, or a.[/red]")
+        if existing_count > 0:
+            if not sys.stdin.isatty():
+                console.print("[red]Error: --overwrite requires confirmation in an interactive terminal.[/red]")
+                raise SystemExit(1)
+            answer = console.input(
+                f"Overwrite {existing_count} existing proxy JPG files? [y/N]: "
+            ).strip().lower()
+            if answer not in {"y", "yes"}:
+                raise SystemExit(1)
+        return True, existing_count
+    return False, existing_count
 
 
 def limit_rows_for_run(
@@ -419,6 +409,39 @@ def build_summary_table(summary_rows: Sequence[List[str]]) -> Table:
     table.add_column("Output Dir", style="white")
     for row in summary_rows:
         table.add_row(*row)
+    return table
+
+
+def build_start_table(
+    *,
+    day_dir: Path,
+    workspace_dir: Path,
+    output_root: Path,
+    backend: str,
+    selected_streams: Sequence[str],
+    selected_row_count: int,
+    run_row_count: int,
+    existing_count: int,
+    overwrite_mode: bool,
+    long_edge: int,
+    quality: int,
+    max_files: int | None,
+) -> Table:
+    table = Table(title="Photo Proxy Plan", expand=False)
+    table.add_column("Setting", style="green")
+    table.add_column("Value", style="white")
+    table.add_row("Day", str(day_dir))
+    table.add_row("Workspace", str(workspace_dir))
+    table.add_row("Output Root", str(output_root))
+    table.add_row("Backend", backend)
+    table.add_row("Streams", ", ".join(selected_streams))
+    table.add_row("Mode", "overwrite" if overwrite_mode else "continue")
+    table.add_row("Existing Proxy JPG", str(existing_count))
+    table.add_row("Selected Rows", str(selected_row_count))
+    table.add_row("Rows In This Run", str(run_row_count))
+    table.add_row("Long Edge", str(long_edge))
+    table.add_row("Quality", str(quality))
+    table.add_row("Max Files", str(max_files) if max_files is not None else "unlimited")
     return table
 
 
@@ -466,8 +489,25 @@ def main() -> int:
     output_dirs = {stream_id: output_root / stream_id for stream_id in selected_streams}
     for path in output_dirs.values():
         path.mkdir(parents=True, exist_ok=True)
-    overwrite_mode = resolve_existing_output_mode(args, output_dirs)
+    overwrite_mode, existing_count = resolve_existing_output_mode(args, output_dirs)
+    selected_row_count = len(selected_rows)
     selected_rows = limit_rows_for_run(selected_rows, output_dirs, overwrite_mode, args.max_files)
+    console.print(
+        build_start_table(
+            day_dir=day_dir,
+            workspace_dir=workspace_dir,
+            output_root=output_root,
+            backend=backend,
+            selected_streams=selected_streams,
+            selected_row_count=selected_row_count,
+            run_row_count=len(selected_rows),
+            existing_count=existing_count,
+            overwrite_mode=overwrite_mode,
+            long_edge=args.long_edge,
+            quality=args.quality,
+            max_files=args.max_files,
+        )
+    )
     if not selected_rows:
         console.print("[yellow]Nothing to do for the selected rows.[/yellow]")
         return 0
