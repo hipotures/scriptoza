@@ -74,6 +74,11 @@ def parse_args() -> argparse.Namespace:
         default="review_state.json",
         help="State filename inside workspace or absolute path. Default: review_state.json",
     )
+    parser.add_argument(
+        "--ui-scale",
+        default="auto",
+        help='UI scale factor like "1.25" or "auto". Default: auto',
+    )
     return parser.parse_args()
 
 
@@ -127,7 +132,7 @@ class PerformanceTree(QTreeWidget):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, index_path: Path, state_path: Path, payload: Dict) -> None:
+    def __init__(self, index_path: Path, state_path: Path, payload: Dict, initial_ui_scale: float) -> None:
         super().__init__()
         self.index_path = index_path
         self.state_path = state_path
@@ -144,9 +149,13 @@ class MainWindow(QMainWindow):
         self.display_items: List[QTreeWidgetItem] = []
         self.view_mode = 1
         self.tree_icon_mode = "mini"
+        self.base_font = QFont(QApplication.font())
+        self.ui_scale = initial_ui_scale
         self.review_state = self.load_review_state()
         self.state_dirty = False
         self.state_save_disabled = False
+
+        self.apply_ui_scale(self.ui_scale)
 
         self.setWindowTitle(f"Performance Proxy Review - {payload['day']}")
         self.resize(1600, 1000)
@@ -286,8 +295,52 @@ class MainWindow(QMainWindow):
         icon_mode_action.triggered.connect(self.toggle_tree_icon_mode)
         self.addAction(icon_mode_action)
 
+        increase_scale_action = QAction(self)
+        increase_scale_action.setShortcut(QKeySequence("Ctrl+="))
+        increase_scale_action.triggered.connect(self.increase_ui_scale)
+        self.addAction(increase_scale_action)
+
+        increase_scale_alt_action = QAction(self)
+        increase_scale_alt_action.setShortcut(QKeySequence("Ctrl++"))
+        increase_scale_alt_action.triggered.connect(self.increase_ui_scale)
+        self.addAction(increase_scale_alt_action)
+
+        decrease_scale_action = QAction(self)
+        decrease_scale_action.setShortcut(QKeySequence("Ctrl+-"))
+        decrease_scale_action.triggered.connect(self.decrease_ui_scale)
+        self.addAction(decrease_scale_action)
+
+        reset_scale_action = QAction(self)
+        reset_scale_action.setShortcut(QKeySequence("Ctrl+0"))
+        reset_scale_action.triggered.connect(self.reset_ui_scale)
+        self.addAction(reset_scale_action)
+
     def current_timestamp(self) -> str:
         return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+    def apply_ui_scale(self, scale: float) -> None:
+        self.ui_scale = max(0.75, min(scale, 3.0))
+        scaled_font = QFont(self.base_font)
+        if scaled_font.pointSizeF() > 0:
+            scaled_font.setPointSizeF(self.base_font.pointSizeF() * self.ui_scale)
+        elif scaled_font.pointSize() > 0:
+            scaled_font.setPointSizeF(float(self.base_font.pointSize()) * self.ui_scale)
+        QApplication.setFont(scaled_font)
+
+    def change_ui_scale(self, delta: float) -> None:
+        self.apply_ui_scale(round(self.ui_scale + delta, 2))
+        self.statusBar().showMessage(f"UI scale: {self.ui_scale:.2f}")
+
+    def increase_ui_scale(self) -> None:
+        self.change_ui_scale(0.1)
+
+    def decrease_ui_scale(self) -> None:
+        self.change_ui_scale(-0.1)
+
+    def reset_ui_scale(self) -> None:
+        scale = detect_ui_scale(QApplication.instance(), "auto")
+        self.apply_ui_scale(scale)
+        self.statusBar().showMessage(f"UI scale: {self.ui_scale:.2f} (auto)")
 
     def tree_icon_size(self) -> int:
         if self.tree_icon_mode == "mini":
@@ -707,6 +760,9 @@ class MainWindow(QMainWindow):
                     "2: dual-preview mode",
                     "I: toggle info panel",
                     "M: toggle tree icon size",
+                    "Ctrl+=: increase UI scale",
+                    "Ctrl+-: decrease UI scale",
+                    "Ctrl+0: reset UI scale to auto",
                     "F: toggle fullscreen",
                     "H: show this help",
                     "R: reset review state",
@@ -873,6 +929,27 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
+def detect_ui_scale(app: QApplication, requested_scale: str) -> float:
+    if requested_scale != "auto":
+        try:
+            return max(0.75, min(float(requested_scale), 3.0))
+        except ValueError:
+            print(f"Error: invalid --ui-scale value: {requested_scale}")
+            raise SystemExit(1)
+    screen = app.primaryScreen()
+    if screen is None:
+        return 1.0
+    physical_dpi = screen.physicalDotsPerInch()
+    geometry = screen.availableGeometry()
+    dpi_scale = physical_dpi / 96.0 if physical_dpi > 0 else 1.0
+    resolution_scale = max(geometry.width() / 1920.0, geometry.height() / 1080.0)
+    if geometry.width() >= 3840 or geometry.height() >= 2160:
+        return max(1.4, min(max(dpi_scale, 1.5), 2.0))
+    if geometry.width() >= 2560 or geometry.height() >= 1440:
+        return max(1.15, min(max(dpi_scale, 1.25), 1.6))
+    return max(1.0, min(dpi_scale, 1.25))
+
+
 def main() -> int:
     args = parse_args()
 
@@ -897,7 +974,7 @@ def main() -> int:
     payload = json.loads(index_path.read_text(encoding="utf-8"))
 
     app = QApplication(sys.argv)
-    window = MainWindow(index_path, state_path, payload)
+    window = MainWindow(index_path, state_path, payload, detect_ui_scale(app, args.ui_scale))
     window.show()
     return app.exec()
 

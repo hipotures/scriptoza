@@ -13,6 +13,7 @@ Generate fast proxy JPG files from exported photo CSV rows into the day workspac
 - Writes proxy JPG files to `DAY/_workspace/proxy_jpg/<stream>/`
 - Uses `magick` with `-auto-orient` when available
 - Resizes to a configurable longer-edge target instead of percentage scaling
+- Supports parallel proxy generation with `--jobs`
 - Supports stream filtering and `--max-files` limits for quick review passes
 - Writes `photo_proxy_manifest.csv` with source/proxy/status rows
 
@@ -25,12 +26,16 @@ python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5
 # Generate all proxies for one stream with a larger review size
 python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5 --long-edge 1200
 
+# Generate proxies in parallel
+python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5 --jobs 6
+
 # Regenerate existing proxies after confirmation
 python3 utils/generate_photo_proxy_jpg.py /path/to/day/20260323 --streams p-a7r5 --overwrite
 ```
 
 **Notes:**
 - By default the script continues and skips existing proxy JPG files without prompting
+- `--jobs N` controls how many files are processed in parallel
 - In continue mode, `--max-files N` means "create up to N new missing proxy files"
 - In overwrite mode, `--max-files N` means "process the first N selected rows"
 

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import concurrent.futures
 import csv
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -114,6 +116,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=85,
         help="JPEG quality for ImageMagick backend. Default: 85",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=4,
+        help="Number of files to process in parallel. Default: 4",
     )
     parser.add_argument(
         "--overwrite",
@@ -425,6 +433,7 @@ def build_start_table(
     overwrite_mode: bool,
     long_edge: int,
     quality: int,
+    jobs: int,
     max_files: int | None,
 ) -> Table:
     table = Table(title="Photo Proxy Plan", expand=False)
@@ -441,8 +450,48 @@ def build_start_table(
     table.add_row("Rows In This Run", str(run_row_count))
     table.add_row("Long Edge", str(long_edge))
     table.add_row("Quality", str(quality))
+    table.add_row("Jobs", str(jobs))
     table.add_row("Max Files", str(max_files) if max_files is not None else "unlimited")
     return table
+
+
+def process_proxy_row(
+    row: Dict[str, str],
+    output_dir: Path,
+    backend: str,
+    long_edge: int,
+    quality: int,
+    overwrite_mode: bool,
+) -> Dict[str, str]:
+    source = Path(row["path"])
+    destination = output_dir / f"{Path(row['filename']).stem}.jpg"
+    status = "done"
+    error_message = ""
+    if destination.exists() and not overwrite_mode:
+        status = "skipped_existing"
+    else:
+        try:
+            convert_file(source, destination, backend, long_edge, quality, overwrite_mode)
+        except subprocess.CalledProcessError as error:
+            status = "failed"
+            error_message = error.stderr.strip() or error.stdout.strip() or str(error)
+        except Exception as error:
+            status = "failed"
+            error_message = str(error)
+    return {
+        "day": row["day"],
+        "stream_id": row["stream_id"],
+        "device": row["device"],
+        "source_path": row["path"],
+        "filename": row["filename"],
+        "start_local": row.get("start_local", ""),
+        "proxy_path": str(destination),
+        "backend": backend,
+        "long_edge": str(long_edge),
+        "quality": str(quality),
+        "status": status,
+        "error": error_message,
+    }
 
 
 def main() -> int:
@@ -453,6 +502,9 @@ def main() -> int:
         return 1
     if not 1 <= args.quality <= 100:
         console.print("[red]Error: --quality must be between 1 and 100.[/red]")
+        return 1
+    if args.jobs < 1:
+        console.print("[red]Error: --jobs must be at least 1.[/red]")
         return 1
 
     day_dir = Path(args.day_dir).resolve()
@@ -505,6 +557,7 @@ def main() -> int:
             overwrite_mode=overwrite_mode,
             long_edge=args.long_edge,
             quality=args.quality,
+            jobs=args.jobs,
             max_files=args.max_files,
         )
     )
@@ -534,61 +587,58 @@ def main() -> int:
             stream_task = progress.add_task("Streams".ljust(25), total=len(selected_streams))
         file_task = progress.add_task("Photos".ljust(25), total=len(selected_rows), eta_seconds=None)
         last_eta_update = 0.0
+        progress.update(file_task, description="Photos".ljust(25))
+        pending_per_stream: Dict[str, int] = {}
         for stream_id in selected_streams:
             stream_rows = [row for row in selected_rows if row["stream_id"] == stream_id]
-            if stream_task is not None:
-                progress.update(stream_task, description=f"Streams ({stream_id})".ljust(25))
-            progress.update(file_task, description="Photos".ljust(25))
-            summary.setdefault(stream_id, {"files": 0, "done": 0, "skipped": 0, "failed": 0})
-            output_dir = output_dirs[stream_id]
-            for row in stream_rows:
-                summary[stream_id]["files"] += 1
-                source = Path(row["path"])
-                destination = output_dir / f"{Path(row['filename']).stem}.jpg"
-                status = "done"
-                error_message = ""
-                if destination.exists() and not overwrite_mode:
-                    status = "skipped_existing"
+            summary.setdefault(stream_id, {"files": len(stream_rows), "done": 0, "skipped": 0, "failed": 0})
+            pending_per_stream[stream_id] = len(stream_rows)
+
+        future_to_index: Dict[concurrent.futures.Future, int] = {}
+        manifest_rows_by_index: Dict[int, Dict[str, str]] = {}
+        max_workers = min(args.jobs, max(1, len(selected_rows)), max(1, os.cpu_count() or 1))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for index, row in enumerate(selected_rows):
+                future = executor.submit(
+                    process_proxy_row,
+                    row,
+                    output_dirs[row["stream_id"]],
+                    backend,
+                    args.long_edge,
+                    args.quality,
+                    overwrite_mode,
+                )
+                future_to_index[future] = index
+
+            for future in concurrent.futures.as_completed(future_to_index):
+                index = future_to_index[future]
+                row = selected_rows[index]
+                result = future.result()
+                manifest_rows_by_index[index] = result
+                stream_id = row["stream_id"]
+                if result["status"] == "done":
+                    summary[stream_id]["done"] += 1
+                elif result["status"] == "skipped_existing":
                     summary[stream_id]["skipped"] += 1
                 else:
-                    try:
-                        convert_file(source, destination, backend, args.long_edge, args.quality, overwrite_mode)
-                        summary[stream_id]["done"] += 1
-                    except subprocess.CalledProcessError as error:
-                        status = "failed"
-                        summary[stream_id]["failed"] += 1
-                        error_message = error.stderr.strip() or error.stdout.strip() or str(error)
-                        failed_messages.append(f"{source.name} -> {error_message}")
-                    except Exception as error:
-                        status = "failed"
-                        summary[stream_id]["failed"] += 1
-                        error_message = str(error)
-                        failed_messages.append(f"{source.name} -> {error_message}")
-                manifest_rows.append(
-                    {
-                        "day": row["day"],
-                        "stream_id": row["stream_id"],
-                        "device": row["device"],
-                        "source_path": row["path"],
-                        "filename": row["filename"],
-                        "start_local": row.get("start_local", ""),
-                        "proxy_path": str(destination),
-                        "backend": backend,
-                        "long_edge": str(args.long_edge),
-                        "quality": str(args.quality),
-                        "status": status,
-                        "error": error_message,
-                    }
-                )
+                    summary[stream_id]["failed"] += 1
+                    failed_messages.append(f"{Path(row['path']).name} -> {result['error']}")
+
+                pending_per_stream[stream_id] -= 1
+                if stream_task is not None and pending_per_stream[stream_id] == 0:
+                    progress.advance(stream_task)
+
                 progress.advance(file_task)
                 now = time.monotonic()
                 if now - last_eta_update >= 1.0:
                     eta_seconds = estimate_eta_seconds(get_progress_task(progress, file_task))
                     progress.update(file_task, eta_seconds=eta_seconds)
                     last_eta_update = now
-            if stream_task is not None:
-                progress.advance(stream_task)
         progress.update(file_task, eta_seconds=0)
+
+    for index in range(len(selected_rows)):
+        manifest_rows.append(manifest_rows_by_index[index])
 
     manifest_headers = [
         "day",
