@@ -380,19 +380,23 @@ class MainWindow(QMainWindow):
         end = datetime.fromisoformat(last_value)
         return max(0, int((end - start).total_seconds()))
 
-    def max_internal_photo_gap_seconds(self, photos: List[Dict]) -> int:
+    def max_internal_photo_gap_info(self, photos: List[Dict]) -> tuple[int, List[str]]:
         if len(photos) < 2:
-            return 0
+            return 0, []
         max_gap = 0.0
+        boundary_filenames: List[str] = []
         previous_dt: Optional[datetime] = None
+        previous_filename = ""
         for photo in photos:
             current_dt = datetime.fromisoformat(photo["adjusted_start_local"])
             if previous_dt is not None:
                 gap_seconds = (current_dt - previous_dt).total_seconds()
                 if gap_seconds > max_gap:
                     max_gap = gap_seconds
+                    boundary_filenames = [previous_filename, photo["filename"]]
             previous_dt = current_dt
-        return max(0, int(max_gap))
+            previous_filename = photo["filename"]
+        return max(0, int(max_gap)), boundary_filenames
 
     def default_review_state(self) -> Dict:
         return {
@@ -635,6 +639,8 @@ class MainWindow(QMainWindow):
                     if photo_entry["proxy_exists"]:
                         last_proxy_path = photo_entry["proxy_path"]
 
+                max_gap_seconds, gap_boundary_filenames = self.max_internal_photo_gap_info(normalized_photos)
+
                 display_sets.append(
                     {
                         "set_id": segment_ids[segment_number],
@@ -654,7 +660,8 @@ class MainWindow(QMainWindow):
                             normalized_photos[0]["adjusted_start_local"],
                             normalized_photos[-1]["adjusted_start_local"],
                         ),
-                        "max_internal_photo_gap_seconds": self.max_internal_photo_gap_seconds(normalized_photos),
+                        "max_internal_photo_gap_seconds": max_gap_seconds,
+                        "gap_boundary_filenames": gap_boundary_filenames,
                         "first_proxy_path": first_proxy_path,
                         "last_proxy_path": last_proxy_path,
                         "first_source_path": normalized_photos[0]["source_path"],
@@ -783,6 +790,8 @@ class MainWindow(QMainWindow):
         if item.childCount() > 0:
             return
         display_set = item.data(0, Qt.UserRole)
+        gap_boundary_filenames = set(display_set.get("gap_boundary_filenames", []))
+        gap_highlight = QColor("#6e2a2a")
         for photo in display_set["photos"]:
             child = QTreeWidgetItem(
                 [
@@ -793,6 +802,9 @@ class MainWindow(QMainWindow):
                 ]
             )
             child.setData(0, Qt.UserRole, photo)
+            if photo["filename"] in gap_boundary_filenames:
+                for column in range(self.tree.columnCount()):
+                    child.setBackground(column, gap_highlight)
             item.addChild(child)
 
     def on_item_expanded(self, item: QTreeWidgetItem) -> None:
