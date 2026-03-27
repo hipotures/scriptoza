@@ -27,6 +27,21 @@ def ensure_venv_python() -> None:
 
 ensure_venv_python()
 
+
+def configure_qt_logging() -> None:
+    rule = "qt.qpa.wayland.textinput.warning=false"
+    current = os.environ.get("QT_LOGGING_RULES", "").strip()
+    if not current:
+        os.environ["QT_LOGGING_RULES"] = rule
+        return
+    rules = [entry.strip() for entry in current.split(";") if entry.strip()]
+    if rule not in rules:
+        rules.append(rule)
+        os.environ["QT_LOGGING_RULES"] = ";".join(rules)
+
+
+configure_qt_logging()
+
 from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QImageReader, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
@@ -147,16 +162,17 @@ class PerformanceTree(QTreeWidget):
         super().keyPressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
-        item = self.itemAt(event.pos())
+        point = event.position().toPoint()
+        item = self.itemAt(point)
         if item is not self.hover_item:
             self.hover_item = item
             self.hover_timer.stop()
             QToolTip.hideText()
             if item is not None:
-                self.hover_tooltip_pos = self.viewport().mapToGlobal(event.pos())
+                self.hover_tooltip_pos = self.viewport().mapToGlobal(point)
                 self.hover_timer.start()
         else:
-            self.hover_tooltip_pos = self.viewport().mapToGlobal(event.pos())
+            self.hover_tooltip_pos = self.viewport().mapToGlobal(point)
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:
@@ -371,13 +387,18 @@ class MainWindow(QMainWindow):
         split_action.triggered.connect(self.confirm_split_current_photo)
         self.addAction(split_action)
 
+        merge_action = QAction(self)
+        merge_action.setShortcut(QKeySequence("M"))
+        merge_action.triggered.connect(self.confirm_merge_with_next_set)
+        self.addAction(merge_action)
+
         no_photos_action = QAction(self)
         no_photos_action.setShortcut(QKeySequence("X"))
         no_photos_action.triggered.connect(self.toggle_no_photos_confirmed_current_set)
         self.addAction(no_photos_action)
 
         icon_mode_action = QAction(self)
-        icon_mode_action.setShortcut(QKeySequence("M"))
+        icon_mode_action.setShortcut(QKeySequence("T"))
         icon_mode_action.triggered.connect(self.toggle_tree_icon_mode)
         self.addAction(icon_mode_action)
 
@@ -488,6 +509,7 @@ class MainWindow(QMainWindow):
             "updated_at": "",
             "performances": {},
             "splits": {},
+            "merges": [],
         }
 
     def load_review_state(self) -> Dict:
@@ -504,10 +526,13 @@ class MainWindow(QMainWindow):
         payload.setdefault("updated_at", "")
         payload.setdefault("performances", {})
         payload.setdefault("splits", {})
+        payload.setdefault("merges", [])
         if not isinstance(payload["performances"], dict):
             payload["performances"] = {}
         if not isinstance(payload["splits"], dict):
             payload["splits"] = {}
+        if not isinstance(payload["merges"], list):
+            payload["merges"] = []
         return payload
 
     def load_state_file(self, path: Path) -> Dict:
@@ -642,6 +667,13 @@ class MainWindow(QMainWindow):
             specs = []
             splits[original_set_id] = specs
         return specs
+
+    def merge_specs(self) -> List[Dict]:
+        merges = self.review_state.setdefault("merges", [])
+        if not isinstance(merges, list):
+            merges = []
+            self.review_state["merges"] = merges
+        return merges
 
     def apply_review_font(self, item: QTreeWidgetItem, set_id: str) -> None:
         entry = self.review_entry(set_id)
@@ -800,7 +832,65 @@ class MainWindow(QMainWindow):
                         "photos": normalized_photos,
                     }
                 )
-        self.display_sets = display_sets
+        self.display_sets = self.apply_display_set_merges(display_sets)
+
+    def apply_display_set_merges(self, display_sets: List[Dict]) -> List[Dict]:
+        merged_sets = [dict(display_set) for display_set in display_sets]
+        for display_set in merged_sets:
+            display_set["photos"] = [dict(photo) for photo in display_set["photos"]]
+        for spec in self.merge_specs():
+            if not isinstance(spec, dict):
+                continue
+            target_set_id = spec.get("target_set_id", "")
+            source_set_id = spec.get("source_set_id", "")
+            if not target_set_id or not source_set_id or target_set_id == source_set_id:
+                continue
+            index_by_set_id = {display_set["set_id"]: index for index, display_set in enumerate(merged_sets)}
+            if target_set_id not in index_by_set_id or source_set_id not in index_by_set_id:
+                continue
+            target_index = index_by_set_id[target_set_id]
+            source_index = index_by_set_id[source_set_id]
+            if source_index != target_index + 1:
+                continue
+            target_set = merged_sets[target_index]
+            source_set = merged_sets[source_index]
+            combined_photos = target_set["photos"] + source_set["photos"]
+            first_proxy_path = target_set.get("first_proxy_path", "") or source_set.get("first_proxy_path", "")
+            last_proxy_path = source_set.get("last_proxy_path", "") or target_set.get("last_proxy_path", "")
+            first_source_path = target_set.get("first_source_path", "") or source_set.get("first_source_path", "")
+            last_source_path = source_set.get("last_source_path", "") or target_set.get("last_source_path", "")
+            if combined_photos:
+                combined_photos.sort(key=lambda photo: (photo["adjusted_start_local"], photo["filename"]))
+                first_photo_local = combined_photos[0]["adjusted_start_local"]
+                last_photo_local = combined_photos[-1]["adjusted_start_local"]
+                duration_seconds = self.duration_seconds(first_photo_local, last_photo_local)
+                review_count = sum(1 for photo in combined_photos if photo["assignment_status"] == "review")
+                max_gap_seconds, gap_boundary_filenames = self.max_internal_photo_gap_info(combined_photos)
+                if max_gap_seconds <= PHOTO_GAP_THRESHOLD_SECONDS:
+                    gap_boundary_filenames = []
+            else:
+                first_photo_local = ""
+                last_photo_local = ""
+                duration_seconds = 0
+                review_count = 0
+                max_gap_seconds = 0
+                gap_boundary_filenames = []
+            target_set["photos"] = combined_photos
+            target_set["photo_count"] = len(combined_photos)
+            target_set["review_count"] = review_count
+            target_set["first_photo_local"] = first_photo_local
+            target_set["last_photo_local"] = last_photo_local
+            target_set["duration_seconds"] = duration_seconds
+            target_set["max_internal_photo_gap_seconds"] = max_gap_seconds
+            target_set["gap_boundary_filenames"] = gap_boundary_filenames
+            target_set["first_proxy_path"] = first_proxy_path
+            target_set["last_proxy_path"] = last_proxy_path
+            target_set["first_source_path"] = first_source_path
+            target_set["last_source_path"] = last_source_path
+            target_set["performance_end_local"] = source_set.get("performance_end_local", target_set["performance_end_local"])
+            target_set["timeline_status"] = source_set.get("timeline_status", target_set["timeline_status"])
+            merged_sets.pop(source_index)
+        return merged_sets
 
     def build_tree(self) -> None:
         self.tree.clear()
@@ -1063,7 +1153,8 @@ class MainWindow(QMainWindow):
                     "1: single-preview mode",
                     "2: dual-preview mode",
                     "I: toggle info panel",
-                    "M: toggle tree icon size",
+                    "M: merge the current set with the next set",
+                    "T: toggle tree icon size",
                     "Ctrl+=: increase UI scale",
                     "Ctrl+-: decrease UI scale",
                     "Ctrl+0: reset UI scale to auto",
@@ -1140,6 +1231,54 @@ class MainWindow(QMainWindow):
         preferred_set_id = f"{base_set_id}::{start_filename}"
         self.rebuild_tree_after_state_change(preferred_set_id=preferred_set_id, preferred_filename=start_filename)
         self.statusBar().showMessage(f"Split created: {new_name}")
+
+    def confirm_merge_with_next_set(self) -> None:
+        item = self.current_top_level_item()
+        if item is None:
+            QMessageBox.information(self, "Merge Sets", "Select a set before merging.")
+            return
+        if item not in self.display_items:
+            QMessageBox.information(self, "Merge Sets", "Select a valid set before merging.")
+            return
+        current_index = self.display_items.index(item)
+        if current_index + 1 >= len(self.display_items):
+            QMessageBox.information(self, "Merge Sets", "The current set has no next set to merge.")
+            return
+        target_item = item
+        source_item = self.display_items[current_index + 1]
+        target_set = target_item.data(0, Qt.UserRole)
+        source_set = source_item.data(0, Qt.UserRole)
+        message_box = QMessageBox(self)
+        message_box.setWindowTitle("Merge Sets")
+        message_box.setTextFormat(Qt.RichText)
+        message_box.setText(
+            f"Add set <b>{source_set['display_name']}</b> to set <b>{target_set['display_name']}</b>?"
+        )
+        message_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        message_box.setDefaultButton(QMessageBox.No)
+        if message_box.exec() != QMessageBox.Yes:
+            return
+        self.merge_specs().append(
+            {
+                "target_set_id": target_set["set_id"],
+                "source_set_id": source_set["set_id"],
+                "created_at": self.current_timestamp(),
+            }
+        )
+        target_entry = self.review_entry(target_set["set_id"])
+        source_entry = self.review_entry(source_set["set_id"])
+        self.review_state["performances"][target_set["set_id"]] = self.merge_review_entries(target_entry, source_entry)
+        if source_set["set_id"] in self.review_state.get("performances", {}):
+            self.review_state["performances"].pop(source_set["set_id"], None)
+        self.review_state["updated_at"] = self.current_timestamp()
+        self.state_dirty = True
+        self.rebuild_tree_after_state_change(preferred_set_id=target_set["set_id"])
+        if self.flush_review_state(allow_viewed_drop=True):
+            self.statusBar().showMessage(f"Merged {source_set['display_name']} into {target_set['display_name']}")
+        else:
+            self.statusBar().showMessage(
+                f"Merged {source_set['display_name']} into {target_set['display_name']} in memory, but save failed"
+            )
 
     def show_display_set(self, display_set: Dict) -> None:
         first_path = display_set.get("first_proxy_path") or ""

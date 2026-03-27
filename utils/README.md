@@ -78,6 +78,8 @@ Open a simple PySide6 desktop viewer for browsing assigned proxy JPG files per p
 - `H` shows a keyboard help dialog
 - `R` asks for confirmation and resets `review_state.json` to the first-run state
 - `S` splits the current set from the selected photo into a new named set
+- `M` merges the current set with the next set and keeps the current set name
+- `T` toggles the tree icon size
 - `X` toggles `no_photos_confirmed` for the current set
 - Preloads first and last performance previews in the background
 - Unreviewed performances are shown in bold until they are opened once
