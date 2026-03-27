@@ -49,9 +49,12 @@ Build a JSON index that groups assigned proxy JPG files by performance.
 
 **Features:**
 - Reads `DAY/_workspace/photo_assignments.csv`
+- Reads `DAY/_workspace/performance_timeline.csv`
+- Reads `DAY/_workspace/announcement_candidates.csv`
 - Resolves proxy JPG paths from `DAY/_workspace/proxy_jpg/<stream>/`
 - Groups photos by performance number
 - Stores the first available proxy path for each performance
+- Stores announcement text and announcement timing per performance
 - Writes one JSON file for the desktop review GUI
 
 **Usage:**

@@ -30,6 +30,10 @@ def parse_args() -> argparse.Namespace:
         help="Override the performance timeline CSV. Default: DAY/_workspace/performance_timeline.csv",
     )
     parser.add_argument(
+        "--announcements-csv",
+        help="Override the announcement candidates CSV. Default: DAY/_workspace/announcement_candidates.csv",
+    )
+    parser.add_argument(
         "--proxy-root",
         help="Override the proxy JPG root directory. Default: DAY/_workspace/proxy_jpg",
     )
@@ -76,6 +80,9 @@ def main() -> int:
     workspace_dir = Path(args.workspace_dir).resolve() if args.workspace_dir else day_dir / "_workspace"
     assignments_csv = Path(args.assignments_csv).resolve() if args.assignments_csv else workspace_dir / "photo_assignments.csv"
     timeline_csv = Path(args.timeline_csv).resolve() if args.timeline_csv else workspace_dir / "performance_timeline.csv"
+    announcements_csv = (
+        Path(args.announcements_csv).resolve() if args.announcements_csv else workspace_dir / "announcement_candidates.csv"
+    )
     proxy_root = Path(args.proxy_root).resolve() if args.proxy_root else workspace_dir / "proxy_jpg"
     output_path = Path(args.output)
     if not output_path.is_absolute():
@@ -87,6 +94,9 @@ def main() -> int:
     if not timeline_csv.exists():
         console.print(f"[red]Error: performance timeline CSV not found: {timeline_csv}[/red]")
         return 1
+    if not announcements_csv.exists():
+        console.print(f"[red]Error: announcement candidates CSV not found: {announcements_csv}[/red]")
+        return 1
     if not proxy_root.exists():
         console.print(f"[red]Error: proxy JPG root not found: {proxy_root}[/red]")
         return 1
@@ -94,10 +104,24 @@ def main() -> int:
     rows = read_csv_rows(assignments_csv)
     rows.sort(key=set_sort_key)
     timeline_rows = read_csv_rows(timeline_csv)
+    announcement_rows = read_csv_rows(announcements_csv)
+
+    announcements_by_number: Dict[str, List[Dict[str, str]]] = {}
+    for row in announcement_rows:
+        announcements_by_number.setdefault(row["performance_number"], []).append(row)
+    for candidates in announcements_by_number.values():
+        candidates.sort(key=lambda item: (item.get("segment_start_local", ""), item.get("segment_start_seconds", "")))
 
     performances: Dict[str, Dict] = {}
     for row in timeline_rows:
         set_id = row.get("set_id") or row["performance_number"]
+        announcement_candidates = announcements_by_number.get(row["performance_number"], [])
+        selected_announcement = None
+        for candidate in announcement_candidates:
+            if candidate.get("segment_start_local", "") <= row.get("start_local", ""):
+                selected_announcement = candidate
+        if selected_announcement is None and announcement_candidates:
+            selected_announcement = announcement_candidates[0]
         performances[set_id] = {
             "set_id": set_id,
             "performance_number": row["performance_number"],
@@ -107,6 +131,10 @@ def main() -> int:
             "timeline_status": row.get("status", ""),
             "performance_start_local": row.get("start_local", ""),
             "performance_end_local": row.get("end_local", ""),
+            "announcement_text": selected_announcement.get("segment_text", "") if selected_announcement else "",
+            "announcement_start_local": selected_announcement.get("segment_start_local", "") if selected_announcement else "",
+            "announcement_end_local": selected_announcement.get("segment_end_local", "") if selected_announcement else "",
+            "announcement_stream_id": selected_announcement.get("stream_id", "") if selected_announcement else "",
             "photo_count": 0,
             "review_count": 0,
             "first_photo_local": "",
@@ -138,6 +166,10 @@ def main() -> int:
                 "timeline_status": row["timeline_status"],
                 "performance_start_local": row["performance_start_local"],
                 "performance_end_local": row["performance_end_local"],
+                "announcement_text": "",
+                "announcement_start_local": "",
+                "announcement_end_local": "",
+                "announcement_stream_id": "",
                 "photo_count": 0,
                 "review_count": 0,
                 "first_photo_local": "",
@@ -190,6 +222,7 @@ def main() -> int:
         "proxy_root": str(proxy_root),
         "assignments_csv": str(assignments_csv),
         "timeline_csv": str(timeline_csv),
+        "announcements_csv": str(announcements_csv),
         "performance_count": len(performance_list),
         "photo_count": len(rows),
         "performances": performance_list,
