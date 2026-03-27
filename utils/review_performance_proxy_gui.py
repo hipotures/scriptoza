@@ -31,16 +31,21 @@ from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, S
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QImageReader, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QDockWidget,
+    QFormLayout,
     QHeaderView,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QScrollArea,
     QSplitter,
     QStatusBar,
+    QToolTip,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -116,6 +121,16 @@ class PerformanceTree(QTreeWidget):
     nextPerformanceRequested = Signal()
     togglePerformanceRequested = Signal()
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.setMouseTracking(True)
+        self.hover_item: Optional[QTreeWidgetItem] = None
+        self.hover_tooltip_pos = None
+        self.hover_timer = QTimer(self)
+        self.hover_timer.setSingleShot(True)
+        self.hover_timer.setInterval(3000)
+        self.hover_timer.timeout.connect(self.show_hover_tooltip)
+
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key_Space:
             self.togglePerformanceRequested.emit()
@@ -130,6 +145,69 @@ class PerformanceTree(QTreeWidget):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        item = self.itemAt(event.pos())
+        if item is not self.hover_item:
+            self.hover_item = item
+            self.hover_timer.stop()
+            QToolTip.hideText()
+            if item is not None:
+                self.hover_tooltip_pos = self.viewport().mapToGlobal(event.pos())
+                self.hover_timer.start()
+        else:
+            self.hover_tooltip_pos = self.viewport().mapToGlobal(event.pos())
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self.hover_item = None
+        self.hover_timer.stop()
+        QToolTip.hideText()
+        super().leaveEvent(event)
+
+    def show_hover_tooltip(self) -> None:
+        item = self.hover_item
+        if item is None or self.hover_tooltip_pos is None:
+            return
+        tooltip = item.data(0, Qt.ToolTipRole)
+        if tooltip:
+            QToolTip.showText(self.hover_tooltip_pos, tooltip, self.viewport())
+
+
+class SplitSetDialog(QDialog):
+    def __init__(self, filename: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Split Set")
+        self.setModal(True)
+
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Ceremony or 123")
+        self.set_checkbox = QCheckBox("Set")
+        self.set_checkbox.setStyleSheet(
+            "QCheckBox { spacing: 8px; }"
+            "QCheckBox::indicator { width: 18px; height: 18px; border: 1px solid #555; background: #fff; }"
+            "QCheckBox::indicator:checked { background: #2d6cdf; border: 1px solid #2d6cdf; }"
+        )
+
+        form_layout = QFormLayout()
+        form_layout.addRow("From file", QLabel(filename))
+        form_layout.addRow("Name", self.name_input)
+        form_layout.addRow("", self.set_checkbox)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+
+        layout = QVBoxLayout()
+        layout.addLayout(form_layout)
+        layout.addWidget(button_box)
+        self.setLayout(layout)
+
+    def split_name(self) -> str:
+        return self.name_input.text().strip()
+
+    def is_set_split(self) -> bool:
+        return self.set_checkbox.isChecked()
 
 
 class MainWindow(QMainWindow):
@@ -292,6 +370,11 @@ class MainWindow(QMainWindow):
         split_action.setShortcut(QKeySequence("S"))
         split_action.triggered.connect(self.confirm_split_current_photo)
         self.addAction(split_action)
+
+        no_photos_action = QAction(self)
+        no_photos_action.setShortcut(QKeySequence("X"))
+        no_photos_action.triggered.connect(self.toggle_no_photos_confirmed_current_set)
+        self.addAction(no_photos_action)
 
         icon_mode_action = QAction(self)
         icon_mode_action.setShortcut(QKeySequence("M"))
@@ -496,6 +579,7 @@ class MainWindow(QMainWindow):
     def merge_review_entries(self, target: Dict, source: Dict) -> Dict:
         target["viewed"] = bool(target.get("viewed")) or bool(source.get("viewed"))
         target["view_count"] = max(int(target.get("view_count") or 0), int(source.get("view_count") or 0))
+        target["no_photos_confirmed"] = bool(target.get("no_photos_confirmed")) or bool(source.get("no_photos_confirmed"))
         first_values = [value for value in [target.get("first_viewed_at", ""), source.get("first_viewed_at", "")] if value]
         last_values = [value for value in [target.get("last_viewed_at", ""), source.get("last_viewed_at", "")] if value]
         target["first_viewed_at"] = min(first_values) if first_values else ""
@@ -527,6 +611,7 @@ class MainWindow(QMainWindow):
                     "first_viewed_at": "",
                     "last_viewed_at": "",
                     "view_count": 0,
+                    "no_photos_confirmed": False,
                 },
             )
             migrated[mapped_key] = self.merge_review_entries(target, value)
@@ -544,8 +629,10 @@ class MainWindow(QMainWindow):
                 "first_viewed_at": "",
                 "last_viewed_at": "",
                 "view_count": 0,
+                "no_photos_confirmed": False,
             }
             performances[set_id] = entry
+        entry.setdefault("no_photos_confirmed", False)
         return entry
 
     def split_specs_for_original(self, original_set_id: str) -> List[Dict]:
@@ -566,9 +653,26 @@ class MainWindow(QMainWindow):
         font.setBold(not is_viewed)
         font.setWeight(QFont.Normal if is_viewed else QFont.Bold)
         font.setItalic(False)
+        foreground = QColor("#777777") if bool(entry.get("no_photos_confirmed")) else QColor("#000000")
         for column in range(self.tree.columnCount()):
             item.setFont(column, font)
-            item.setForeground(column, QColor("#000000"))
+            item.setForeground(column, foreground)
+        tooltip = "no_photos_confirmed" if bool(entry.get("no_photos_confirmed")) else ""
+        item.setData(0, Qt.ToolTipRole, tooltip)
+
+    def toggle_no_photos_confirmed_current_set(self) -> None:
+        item = self.current_top_level_item()
+        if item is None:
+            return
+        display_set = item.data(0, Qt.UserRole)
+        set_id = display_set["set_id"]
+        entry = self.review_entry(set_id)
+        entry["no_photos_confirmed"] = not bool(entry.get("no_photos_confirmed"))
+        self.review_state["updated_at"] = self.current_timestamp()
+        self.state_dirty = True
+        self.apply_review_font(item, set_id)
+        state_text = "enabled" if entry["no_photos_confirmed"] else "disabled"
+        self.statusBar().showMessage(f"no_photos_confirmed {state_text} for set {display_set['display_name']}")
 
     def reset_review_fonts(self) -> None:
         for set_id, item in self.item_by_set_id.items():
@@ -597,6 +701,31 @@ class MainWindow(QMainWindow):
             original_number = original["performance_number"]
             photos = list(original["photos"])
             if not photos:
+                display_sets.append(
+                    {
+                        "set_id": base_set_id,
+                        "base_set_id": base_set_id,
+                        "display_name": original_number,
+                        "original_performance_number": original_number,
+                        "occurrence_index": original.get("occurrence_index", ""),
+                        "duplicate_status": original.get("duplicate_status", "normal"),
+                        "timeline_status": original["timeline_status"],
+                        "performance_start_local": original["performance_start_local"],
+                        "performance_end_local": original["performance_end_local"],
+                        "photo_count": 0,
+                        "review_count": 0,
+                        "first_photo_local": "",
+                        "last_photo_local": "",
+                        "duration_seconds": 0,
+                        "max_internal_photo_gap_seconds": 0,
+                        "gap_boundary_filenames": [],
+                        "first_proxy_path": "",
+                        "last_proxy_path": "",
+                        "first_source_path": "",
+                        "last_source_path": "",
+                        "photos": [],
+                    }
+                )
                 continue
 
             photo_index = {photo["filename"]: index for index, photo in enumerate(photos)}
@@ -640,6 +769,8 @@ class MainWindow(QMainWindow):
                         last_proxy_path = photo_entry["proxy_path"]
 
                 max_gap_seconds, gap_boundary_filenames = self.max_internal_photo_gap_info(normalized_photos)
+                if max_gap_seconds <= PHOTO_GAP_THRESHOLD_SECONDS:
+                    gap_boundary_filenames = []
 
                 display_sets.append(
                     {
@@ -676,17 +807,20 @@ class MainWindow(QMainWindow):
         self.item_by_set_id = {}
         self.display_items = []
         for display_set in self.display_sets:
+            first_display_time = display_set["first_photo_local"] or display_set["performance_start_local"]
             item = QTreeWidgetItem(
                 [
                     display_set["display_name"],
                     str(display_set["photo_count"]),
                     str(display_set["review_count"]),
-                    self.display_time(display_set["first_photo_local"]),
+                    self.display_time(first_display_time),
                     str(display_set["duration_seconds"]),
                 ]
             )
             item.setData(0, Qt.UserRole, display_set)
-            item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
+            item.setChildIndicatorPolicy(
+                QTreeWidgetItem.ShowIndicator if display_set["photo_count"] > 0 else QTreeWidgetItem.DontShowIndicatorWhenChildless
+            )
             self.tree.addTopLevelItem(item)
             self.item_by_set_id[display_set["set_id"]] = item
             self.display_items.append(item)
@@ -854,6 +988,8 @@ class MainWindow(QMainWindow):
             self.mark_set_viewed(display_set["set_id"])
         if item.parent() is None:
             display_set = item.data(0, Qt.UserRole)
+            first_photo_text = self.display_time(display_set["first_photo_local"]) if display_set["first_photo_local"] else "-"
+            last_photo_text = self.display_time(display_set["last_photo_local"]) if display_set["last_photo_local"] else "-"
             self.meta_label.setText(
                 "\n".join(
                     [
@@ -865,11 +1001,12 @@ class MainWindow(QMainWindow):
                     f"Review: {display_set['review_count']}",
                     f"Duration: {display_set['duration_seconds']} s",
                     f"Max photo gap: {display_set['max_internal_photo_gap_seconds']} s",
+                    f"No photos confirmed: {'yes' if self.review_entry(display_set['set_id']).get('no_photos_confirmed') else 'no'}",
                     f"Timeline: {display_set['timeline_status']}",
                     f"Start: {display_set['performance_start_local']}",
                     f"End: {display_set['performance_end_local']}",
-                    f"First photo: {self.display_time(display_set['first_photo_local'])}",
-                    f"Last photo: {self.display_time(display_set['last_photo_local'])}",
+                    f"First photo: {first_photo_text}",
+                    f"Last photo: {last_photo_text}",
                     ]
                 )
             )
@@ -934,6 +1071,7 @@ class MainWindow(QMainWindow):
                     "H: show this help",
                     "R: reset review state",
                     "S: split the current set from the selected photo into a new named set",
+                    "X: toggle no_photos_confirmed for the current set",
                 ]
             ),
         )
@@ -963,19 +1101,19 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Split Set", "Select a photo inside a set before splitting.")
             return
         photo = item.data(0, Qt.UserRole)
-        text, accepted = QInputDialog.getText(
-            self,
-            "Split Set",
-            f"New set name from {photo['filename']} onward:",
-        )
-        if not accepted:
+        dialog = SplitSetDialog(photo["filename"], self)
+        if dialog.exec() != QDialog.Accepted:
             return
-        new_name = text.strip()
+        new_name = dialog.split_name()
+        is_set_split = dialog.is_set_split()
         if not new_name:
             QMessageBox.warning(self, "Split Set", "Set name cannot be empty.")
             return
-        if new_name.isdigit():
-            QMessageBox.warning(self, "Split Set", "Custom set name cannot contain only digits.")
+        if is_set_split and not new_name.isdigit():
+            QMessageBox.warning(self, "Split Set", 'When "Set" is enabled, name must contain only digits.')
+            return
+        if not is_set_split and new_name.isdigit():
+            QMessageBox.warning(self, "Split Set", 'When "Set" is disabled, name cannot contain only digits.')
             return
         original_number = photo["original_performance_number"]
         base_set_id = photo["base_set_id"]
@@ -993,6 +1131,7 @@ class MainWindow(QMainWindow):
             {
                 "start_filename": start_filename,
                 "new_name": new_name,
+                "is_set_split": is_set_split,
                 "created_at": self.current_timestamp(),
             }
         )

@@ -26,6 +26,10 @@ def parse_args() -> argparse.Namespace:
         help="Override the photo assignments CSV. Default: DAY/_workspace/photo_assignments.csv",
     )
     parser.add_argument(
+        "--timeline-csv",
+        help="Override the performance timeline CSV. Default: DAY/_workspace/performance_timeline.csv",
+    )
+    parser.add_argument(
         "--proxy-root",
         help="Override the proxy JPG root directory. Default: DAY/_workspace/proxy_jpg",
     )
@@ -71,6 +75,7 @@ def main() -> int:
 
     workspace_dir = Path(args.workspace_dir).resolve() if args.workspace_dir else day_dir / "_workspace"
     assignments_csv = Path(args.assignments_csv).resolve() if args.assignments_csv else workspace_dir / "photo_assignments.csv"
+    timeline_csv = Path(args.timeline_csv).resolve() if args.timeline_csv else workspace_dir / "performance_timeline.csv"
     proxy_root = Path(args.proxy_root).resolve() if args.proxy_root else workspace_dir / "proxy_jpg"
     output_path = Path(args.output)
     if not output_path.is_absolute():
@@ -79,14 +84,40 @@ def main() -> int:
     if not assignments_csv.exists():
         console.print(f"[red]Error: assignments CSV not found: {assignments_csv}[/red]")
         return 1
+    if not timeline_csv.exists():
+        console.print(f"[red]Error: performance timeline CSV not found: {timeline_csv}[/red]")
+        return 1
     if not proxy_root.exists():
         console.print(f"[red]Error: proxy JPG root not found: {proxy_root}[/red]")
         return 1
 
     rows = read_csv_rows(assignments_csv)
     rows.sort(key=set_sort_key)
+    timeline_rows = read_csv_rows(timeline_csv)
 
     performances: Dict[str, Dict] = {}
+    for row in timeline_rows:
+        set_id = row.get("set_id") or row["performance_number"]
+        performances[set_id] = {
+            "set_id": set_id,
+            "performance_number": row["performance_number"],
+            "occurrence_index": row.get("occurrence_index", ""),
+            "duplicate_status": row.get("duplicate_status", "normal"),
+            "target_dir": row.get("target_dir", row["performance_number"]),
+            "timeline_status": row.get("status", ""),
+            "performance_start_local": row.get("start_local", ""),
+            "performance_end_local": row.get("end_local", ""),
+            "photo_count": 0,
+            "review_count": 0,
+            "first_photo_local": "",
+            "last_photo_local": "",
+            "first_proxy_path": "",
+            "first_source_path": "",
+            "last_proxy_path": "",
+            "last_source_path": "",
+            "photos": [],
+        }
+
     missing_proxy_count = 0
     for row in rows:
         set_id = row.get("set_id") or row["performance_number"]
@@ -109,8 +140,8 @@ def main() -> int:
                 "performance_end_local": row["performance_end_local"],
                 "photo_count": 0,
                 "review_count": 0,
-                "first_photo_local": row["adjusted_start_local"],
-                "last_photo_local": row["adjusted_start_local"],
+                "first_photo_local": "",
+                "last_photo_local": "",
                 "first_proxy_path": "",
                 "first_source_path": "",
                 "last_proxy_path": "",
@@ -121,6 +152,8 @@ def main() -> int:
         performance["photo_count"] += 1
         if row["assignment_status"] == "review":
             performance["review_count"] += 1
+        if not performance["first_photo_local"]:
+            performance["first_photo_local"] = row["adjusted_start_local"]
         performance["last_photo_local"] = row["adjusted_start_local"]
         if not performance["first_proxy_path"] and proxy_exists:
             performance["first_proxy_path"] = str(proxy_path)
@@ -156,6 +189,7 @@ def main() -> int:
         "workspace_dir": str(workspace_dir),
         "proxy_root": str(proxy_root),
         "assignments_csv": str(assignments_csv),
+        "timeline_csv": str(timeline_csv),
         "performance_count": len(performance_list),
         "photo_count": len(rows),
         "performances": performance_list,
