@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "results"
+  ],
+  "properties": {
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "window_id",
+          "detections"
+        ],
+        "properties": {
+          "window_id": {
+            "type": "string"
+          },
+          "detections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "event_type",
+                "start_number",
+                "category_ordinal",
+                "title",
+                "evidence",
+                "notes",
+                "confidence"
+              ],
+              "properties": {
+                "event_type": {
+                  "type": "string",
+                  "enum": [
+                    "performance_announcement",
+                    "ceremony",
+                    "other"
+                  ]
+                },
+                "start_number": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "category_ordinal": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "evidence": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "confidence": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

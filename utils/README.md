@@ -668,6 +668,84 @@ Outputs:
 - `DAY/_workspace/semantic_announcement_demo.csv`
 - `DAY/_workspace/semantic_announcement_demo.jsonl`
 
+### demo_bielik_announcement_classifier.py
+
+Prepare local transcript windows and classify them through either an OpenAI-compatible endpoint or `codex exec` for side-by-side semantic extraction experiments.
+
+**Features:**
+- `prepare` builds local transcript windows around likely announcement content
+- `classify` supports:
+  - `--backend openai-compatible` for Bielik/Ollama-style chat completions
+  - `--backend codex-exec` for GPT-5.4 comparisons through local `codex exec`
+- Writes both full JSONL payloads and flattened CSV summaries
+
+**Usage:**
+
+```bash
+# Build local windows for one problematic GH7 clip
+python3 utils/demo_bielik_announcement_classifier.py prepare /path/to/day/20260324 --streams v-gh7 --filenames 20260324_091851_5728x3024_50fps_85302491099.mov
+
+# Build wider legacy windows without trimming adjacent trigger segments
+python3 utils/demo_bielik_announcement_classifier.py prepare /path/to/day/20260324 --streams v-gh7 --filenames 20260324_091851_5728x3024_50fps_85302491099.mov --no-trim-adjacent-trigger-windows
+
+# Classify with a local OpenAI-compatible endpoint such as Ollama
+python3 utils/demo_bielik_announcement_classifier.py classify /path/to/day/20260324 --model SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0
+
+# Classify the same windows through codex exec with GPT-5.4
+python3 utils/demo_bielik_announcement_classifier.py classify /path/to/day/20260324 --max-windows 10
+
+# Use the older one-window-per-request codex exec mode
+python3 utils/demo_bielik_announcement_classifier.py classify /path/to/day/20260324 --codex-batch-size 1 --max-windows 10
+
+# Switch back to an OpenAI-compatible endpoint such as Ollama
+python3 utils/demo_bielik_announcement_classifier.py classify /path/to/day/20260324 --backend openai-compatible --model SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0
+```
+
+**Output:**
+- Prepared windows:
+  - `DAY/_workspace/semantic_bielik_windows.csv`
+  - `DAY/_workspace/semantic_bielik_windows.jsonl`
+- Classification results:
+  - `DAY/_workspace/semantic_bielik_classification.csv`
+  - `DAY/_workspace/semantic_bielik_classification.jsonl`
+
+**Defaults tuned for the current best experiment path:**
+- `prepare` trims keyword windows before adjacent trigger segments
+- `classify` uses `--backend codex-exec`
+- `classify` defaults to model `gpt-5.4`
+- `classify` batches `10` windows per `codex exec` request
+
+Prepares local transcript windows for announcement experiments and can classify them through an OpenAI-compatible endpoint.
+
+- Reads `DAY/_workspace/merged_video_synced.csv`
+- Reads `DAY/_workspace/transcripts/<stream>/*.json`
+- Builds local windows around keyword/category segments plus optional sliding windows
+- Writes a summary CSV and JSONL with prompt-ready window payloads
+- Optionally sends the prepared windows to an OpenAI-compatible endpoint and writes classification outputs
+
+Examples:
+
+```bash
+python utils/demo_bielik_announcement_classifier.py prepare /path/to/day/20260324 --streams v-gh7 --filenames 20260324_091851_5728x3024_50fps_85302491099.mov
+```
+
+```bash
+python utils/demo_bielik_announcement_classifier.py prepare /path/to/day/20260324 --streams v-pocket3 v-gh7 --sliding-window-size 5 --sliding-step 2
+```
+
+```bash
+python utils/demo_bielik_announcement_classifier.py classify /path/to/day/20260324 --model bielik --api-base-url http://127.0.0.1:8000/v1
+```
+
+The `classify` command defaults to `http://127.0.0.1:11434/v1` when `OPENAI_BASE_URL` is not set, which matches a local Ollama OpenAI-compatible endpoint.
+
+Outputs:
+
+- `DAY/_workspace/semantic_bielik_windows.csv`
+- `DAY/_workspace/semantic_bielik_windows.jsonl`
+- `DAY/_workspace/semantic_bielik_classification.csv`
+- `DAY/_workspace/semantic_bielik_classification.jsonl`
+
 ### copy_reviewed_set_assets.py
 
 Copy files for one final reviewed set by applying `review_state.json` on top of `performance_proxy_index.json`.
