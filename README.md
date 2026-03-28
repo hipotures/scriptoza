@@ -36,9 +36,10 @@ Collection of small utility scripts organized by category. Each category has its
 - `transcribe_video_batch.py` - Batch-runs WhisperX on synced video rows and writes transcripts plus a manifest
 - `transcribe_video_batch_api.py` - Batch-runs WhisperX through the Python API and reuses one loaded model while writing into the normal transcript workspace
 - `extract_announcement_candidates.py` - Parses WhisperX JSON transcripts and extracts candidate `numer X` announcement rows with absolute local timestamps
+- `extract_announcement_candidates_semantic.py` - Builds semantic announcement candidates from transcript windows through `codex exec` or OpenAI-compatible backends, including a local preset
 - `build_performance_timeline.py` - Converts announcement candidates into buffered performance intervals in `performance_timeline.csv`
 - `build_semantic_announcement_demo.py` - Builds chunked transcript demo files and prompt-ready JSONL for semantic announcement extraction experiments
-- `demo_bielik_announcement_classifier.py` - Prepares local transcript windows and classifies them through either an OpenAI-compatible endpoint or `codex exec` for semantic announcement experiments
+- `demo_semantic_announcement_classifier.py` - Prepares local transcript windows and classifies them through either `codex exec` or OpenAI-compatible backends, including a local preset
 - `copy_reviewed_set_assets.py` - Copies photo and video files for one final reviewed set using GUI split/merge state
 - `assign_photos_to_timeline.py` - Assigns exported photo rows to timeline intervals and writes review and unassigned CSVs without generating moves
 - `generate_photo_proxy_jpg.py` - Generates rotated proxy JPG files from exported photo CSV rows into `_workspace/proxy_jpg/` for fast visual review
