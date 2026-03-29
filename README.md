@@ -37,6 +37,7 @@ Collection of small utility scripts organized by category. Each category has its
 - `transcribe_video_batch_api.py` - Batch-runs WhisperX through the Python API and reuses one loaded model while writing into the normal transcript workspace
 - `extract_announcement_candidates.py` - Parses WhisperX JSON transcripts and extracts candidate `numer X` announcement rows with absolute local timestamps
 - `extract_announcement_candidates_semantic.py` - Builds semantic announcement candidates from transcript windows through `codex exec` or OpenAI-compatible backends, including a local preset
+- `benchmark_semantic_announcement_models.py` - Prepares reviewed benchmark cases and compares announcement models with an `X/N` correctness score and total runtime
 - `build_performance_timeline.py` - Converts announcement candidates into buffered performance intervals in `performance_timeline.csv`
 - `build_semantic_announcement_demo.py` - Builds chunked transcript demo files and prompt-ready JSONL for semantic announcement extraction experiments
 - `demo_semantic_announcement_classifier.py` - Prepares local transcript windows and classifies them through either `codex exec` or OpenAI-compatible backends, including a local preset

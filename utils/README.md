@@ -98,6 +98,68 @@ python3 utils/extract_announcement_candidates_semantic.py /path/to/day/20260324 
 **Output:**
 - `DAY/_workspace/announcement_candidates_semantic.csv`
 
+### benchmark_semantic_announcement_models.py
+
+Prepare reviewed benchmark cases and compare semantic announcement models on the same prompt set.
+
+**Features:**
+- Builds benchmark cases from final reviewed numeric sets
+- Matches each reviewed set to the nearest announcement candidate within a configurable time window
+- Rebuilds a local transcript window around the matched segment
+- Runs one or more models against the same JSONL case set
+- For Ollama on `http://127.0.0.1:11434/v1`, automatically stops previously tested benchmark models, warms up the selected model, confirms it through `api/ps`, and unloads it after the run
+- Defaults to raw text responses in `run` and extracts JSON from the answer instead of assuming `json_schema` support
+- Supports benchmark case selection modes:
+  - `hardest`
+  - `random`
+  - `range`
+  - `stratified`
+- Prints a compact summary with exactly:
+  - `model`
+  - `X/N`
+  - `T`
+- Supports prompt profiles in `run`:
+  - `compact` for the shortest JSON and the safest output budget
+  - `standard` for a middle ground with `evidence`
+  - `full` for the richest JSON
+
+**Usage:**
+
+```bash
+# Build up to 50 reviewed benchmark cases from both final days
+python3 utils/benchmark_semantic_announcement_models.py prepare /arch03/V/DWC2026/20260323 /arch03/V/DWC2026/20260324
+
+# Build a random 50-case benchmark
+python3 utils/benchmark_semantic_announcement_models.py prepare /arch03/V/DWC2026/20260323 /arch03/V/DWC2026/20260324 --sampling random --max-cases 50
+
+# Build a benchmark only for numeric sets 100-110
+python3 utils/benchmark_semantic_announcement_models.py prepare /arch03/V/DWC2026/20260323 /arch03/V/DWC2026/20260324 --sampling range --set-range 100-110
+
+# Compare one local model on the same benchmark set
+python3 utils/benchmark_semantic_announcement_models.py run --backend local-openai --models Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf
+
+# Use the shortest prompt/output profile for models that cut long JSON
+python3 utils/benchmark_semantic_announcement_models.py run --backend openai-compatible --api-base-url http://127.0.0.1:11434/v1 --models glm-4.7-flash:latest --prompt-profile compact
+
+# Compare several Ollama models with automatic load confirmation and unload between runs
+python3 utils/benchmark_semantic_announcement_models.py run --backend openai-compatible --api-base-url http://127.0.0.1:11434/v1 --models glm-4.7-flash:latest qwen3:14b --prompt-profile compact --details
+```
+
+```bash
+# Compare several models and print model / X/N / T
+python3 utils/benchmark_semantic_announcement_models.py run --backend local-openai --models Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf another-model.gguf
+
+# Print per-set OK/NOK details with difficulty scores
+python3 utils/benchmark_semantic_announcement_models.py run --backend local-openai --models Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf --details
+```
+
+**Output:**
+- `/tmp/semantic_announcement_benchmark_cases.csv`
+- `/tmp/semantic_announcement_benchmark_cases.jsonl`
+- `/tmp/semantic_announcement_benchmark_results.csv`
+- `/tmp/semantic_announcement_benchmark_results.jsonl`
+- Raw per-model dumps: `/tmp/vocatio-benchmark/<model>/*.prompt.txt`, `.content.txt`, `.response.json`
+
 ### review_performance_proxy_gui.py
 
 Open a simple PySide6 desktop viewer for browsing assigned proxy JPG files per performance.
