@@ -92,6 +92,11 @@ RESULT_HEADERS = [
     "strict_ok",
     "response_status",
     "response_error",
+    "finish_reason",
+    "content_length",
+    "reasoning_length",
+    "prompt_eval_count",
+    "eval_count",
     "elapsed_seconds",
 ]
 
@@ -299,6 +304,22 @@ def parse_args() -> argparse.Namespace:
         help="Structured output mode for OpenAI-compatible backends. Default: none",
     )
     run_parser.add_argument(
+        "--ollama-think",
+        choices=("inherit", "false", "low", "medium", "high"),
+        default="inherit",
+        help='For Ollama-compatible local endpoints, pass a think value in the request. Default: inherit',
+    )
+    run_parser.add_argument(
+        "--ollama-num-predict",
+        type=int,
+        help="For Ollama-compatible local endpoints, pass options.num_predict. Default: disabled",
+    )
+    run_parser.add_argument(
+        "--ollama-num-ctx",
+        type=int,
+        help="For Ollama-compatible local endpoints, pass options.num_ctx. Default: disabled",
+    )
+    run_parser.add_argument(
         "--max-cases",
         type=int,
         help="Optional limit for benchmark cases read from JSONL.",
@@ -315,6 +336,8 @@ def parse_args() -> argparse.Namespace:
             "Return only valid JSON that matches the requested schema. "
             "A category ordinal such as 'pierwszy', 'drugi', 'trzeci', 'piaty', or 'szosty w tej kategorii' must never be used as start_number. "
             "Use start_number only for the explicit competitor number, for example from phrases like 'numer startowy 278' or 'numer 278'. "
+            "Treat patterns like '* startowy 350' or 'start number 350' as explicit competitor numbers even if the preceding word was mistranscribed. "
+            "Do not infer category_ordinal from class labels, genre names, roman numerals, or words like One or Two inside official DWC category titles. "
             "If there is no real competition announcement in the provided window, return an empty detections list."
         ),
         help="System prompt passed to the classifier.",
@@ -611,6 +634,10 @@ def build_benchmark_prompt(case: Dict, prompt_profile: str) -> str:
             "Use start_number only for the explicit competitor number.\n"
             "Use category_ordinal only for order phrases such as pierwszy, drugi, trzeci, piaty, or szosty.\n"
             "Never use the ordinal as start_number.\n"
+            "Official DWC class and genre names may appear in Polish or English, including Ballet, Repertoire, National and Folklore, Lyrical, Showstopper, Jazz, Contemporary, Acro, Tap, Step, Song and Dance, Street Dance, Commercial, balet, balet repertuarowy, taniec narodowy i ludowy, taniec liryczny, taniec wspolczesny, wystep wokalno-taneczny, taniec uliczny, and taniec komercyjny.\n"
+            "Do not infer category_ordinal from class labels, genre names, age labels, roman numerals, or words like One or Two inside category titles.\n"
+            "Roman numerals or words like One, Two, I, II, III inside class names such as 'Junior Solo Contemporary I' or 'Children's Solo Acro One' are part of the class name and must not become category_ordinal.\n"
+            "If the transcript contains a pattern like 'numer startowy N', 'start number N', or even a mistranscribed '* startowy N', treat N as the explicit competitor start_number.\n"
             "If there is no real competition announcement, return an empty detections list.\n"
         )
     elif prompt_profile == "standard":
@@ -632,6 +659,10 @@ def build_benchmark_prompt(case: Dict, prompt_profile: str) -> str:
             "Use start_number only for the explicit competitor number.\n"
             "Use category_ordinal only for order phrases such as pierwszy, drugi, trzeci, piaty, or szosty.\n"
             "Never use the ordinal as start_number.\n"
+            "Official DWC class and genre names may appear in Polish or English, including Ballet, Repertoire, National and Folklore, Lyrical, Showstopper, Jazz, Contemporary, Acro, Tap, Step, Song and Dance, Street Dance, Commercial, balet, balet repertuarowy, taniec narodowy i ludowy, taniec liryczny, taniec wspolczesny, wystep wokalno-taneczny, taniec uliczny, and taniec komercyjny.\n"
+            "Do not infer category_ordinal from class labels, genre names, age labels, roman numerals, or words like One or Two inside category titles.\n"
+            "Roman numerals or words like One, Two, I, II, III inside class names such as 'Junior Solo Contemporary I' or 'Children's Solo Acro One' are part of the class name and must not become category_ordinal.\n"
+            "If the transcript contains a pattern like 'numer startowy N', 'start number N', or even a mistranscribed '* startowy N', treat N as the explicit competitor start_number.\n"
             "If there is no real competition announcement, return an empty detections list.\n"
             "Evidence must be a short direct quote from the transcript.\n"
         )
@@ -657,6 +688,10 @@ def build_benchmark_prompt(case: Dict, prompt_profile: str) -> str:
             "Use start_number only for the explicit competitor number.\n"
             "Use category_ordinal only for order phrases such as pierwszy, drugi, trzeci, piaty, or szosty.\n"
             "Never use the ordinal as start_number.\n"
+            "Official DWC class and genre names may appear in Polish or English, including Ballet, Repertoire, National and Folklore, Lyrical, Showstopper, Jazz, Contemporary, Acro, Tap, Step, Song and Dance, Street Dance, Commercial, balet, balet repertuarowy, taniec narodowy i ludowy, taniec liryczny, taniec wspolczesny, wystep wokalno-taneczny, taniec uliczny, and taniec komercyjny.\n"
+            "Do not infer category_ordinal from class labels, genre names, age labels, roman numerals, or words like One or Two inside category titles.\n"
+            "Roman numerals or words like One, Two, I, II, III inside class names such as 'Junior Solo Contemporary I' or 'Children's Solo Acro One' are part of the class name and must not become category_ordinal.\n"
+            "If the transcript contains a pattern like 'numer startowy N', 'start number N', or even a mistranscribed '* startowy N', treat N as the explicit competitor start_number.\n"
             "If there is no real competition announcement, return an empty detections list.\n"
             "Title may be null if absent.\n"
             "Evidence must be a short direct quote from the transcript.\n"
@@ -739,6 +774,59 @@ def build_benchmark_response_format(response_format_mode: str, prompt_profile: s
     else:
         return demo.build_openai_response_format("json_schema")
     return {"type": "json_schema", "schema": schema}
+
+
+def build_ollama_extra_body(args: argparse.Namespace) -> Dict:
+    extra_body: Dict[str, object] = {}
+    if not is_ollama_api_base_url(args.api_base_url):
+        return extra_body
+    if args.ollama_think != "inherit":
+        extra_body["think"] = False if args.ollama_think == "false" else args.ollama_think
+    options: Dict[str, int] = {}
+    if args.ollama_num_predict is not None:
+        options["num_predict"] = args.ollama_num_predict
+    elif args.max_output_tokens:
+        options["num_predict"] = args.max_output_tokens
+    if args.ollama_num_ctx is not None:
+        options["num_ctx"] = args.ollama_num_ctx
+    if options:
+        extra_body["options"] = options
+    return extra_body
+
+
+def extract_backend_metrics(backend_payload: Dict) -> Dict[str, object]:
+    metrics = {
+        "finish_reason": "",
+        "content_length": 0,
+        "reasoning_length": 0,
+        "prompt_eval_count": "",
+        "eval_count": "",
+    }
+    if not isinstance(backend_payload, dict):
+        return metrics
+    choices = backend_payload.get("choices")
+    if isinstance(choices, list) and choices:
+        choice = choices[0]
+        metrics["finish_reason"] = str(choice.get("finish_reason", "") or "")
+        message = choice.get("message", {})
+        if isinstance(message, dict):
+            metrics["content_length"] = len(str(message.get("content", "") or ""))
+            reasoning_text = ""
+            for key in ("reasoning", "reasoning_content", "thinking"):
+                value = message.get(key)
+                if value:
+                    reasoning_text = str(value)
+                    break
+            metrics["reasoning_length"] = len(reasoning_text)
+    usage = backend_payload.get("usage", {})
+    if isinstance(usage, dict):
+        prompt_eval_count = usage.get("prompt_eval_count")
+        eval_count = usage.get("eval_count")
+        if prompt_eval_count not in (None, ""):
+            metrics["prompt_eval_count"] = prompt_eval_count
+        if eval_count not in (None, ""):
+            metrics["eval_count"] = eval_count
+    return metrics
 
 
 def strip_v1_suffix(api_base_url: str) -> str:
@@ -1127,7 +1215,8 @@ def classify_case(
     codex_schema: Path,
     codex_config_overrides: Sequence[str],
     response_format: Optional[Dict],
-) -> Tuple[str, str, Dict, str, List[Dict], float]:
+    extra_body: Optional[Dict],
+) -> Tuple[str, str, Dict, str, List[Dict], float, Dict[str, object]]:
     start_time = time.perf_counter()
     response_status = "ok"
     response_error = ""
@@ -1147,6 +1236,7 @@ def classify_case(
                 backend_args.timeout_seconds,
                 backend_args.max_output_tokens,
                 response_format,
+                extra_body,
             )
             backend_payload = payload
             choice = payload["choices"][0]
@@ -1170,12 +1260,12 @@ def classify_case(
             response_status = "error"
             response_error = "response field 'detections' is not a list"
         elapsed = time.perf_counter() - start_time
-        return response_status, response_error, backend_payload, raw_response_text, detections, elapsed
+        return response_status, response_error, backend_payload, raw_response_text, detections, elapsed, extract_backend_metrics(backend_payload)
     except Exception as exc:
         elapsed = time.perf_counter() - start_time
         response_status = "error"
         response_error = str(exc)
-        return response_status, response_error, backend_payload, raw_response_text, detections, elapsed
+        return response_status, response_error, backend_payload, raw_response_text, detections, elapsed, extract_backend_metrics(backend_payload)
 
 
 def score_case(case: Dict, detections: Sequence[Dict]) -> Dict[str, bool]:
@@ -1227,6 +1317,7 @@ def run_benchmark(args: argparse.Namespace) -> int:
         return 1
 
     response_format = build_benchmark_response_format(args.response_format_mode, args.prompt_profile)
+    extra_body = build_ollama_extra_body(args)
     debug_dir = Path(args.debug_response_dir).resolve()
     codex_config_overrides = ['model_reasoning_effort="medium"']
     codex_config_overrides.extend(args.codex_config)
@@ -1275,6 +1366,7 @@ def run_benchmark(args: argparse.Namespace) -> int:
                     raw_response_text = ""
                     detections = []
                     elapsed = 0.0
+                    backend_metrics = extract_backend_metrics(backend_payload)
                     scores = {
                         "event_ok": False,
                         "start_number_ok": False,
@@ -1282,7 +1374,7 @@ def run_benchmark(args: argparse.Namespace) -> int:
                         "strict_ok": False,
                     }
                 else:
-                    response_status, response_error, backend_payload, raw_response_text, detections, elapsed = classify_case(
+                    response_status, response_error, backend_payload, raw_response_text, detections, elapsed, backend_metrics = classify_case(
                         args,
                         model_name,
                         case,
@@ -1290,6 +1382,7 @@ def run_benchmark(args: argparse.Namespace) -> int:
                         codex_schema,
                         codex_config_overrides,
                         response_format,
+                        extra_body,
                     )
                     scores = score_case(case, detections)
                 row = {
@@ -1314,6 +1407,11 @@ def run_benchmark(args: argparse.Namespace) -> int:
                     "strict_ok": scores["strict_ok"],
                     "response_status": response_status,
                     "response_error": response_error,
+                    "finish_reason": backend_metrics.get("finish_reason", ""),
+                    "content_length": backend_metrics.get("content_length", 0),
+                    "reasoning_length": backend_metrics.get("reasoning_length", 0),
+                    "prompt_eval_count": backend_metrics.get("prompt_eval_count", ""),
+                    "eval_count": backend_metrics.get("eval_count", ""),
                     "elapsed_seconds": round(elapsed, 3),
                 }
                 payload_row = dict(row)

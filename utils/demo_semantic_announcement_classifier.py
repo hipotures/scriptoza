@@ -40,6 +40,13 @@ DEFAULT_LOCAL_API_BASE_URL = "http://127.0.0.1:8080/v1"
 DEFAULT_CODEX_SCHEMA = str(SCRIPT_DIR / "codex_exec_announcement_output_schema.json")
 DEFAULT_CODEX_BATCH_SCHEMA = str(SCRIPT_DIR / "codex_exec_announcement_batch_output_schema.json")
 DEFAULT_DEBUG_RESPONSE_DIR = "/tmp/vocatio"
+OFFICIAL_CATEGORY_GUIDANCE = (
+    "Official DWC class and genre names may appear in Polish or English, for example: "
+    "Ballet, Repertoire, National and Folklore, Lyrical, Showstopper, Jazz, Contemporary, "
+    "Acro, Tap, Step, Song and Dance, Street Dance, Commercial, balet, balet repertuarowy, "
+    "taniec narodowy i ludowy, taniec liryczny, taniec wspolczesny, wystep wokalno-taneczny, "
+    "taniec uliczny, taniec komercyjny."
+)
 
 KEYWORD_TERMS = {
     "numer",
@@ -291,6 +298,8 @@ def parse_args() -> argparse.Namespace:
             "Return only valid JSON that matches the requested schema. "
             "A category ordinal such as 'pierwszy', 'drugi', 'trzeci', 'piaty', or 'szosty w tej kategorii' must never be used as start_number. "
             "Use start_number only for the explicit competitor number, for example from phrases like 'numer startowy 278' or 'numer 278'. "
+            "Treat patterns like '* startowy 350' or 'start number 350' as explicit competitor numbers even if the preceding word was mistranscribed. "
+            "Do not infer category_ordinal from class labels, genre names, roman numerals, or words like One or Two inside official DWC category titles. "
             "If there is no real competition announcement in the provided window, return an empty detections list."
         ),
         help="System prompt passed to the chat completion request.",
@@ -464,6 +473,11 @@ def build_prompt(window: Dict) -> str:
         "- category_ordinal is the order within a category. start_number is the competitor number.\n"
         "- A word like 'piaty' or a phrase like 'numeru piatego w tej samej kategorii' means category_ordinal=5 and does not mean start_number=5.\n"
         "- If the transcript contains both an ordinal and an explicit competitor number, use the ordinal only for category_ordinal and use the explicit competitor number for start_number.\n"
+        f"- {OFFICIAL_CATEGORY_GUIDANCE}\n"
+        "- Only use category_ordinal for explicit ordering phrases such as pierwszy, drugi, trzeci, czwarty, piaty, szosty, first, second, third, fourth, fifth, or sixth.\n"
+        "- Do not infer category_ordinal from class labels, genre names, age labels, roman numerals, or words like One or Two inside category titles.\n"
+        "- Roman numerals or words like One, Two, I, II, III inside class names such as 'Junior Solo Contemporary I' or 'Children's Solo Acro One' are part of the class name and must not become category_ordinal.\n"
+        "- If the local transcript contains a pattern like 'numer startowy N', 'start number N', or even a mistranscribed '* startowy N', treat N as the explicit competitor start_number.\n"
         "- Ceremony result reading is not a performance announcement.\n"
         "- If there is no explicit announcement, return an empty detections list.\n"
         "- If the window contains more than one useful announcement, return one detection per announcement in chronological order.\n"
@@ -543,6 +557,11 @@ def build_batch_prompt(windows: Sequence[Dict]) -> str:
         "- category_ordinal is the order within a category. start_number is the competitor number.\n"
         "- A word like 'piaty' or a phrase like 'numeru piatego w tej samej kategorii' means category_ordinal=5 and does not mean start_number=5.\n"
         "- If a window contains both an ordinal and an explicit competitor number, use the ordinal only for category_ordinal and use the explicit competitor number for start_number.\n"
+        f"- {OFFICIAL_CATEGORY_GUIDANCE}\n"
+        "- Only use category_ordinal for explicit ordering phrases such as pierwszy, drugi, trzeci, czwarty, piaty, szosty, first, second, third, fourth, fifth, or sixth.\n"
+        "- Do not infer category_ordinal from class labels, genre names, age labels, roman numerals, or words like One or Two inside category titles.\n"
+        "- Roman numerals or words like One, Two, I, II, III inside class names such as 'Junior Solo Contemporary I' or 'Children's Solo Acro One' are part of the class name and must not become category_ordinal.\n"
+        "- If the local transcript contains a pattern like 'numer startowy N', 'start number N', or even a mistranscribed '* startowy N', treat N as the explicit competitor start_number.\n"
         "- Ceremony result reading is not a performance announcement, but a ceremony detection is allowed if the window clearly contains ceremony-only speech.\n"
         "- If there is no explicit announcement in a window, return that window with an empty detections list.\n"
         "- If a window contains more than one useful announcement, return one detection per announcement in chronological order.\n"
@@ -1167,6 +1186,7 @@ def post_chat_completion(
     timeout_seconds: float,
     max_output_tokens: int,
     response_format: Optional[Dict],
+    extra_body: Optional[Dict] = None,
 ) -> Dict:
     base_url = api_base_url.rstrip("/")
     if not base_url.endswith("/chat/completions"):
@@ -1182,6 +1202,8 @@ def post_chat_completion(
     }
     if response_format is not None:
         body["response_format"] = response_format
+    if extra_body:
+        body.update(extra_body)
     data = json.dumps(body).encode("utf-8")
     headers = {
         "Content-Type": "application/json",

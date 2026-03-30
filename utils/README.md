@@ -109,6 +109,16 @@ Prepare reviewed benchmark cases and compare semantic announcement models on the
 - Runs one or more models against the same JSONL case set
 - For Ollama on `http://127.0.0.1:11434/v1`, automatically stops previously tested benchmark models, warms up the selected model, confirms it through `api/ps`, and unloads it after the run
 - Defaults to raw text responses in `run` and extracts JSON from the answer instead of assuming `json_schema` support
+- Supports Ollama runtime controls in `run`:
+  - `--ollama-think`
+  - `--ollama-num-predict`
+  - `--ollama-num-ctx`
+- Stores runtime diagnostics per result row:
+  - `finish_reason`
+  - `content_length`
+  - `reasoning_length`
+  - `prompt_eval_count`
+  - `eval_count`
 - Supports benchmark case selection modes:
   - `hardest`
   - `random`
@@ -143,6 +153,9 @@ python3 utils/benchmark_semantic_announcement_models.py run --backend openai-com
 
 # Compare several Ollama models with automatic load confirmation and unload between runs
 python3 utils/benchmark_semantic_announcement_models.py run --backend openai-compatible --api-base-url http://127.0.0.1:11434/v1 --models glm-4.7-flash:latest qwen3:14b --prompt-profile compact --details
+
+# Tune Ollama reasoning and generation budget explicitly
+python3 utils/benchmark_semantic_announcement_models.py run --backend openai-compatible --api-base-url http://127.0.0.1:11434/v1 --models qwen3:14b --prompt-profile compact --ollama-think low --ollama-num-predict 2048 --ollama-num-ctx 8192 --details
 ```
 
 ```bash
