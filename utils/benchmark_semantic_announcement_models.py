@@ -307,7 +307,7 @@ def parse_args() -> argparse.Namespace:
         "--ollama-think",
         choices=("inherit", "false", "low", "medium", "high"),
         default="inherit",
-        help='For Ollama-compatible local endpoints, pass a think value in the request. Default: inherit',
+        help='For Ollama OpenAI-compatible endpoints, map reasoning control to reasoning_effort. Use false to request none. Default: inherit',
     )
     run_parser.add_argument(
         "--ollama-num-predict",
@@ -781,7 +781,9 @@ def build_ollama_extra_body(args: argparse.Namespace) -> Dict:
     if not is_ollama_api_base_url(args.api_base_url):
         return extra_body
     if args.ollama_think != "inherit":
-        extra_body["think"] = False if args.ollama_think == "false" else args.ollama_think
+        reasoning_effort = "none" if args.ollama_think == "false" else args.ollama_think
+        extra_body["reasoning_effort"] = reasoning_effort
+        extra_body["reasoning"] = {"effort": reasoning_effort}
     options: Dict[str, int] = {}
     if args.ollama_num_predict is not None:
         options["num_predict"] = args.ollama_num_predict

@@ -33,6 +33,7 @@ tests/data/
 !utils/README.md
 !utils/*.py
 !utils/*.sh
+!utils/*.yaml
 
 # Allow deprecated directory and its contents
 !deprecated/

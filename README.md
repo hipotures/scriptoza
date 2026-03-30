@@ -41,7 +41,7 @@ Collection of small utility scripts organized by category. Each category has its
 - `build_performance_timeline.py` - Converts announcement candidates into buffered performance intervals in `performance_timeline.csv`
 - `build_semantic_announcement_demo.py` - Builds chunked transcript demo files and prompt-ready JSONL for semantic announcement extraction experiments
 - `demo_semantic_announcement_classifier.py` - Prepares local transcript windows and classifies them through either `codex exec` or OpenAI-compatible backends, including a local preset
-- `copy_reviewed_set_assets.py` - Copies photo and video files for one final reviewed set using GUI split/merge state
+- `copy_reviewed_set_assets.py` - Copies or converts reviewed set assets through YAML export profiles, including default JPG/1080p output and raw passthrough
 - `assign_photos_to_timeline.py` - Assigns exported photo rows to timeline intervals and writes review and unassigned CSVs without generating moves
 - `generate_photo_proxy_jpg.py` - Generates rotated proxy JPG files from exported photo CSV rows into `_workspace/proxy_jpg/` for fast visual review
 - `build_performance_proxy_index.py` - Builds a JSON index that groups assigned proxy JPG files by performance for the review GUI

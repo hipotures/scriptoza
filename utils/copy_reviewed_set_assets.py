@@ -4,11 +4,13 @@ import argparse
 import csv
 import json
 import shutil
+import subprocess
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+import yaml
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -24,11 +26,13 @@ from rich.table import Table
 
 console = Console()
 PHOTO_GAP_THRESHOLD_SECONDS = 600
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG_PATH = SCRIPT_DIR / "copy_reviewed_set_assets.default.yaml"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Copy photo and video assets for a reviewed set using performance_proxy_index.json and review_state.json."
+        description="Copy or convert photo and video assets for a reviewed set using performance proxy index data and review state."
     )
     parser.add_argument("day_dir", help="Path to a single day directory like /data/20260323")
     parser.add_argument("target_dir", help="Output root directory for copied files")
@@ -39,13 +43,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--index-json",
-        default="performance_proxy_index.json",
-        help="Index JSON filename inside workspace or absolute path. Default: performance_proxy_index.json",
+        help="Index JSON filename inside workspace or absolute path. Default: prefer performance_proxy_index_semantic.json, otherwise performance_proxy_index.json",
     )
     parser.add_argument(
         "--state-json",
-        default="review_state.json",
-        help="Review state JSON filename inside workspace or absolute path. Default: review_state.json",
+        help="Review state JSON filename inside workspace or absolute path. Default: prefer review_state_semantic.json, otherwise review_state.json",
     )
     parser.add_argument(
         "--merged-csv",
@@ -60,6 +62,10 @@ def parse_args() -> argparse.Namespace:
         "--overwrite",
         action="store_true",
         help="Overwrite target files if they already exist",
+    )
+    parser.add_argument(
+        "--config",
+        help=f"YAML export profile path. Default: {DEFAULT_CONFIG_PATH.name}",
     )
     return parser.parse_args()
 
@@ -120,6 +126,86 @@ def load_review_state(path: Path) -> Dict:
     payload.setdefault("splits", {})
     payload.setdefault("merges", [])
     return payload
+
+
+def resolve_profile_path(value: Optional[str]) -> Path:
+    if not value:
+        return DEFAULT_CONFIG_PATH
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return candidate
+    if candidate.exists():
+        return candidate.resolve()
+    script_candidate = SCRIPT_DIR / value
+    if script_candidate.exists():
+        return script_candidate
+    return candidate.resolve()
+
+
+def normalize_extension(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return text if text.startswith(".") else f".{text}"
+
+
+def load_export_config(path: Path) -> Dict:
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(payload, dict):
+        raise ValueError(f"Config file must contain a mapping: {path}")
+    photo = payload.get("photo") or {}
+    video = payload.get("video") or {}
+    if not isinstance(photo, dict) or not isinstance(video, dict):
+        raise ValueError(f"Config file must define mapping sections 'photo' and 'video': {path}")
+    photo_mode = str(photo.get("mode", "convert")).strip().lower()
+    video_mode = str(video.get("mode", "convert")).strip().lower()
+    if photo_mode not in {"raw", "convert"}:
+        raise ValueError("Photo mode must be 'raw' or 'convert'")
+    if video_mode not in {"raw", "convert"}:
+        raise ValueError("Video mode must be 'raw' or 'convert'")
+    photo_config = {
+        "mode": photo_mode,
+        "output_extension": normalize_extension(photo.get("output_extension", ".jpg" if photo_mode == "convert" else "")),
+        "max_long_edge": int(photo.get("max_long_edge", 3200)),
+        "quality": int(photo.get("quality", 90)),
+        "auto_orient": bool(photo.get("auto_orient", True)),
+        "strip_metadata": bool(photo.get("strip_metadata", True)),
+        "extra_args": [str(item) for item in photo.get("extra_args", [])],
+    }
+    scale = video.get("scale") or {}
+    if not isinstance(scale, dict):
+        raise ValueError("Video scale config must be a mapping")
+    video_config = {
+        "mode": video_mode,
+        "output_extension": normalize_extension(video.get("output_extension", ".mp4" if video_mode == "convert" else "")),
+        "video_codec": str(video.get("video_codec", "libx264")),
+        "crf": int(video.get("crf", 20)),
+        "preset": str(video.get("preset", "slow")),
+        "pixel_format": str(video.get("pixel_format", "yuv420p")),
+        "movflags": str(video.get("movflags", "+faststart")),
+        "audio_codec": str(video.get("audio_codec", "aac")),
+        "audio_bitrate": str(video.get("audio_bitrate", "160k")),
+        "scale": {
+            "max_width": int(scale.get("max_width", 1920)),
+            "max_height": int(scale.get("max_height", 1080)),
+            "flags": str(scale.get("flags", "lanczos")),
+        },
+        "extra_args": [str(item) for item in video.get("extra_args", [])],
+    }
+    return {"photo": photo_config, "video": video_config, "path": path}
+
+
+def resolve_workspace_file(workspace_dir: Path, explicit: Optional[str], preferred: Sequence[str]) -> Path:
+    if explicit:
+        path = Path(explicit)
+        return path.resolve() if path.is_absolute() else (workspace_dir / explicit)
+    for name in preferred:
+        candidate = workspace_dir / name
+        if candidate.exists():
+            return candidate
+    return workspace_dir / preferred[-1]
 
 
 def split_specs_for_original(review_state: Dict, original_set_id: str) -> List[Dict]:
@@ -364,10 +450,96 @@ def dedupe_paths(paths: Iterable[Path]) -> List[Path]:
     return list(seen.keys())
 
 
-def copy_files(paths: Sequence[Path], target_dir: Path, overwrite: bool) -> Tuple[int, int]:
-    copied = 0
+def build_destination_path(source_path: Path, target_dir: Path, kind: str, config: Dict) -> Path:
+    profile = config[kind]
+    if profile["mode"] == "raw":
+        return target_dir / source_path.name
+    return target_dir / f"{source_path.stem}{profile['output_extension']}"
+
+
+def run_command(command: Sequence[str]) -> None:
+    completed = subprocess.run(
+        list(command),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if completed.returncode == 0:
+        return
+    stderr = completed.stderr.strip()
+    stdout = completed.stdout.strip()
+    message = stderr or stdout or f"Command exited with code {completed.returncode}"
+    raise RuntimeError(message)
+
+
+def export_photo(source_path: Path, destination: Path, config: Dict) -> None:
+    profile = config["photo"]
+    if profile["mode"] == "raw":
+        shutil.copy2(source_path, destination)
+        return
+    command = ["magick", str(source_path)]
+    if profile["auto_orient"]:
+        command.append("-auto-orient")
+    command.extend(["-resize", f"{profile['max_long_edge']}x{profile['max_long_edge']}>"])
+    if profile["strip_metadata"]:
+        command.append("-strip")
+    command.extend(["-quality", str(profile["quality"])])
+    command.extend(profile["extra_args"])
+    command.append(str(destination))
+    run_command(command)
+
+
+def build_video_filter(profile: Dict) -> str:
+    scale = profile["scale"]
+    return (
+        f"scale=w={scale['max_width']}:h={scale['max_height']}:"
+        f"force_original_aspect_ratio=decrease:force_divisible_by=2:flags={scale['flags']}"
+    )
+
+
+def export_video(source_path: Path, destination: Path, config: Dict) -> None:
+    profile = config["video"]
+    if profile["mode"] == "raw":
+        shutil.copy2(source_path, destination)
+        return
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(source_path),
+        "-vf",
+        build_video_filter(profile),
+        "-c:v",
+        profile["video_codec"],
+        "-crf",
+        str(profile["crf"]),
+        "-preset",
+        profile["preset"],
+        "-pix_fmt",
+        profile["pixel_format"],
+        "-movflags",
+        profile["movflags"],
+        "-c:a",
+        profile["audio_codec"],
+        "-b:a",
+        profile["audio_bitrate"],
+    ]
+    command.extend(profile["extra_args"])
+    command.append(str(destination))
+    run_command(command)
+
+
+def process_assets(photo_paths: Sequence[Path], video_paths: Sequence[Path], target_dir: Path, overwrite: bool, config: Dict) -> Tuple[int, int, int]:
+    written = 0
     skipped = 0
+    failed = 0
     target_dir.mkdir(parents=True, exist_ok=True)
+    items = [{"kind": "photo", "path": path} for path in photo_paths]
+    items.extend({"kind": "video", "path": path} for path in video_paths)
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -378,19 +550,27 @@ def copy_files(paths: Sequence[Path], target_dir: Path, overwrite: bool) -> Tupl
         console=console,
         expand=False,
     ) as progress:
-        task = progress.add_task("Copying files".ljust(25), total=len(paths))
-        for path in paths:
-            destination = target_dir / path.name
+        task = progress.add_task("Processing files".ljust(25), total=len(items))
+        for item in items:
+            source_path = item["path"]
+            destination = build_destination_path(source_path, target_dir, item["kind"], config)
             if destination.exists() and not overwrite:
                 skipped += 1
             else:
-                shutil.copy2(path, destination)
-                copied += 1
+                try:
+                    if item["kind"] == "photo":
+                        export_photo(source_path, destination, config)
+                    else:
+                        export_video(source_path, destination, config)
+                    written += 1
+                except Exception as exc:
+                    failed += 1
+                    console.print(f"[red]Failed: {source_path.name} -> {destination.name}: {exc}[/red]")
             progress.advance(task)
-    return copied, skipped
+    return written, skipped, failed
 
 
-def build_summary_table(display_set: Dict, photo_count: int, video_count: int, copied: int, skipped: int, target_dir: Path) -> Table:
+def build_summary_table(display_set: Dict, photo_count: int, video_count: int, written: int, skipped: int, failed: int, target_dir: Path, config_path: Path) -> Table:
     table = Table(title="Reviewed Set Copy Summary", expand=False)
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="green")
@@ -398,8 +578,10 @@ def build_summary_table(display_set: Dict, photo_count: int, video_count: int, c
     table.add_row("Set ID", display_set["set_id"])
     table.add_row("Photos selected", str(photo_count))
     table.add_row("Videos selected", str(video_count))
-    table.add_row("Files copied", str(copied))
+    table.add_row("Files written", str(written))
     table.add_row("Files skipped", str(skipped))
+    table.add_row("Files failed", str(failed))
+    table.add_row("Config", str(config_path))
     table.add_row("Target dir", str(target_dir))
     return table
 
@@ -415,9 +597,18 @@ def main() -> int:
     args = parse_args()
     day_dir = Path(args.day_dir).resolve()
     target_root = Path(args.target_dir).resolve()
+    config_path = resolve_profile_path(args.config)
     workspace_dir = Path(args.workspace_dir).resolve() if args.workspace_dir else day_dir / "_workspace"
-    index_json = Path(args.index_json).resolve() if Path(args.index_json).is_absolute() else workspace_dir / args.index_json
-    state_json = Path(args.state_json).resolve() if Path(args.state_json).is_absolute() else workspace_dir / args.state_json
+    index_json = resolve_workspace_file(
+        workspace_dir,
+        args.index_json,
+        ("performance_proxy_index_semantic.json", "performance_proxy_index.json"),
+    )
+    state_json = resolve_workspace_file(
+        workspace_dir,
+        args.state_json,
+        ("review_state_semantic.json", "review_state.json"),
+    )
     merged_csv = Path(args.merged_csv).resolve() if args.merged_csv else workspace_dir / "merged_video_synced.csv"
 
     if not day_dir.exists() or not day_dir.is_dir():
@@ -431,6 +622,11 @@ def main() -> int:
         return 1
     if not merged_csv.exists():
         console.print(f"[red]Error: merged synced video CSV not found: {merged_csv}[/red]")
+        return 1
+    try:
+        export_config = load_export_config(config_path)
+    except Exception as exc:
+        console.print(f"[red]Error: {exc}[/red]")
         return 1
 
     payload = load_json(index_json)
@@ -453,16 +649,15 @@ def main() -> int:
     )
     video_rows = collect_video_rows(merged_csv, display_set, stream_filter)
     video_paths = dedupe_paths(Path(row["path"]) for row in video_rows)
-    all_paths = photo_paths + [path for path in video_paths if path not in photo_paths]
     target_dir = target_root / normalized_output_dir_name(display_set["display_name"])
 
-    if not all_paths:
+    if not photo_paths and not video_paths:
         console.print("[yellow]No files matched the requested set and stream filter.[/yellow]")
         return 0
 
-    copied, skipped = copy_files(all_paths, target_dir, args.overwrite)
-    console.print(build_summary_table(display_set, len(photo_paths), len(video_paths), copied, skipped, target_dir))
-    return 0
+    written, skipped, failed = process_assets(photo_paths, video_paths, target_dir, args.overwrite, export_config)
+    console.print(build_summary_table(display_set, len(photo_paths), len(video_paths), written, skipped, failed, target_dir, config_path))
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

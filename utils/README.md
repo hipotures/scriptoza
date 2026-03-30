@@ -860,14 +860,19 @@ Outputs:
 
 ### copy_reviewed_set_assets.py
 
-Copy files for one final reviewed set by applying `review_state.json` on top of `performance_proxy_index.json`.
+Copy or convert files for one final reviewed set by applying review state on top of the performance proxy index.
 
-- Reads `DAY/_workspace/performance_proxy_index.json`
-- Reads `DAY/_workspace/review_state.json`
+- Prefers `DAY/_workspace/performance_proxy_index_semantic.json`, otherwise falls back to `performance_proxy_index.json`
+- Prefers `DAY/_workspace/review_state_semantic.json`, otherwise falls back to `review_state.json`
 - Reads `DAY/_workspace/merged_video_synced.csv`
 - Applies manual splits and merges from the review GUI
-- Copies the final set's photo files
-- Copies video clips that overlap the final reviewed set interval
+- Selects the final set's photo files
+- Selects video clips that overlap the final reviewed set interval
+- Uses a YAML export profile
+- Defaults to `utils/copy_reviewed_set_assets.default.yaml`
+- Supports a raw profile through `utils/copy_reviewed_set_assets.raw.yaml`
+- Converts photos to JPG with a configurable longer-edge limit
+- Converts videos to a fit-inside box without changing the aspect ratio
 
 Examples:
 
@@ -883,9 +888,23 @@ python utils/copy_reviewed_set_assets.py /path/to/day/20260323 /tmp/out 86 --str
 python utils/copy_reviewed_set_assets.py /path/to/day/20260323 /tmp/out Ceremonia --streams video
 ```
 
-### Output
+```bash
+python utils/copy_reviewed_set_assets.py /path/to/day/20260323 /tmp/out 86 --config utils/copy_reviewed_set_assets.raw.yaml
+```
 
-- `DAY/_workspace/performance_timeline.csv`
+Default profile:
+
+- Photos: JPG, longer edge up to `3200`, no upscale
+- Videos: H.264/AAC MP4, fit inside `1920x1080`, no aspect-ratio squeeze
+
+Raw profile:
+
+- Photos: original files copied unchanged
+- Videos: original files copied unchanged
+
+Output:
+
+- `TARGET/<set_name_or_NNN>/`
 
 ### assign_photos_to_timeline.py
 
