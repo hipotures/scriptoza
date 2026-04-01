@@ -40,6 +40,8 @@ tests/data/
 !deprecated/README.md
 !deprecated/**/
 !deprecated/**/*.py
+!deprecated/**/*.md
+!deprecated/**/*.yaml
 
 # Allow the new modular package
 !vbc/
