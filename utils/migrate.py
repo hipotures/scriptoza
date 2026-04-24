@@ -217,6 +217,32 @@ def print_migration_panel(args):
                         f"Archive: [dim]{dst_stats}[/dim] {args.archive}\n" 
                         f"File age: > {args.time}h", border_style="blue"))
 
+def print_final_summary(args, stats):
+    src_stats = get_disk_stats(args.source) if args.source else "(Free: N/A)"
+    dst_stats = get_disk_stats(args.archive) if args.archive else "(Free: N/A)"
+    lines = [
+        "[bold green]Migration Summary[/bold green]",
+        f"Directories processed: [bold]{stats['dirs_processed']}[/bold]",
+        f"Files moved:           [bold]{stats['files_moved']}[/bold]",
+        f"Data moved:            [bold]{format_bytes(stats['bytes_moved'])}[/bold]",
+    ]
+
+    if stats['errors'] > 0:
+        lines.append(f"[red]Errors:                 {stats['errors']}[/red]")
+    if stats['skipped_space'] > 0:
+        lines.append(f"[red]Skipped (no space):    {stats['skipped_space']} (directories/files)[/red]")
+
+    lines.extend([
+        "",
+        f"[bold blue]Migrating the {args.count} largest directories[/bold blue]",
+        f"Source:  [dim]{src_stats}[/dim] {args.source}",
+        f"Archive: [dim]{dst_stats}[/dim] {args.archive}",
+        f"File age: > {args.time}h",
+    ])
+
+    console.print()
+    console.print(Panel("\n".join(lines), border_style="green"))
+
 def main():
     parser = argparse.ArgumentParser(description="Migrate old files from largest directories safely.")
     parser.add_argument("-c", "--count", type=int, default=1, help="Number of directories to migrate (default 1)")
@@ -344,22 +370,10 @@ def main():
         stats['dirs_processed'] += 1
         if stop_requested: break
 
-    # Summary
-    console.print("\n[bold green]=== Migration Summary ===[/bold green]")
-    console.print(f"Directories processed: {stats['dirs_processed']}")
-    console.print(f"Files moved:           {stats['files_moved']}")
-    console.print(f"Data moved:            {format_bytes(stats['bytes_moved'])}")
-    
-    if stats['errors'] > 0:
-        console.print(f"[red]Errors:                 {stats['errors']}[/red]")
-    if stats['skipped_space'] > 0:
-        console.print(f"[red]Skipped (no space):    {stats['skipped_space']} (directories/files)[/red]")
+    print_final_summary(args, stats)
     
     if stop_requested:
         console.print("[yellow]Operation was interrupted by user.[/yellow]")
-
-    console.print()
-    print_migration_panel(args)
 
 if __name__ == "__main__":
     main()
