@@ -208,6 +208,15 @@ def get_disk_stats(path):
     except Exception:
         return "(Free: N/A)"
 
+def print_migration_panel(args):
+    src_stats = get_disk_stats(args.source) if args.source else "(Free: N/A)"
+    dst_stats = get_disk_stats(args.archive) if args.archive else "(Free: N/A)"
+
+    console.print(Panel(f"[bold blue]Migrating the {args.count} largest directories[/bold blue]\n" 
+                        f"Source:  [dim]{src_stats}[/dim] {args.source}\n" 
+                        f"Archive: [dim]{dst_stats}[/dim] {args.archive}\n" 
+                        f"File age: > {args.time}h", border_style="blue"))
+
 def main():
     parser = argparse.ArgumentParser(description="Migrate old files from largest directories safely.")
     parser.add_argument("-c", "--count", type=int, default=1, help="Number of directories to migrate (default 1)")
@@ -221,13 +230,7 @@ def main():
 
     age_seconds = args.time * 3600
     
-    src_stats = get_disk_stats(args.source) if args.source else "(Free: N/A)"
-    dst_stats = get_disk_stats(args.archive) if args.archive else "(Free: N/A)"
-
-    console.print(Panel(f"[bold blue]Migrating the {args.count} largest directories[/bold blue]\n" 
-                        f"Source:  [dim]{src_stats}[/dim] {args.source}\n" 
-                        f"Archive: [dim]{dst_stats}[/dim] {args.archive}\n" 
-                        f"File age: > {args.time}h", border_style="blue"))
+    print_migration_panel(args)
 
     if not os.path.exists(args.source):
         console.print(f"[red]Error: Source directory '{args.source}' does not exist.[/red]")
@@ -354,6 +357,9 @@ def main():
     
     if stop_requested:
         console.print("[yellow]Operation was interrupted by user.[/yellow]")
+
+    console.print()
+    print_migration_panel(args)
 
 if __name__ == "__main__":
     main()
