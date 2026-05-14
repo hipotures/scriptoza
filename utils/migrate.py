@@ -16,6 +16,7 @@ import argparse
 import time
 import shutil
 import signal
+from pathlib import Path
 from dotenv import load_dotenv
 from rich.console import Console, Group
 from rich.progress import (
@@ -33,7 +34,8 @@ from rich.live import Live
 from rich.text import Text
 from rich.panel import Panel
 
-# Load environment variables from .env
+# Load script-local defaults first, then keep the old cwd .env fallback.
+load_dotenv(Path(__file__).with_name("migrate.env"))
 load_dotenv()
 
 # Defaults
@@ -59,9 +61,9 @@ def validate_args(args):
             console.print(f"[red]Error: {err}[/red]")
         
         console.print("\n[bold yellow]Instructions:[/bold yellow]")
-        console.print("Parameters must be provided via command line or in the [bold].env[/bold] file.")
-        console.print("\n[bold cyan]Option 1: .env file[/bold cyan]")
-        console.print("Create a .env file in the root directory and add:")
+        console.print("Parameters must be provided via command line or in the [bold]utils/migrate.env[/bold] file.")
+        console.print("\n[bold cyan]Option 1: utils/migrate.env file[/bold cyan]")
+        console.print("Create a private utils/migrate.env file from utils/migrate.env.example and add:")
         console.print("  MIGRATE_SOURCE=\"/path/to/source\"")
         console.print("  MIGRATE_ARCHIVE=\"/path/to/archive\"")
         console.print("  MIGRATE_AGE_HOURS=\"12\"")
@@ -246,8 +248,8 @@ def print_final_summary(args, stats):
 def main():
     parser = argparse.ArgumentParser(description="Migrate old files from largest directories safely.")
     parser.add_argument("-c", "--count", type=int, default=1, help="Number of directories to migrate (default 1)")
-    parser.add_argument("-s", "--source", default=DEFAULT_SOURCE, help="Source directory (defaults to .env MIGRATE_SOURCE)")
-    parser.add_argument("-a", "--archive", default=DEFAULT_ARCHIVE, help="Archive directory (defaults to .env MIGRATE_ARCHIVE)")
+    parser.add_argument("-s", "--source", default=DEFAULT_SOURCE, help="Source directory (defaults to utils/migrate.env MIGRATE_SOURCE)")
+    parser.add_argument("-a", "--archive", default=DEFAULT_ARCHIVE, help="Archive directory (defaults to utils/migrate.env MIGRATE_ARCHIVE)")
     parser.add_argument("-t", "--time", type=int, default=DEFAULT_AGE_HOURS, help=f"File age in hours (default {DEFAULT_AGE_HOURS})")
     parser.add_argument("--debug", action="store_true", help="Show details of processed files")
     
