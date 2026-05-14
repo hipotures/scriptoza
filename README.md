@@ -29,6 +29,7 @@ Collection of small utility scripts organized by category. Each category has its
 - `organize_by_date.py` - Safe universal organizer that groups files into YYYYMMDD folders from filename dates
 - `safe_rename_tt.py` - Safe date-based renamer for TikTok downloads
 - `scan_mp4_to_json.py` - Scans MP4 files and outputs metadata as JSON
+- `delete-google-chat-messages.js` - Controlled Google Chat message cleanup through a browser CDP session and private match rules
 - `install.py` - Installs selected utility scripts into a local bin directory
 - `migrate.py` - Small migration helper for local data transformations
 

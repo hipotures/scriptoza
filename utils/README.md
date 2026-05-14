@@ -21,8 +21,30 @@ If you still need the old event workflow scripts, run them from `deprecated/pipe
 - `organize_by_date.py` - Safe universal organizer that groups files into `YYYYMMDD` folders from filename dates
 - `safe_rename_tt.py` - Safe date-based renamer for TikTok downloads
 - `scan_mp4_to_json.py` - Scans MP4 files and outputs metadata as JSON
+- `delete-google-chat-messages.js` - Controlled Google Chat message cleanup through a browser CDP session and private match rules
 - `install.py` - Installs selected utility scripts into a local bin directory
 - `migrate.py` - Small migration helper for local data transformations
+
+## Google Chat Message Cleanup
+
+`delete-google-chat-messages.js` connects to an already running Chrome or Chromium instance through the Chrome DevTools Protocol, scans the active Google Chat conversation, and deletes matching messages one at a time. It is scan-only by default; it only deletes when `--delete` is passed.
+
+It expects Node.js plus the `playwright` package to be available in the environment where you run it.
+
+Keep private deletion rules outside the repository. Copy the example file and put the real rule in your local env file:
+
+```bash
+cp utils/delete-google-chat-messages.env.example .env
+```
+
+Rule values are treated as literal text by default, so a normal string like `"https://example.com/"` works without escaping dots. The script matches the rule against visible message text and link URLs.
+
+```bash
+node utils/delete-google-chat-messages.js --reg DELETE_EXAMPLE --limit 20 --delay-ms 3000
+node utils/delete-google-chat-messages.js --delete --reg DELETE_EXAMPLE --limit 20 --delay-ms 3000
+```
+
+Use `--url` to target a specific conversation, `--env PATH` to load rules from another file, and `--regex` only when the env value should be interpreted as a JavaScript regular expression.
 
 ## Notes
 

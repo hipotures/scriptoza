@@ -32,8 +32,10 @@ tests/data/
 !utils/
 !utils/README.md
 !utils/*.py
+!utils/*.js
 !utils/*.sh
 !utils/*.yaml
+!utils/*.env.example
 
 # Allow deprecated directory and its contents
 !deprecated/
