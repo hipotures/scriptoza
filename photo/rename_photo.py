@@ -27,74 +27,35 @@ MAX_THREADS = 24
 console = Console()
 status_line = Text("", style="dim blue")
 
-def get_timestamp_parts(exif_data):
-    subsec_create_date = exif_data.get('SubSecCreateDate') or exif_data.get('SubSecDateTimeOriginal')
-
-    if subsec_create_date:
-        subsec_create_date = subsec_create_date.split('+')[0]
-        parts = subsec_create_date.split(' ')
-        date_part = parts[0].replace(':', '')
-        time_part = parts[1].split('.')
-        time_without_ms = time_part[0].replace(':', '')
-        has_milliseconds = len(time_part) > 1 and time_part[1] != ''
-        milliseconds = time_part[1].ljust(3, '0')[:3] if has_milliseconds else '000'
-        return date_part, time_without_ms, milliseconds, has_milliseconds
-
-    if 'CreateDate' in exif_data:
-        create_date = exif_data['CreateDate']
-        create_date = create_date.split('+')[0].replace(':', '').replace(' ', '_')
-        date_part = create_date[:8]
-        time_without_ms = create_date[9:] if len(create_date) > 8 else '000000'
-        return date_part, time_without_ms, '000', False
-
-    return None
-
-def get_sequence_number(exif_data):
-    raw_seq = exif_data.get('SequenceNumber') or exif_data.get('ShotNumberInContinuousBurst')
-    try:
-        seq_val = int(raw_seq)
-    except (ValueError, TypeError):
-        return None
-    return seq_val if seq_val > 0 else None
-
-def build_fallback_tokens(files):
-    groups = {}
-
-    for filename in files:
-        try:
-            result = subprocess.run(['exiftool', '-json', filename], capture_output=True, text=True, check=True)
-            exif_data = json.loads(result.stdout)[0]
-            timestamp_parts = get_timestamp_parts(exif_data)
-            if not timestamp_parts:
-                continue
-
-            date_part, time_without_ms, _, has_milliseconds = timestamp_parts
-            if has_milliseconds or get_sequence_number(exif_data) is not None:
-                continue
-
-            folder = os.path.dirname(filename) or "."
-            groups.setdefault((folder, date_part, time_without_ms), []).append(filename)
-        except Exception:
-            continue
-
-    fallback_tokens = {}
-    for group_files in groups.values():
-        for index, filename in enumerate(sorted(group_files), start=1):
-            fallback_tokens[filename] = str(index).zfill(3)
-    return fallback_tokens
-
-def rename_photo_file(filename, progress, task_id, stats, lock, fallback_tokens, debug=False):
+def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
     try:
         result = subprocess.run(['exiftool', '-json', filename], capture_output=True, text=True, check=True)
         exif_data = json.loads(result.stdout)[0]
 
-        timestamp_parts = get_timestamp_parts(exif_data)
-        if not timestamp_parts:
+        # Try to get date with subseconds first, fallback to CreateDate
+        subsec_create_date = exif_data.get('SubSecCreateDate') or exif_data.get('SubSecDateTimeOriginal')
+
+        if subsec_create_date:
+            # Format: "2025:01:04 17:34:58.625+01:00" -> "20250104_173458_625"
+            subsec_create_date = subsec_create_date.split('+')[0]  # Remove timezone
+            parts = subsec_create_date.split(' ')
+            date_part = parts[0].replace(':', '')
+            time_part = parts[1].split('.')
+            time_without_ms = time_part[0].replace(':', '')
+            milliseconds = time_part[1].ljust(3, '0') if len(time_part) > 1 else '000'
+        elif 'CreateDate' in exif_data:
+            # Fallback: use CreateDate without milliseconds
+            create_date = exif_data['CreateDate']
+            create_date = create_date.split('+')[0].replace(':', '').replace(' ', '_')
+            date_part = create_date[:8]
+            time_without_ms = create_date[9:] if len(create_date) > 8 else '000000'
+            milliseconds = '000'
+        else:
+            # No CreateDate tag
             if debug:
                 status_line.plain = f" [No Date] {os.path.basename(filename)} - Skipping"
             progress.advance(task_id)
             return
-        date_part, time_without_ms, milliseconds, has_milliseconds = timestamp_parts
 
         model = exif_data.get('Model', '').strip()
         make = exif_data.get('Make', '').strip()
@@ -119,14 +80,17 @@ def rename_photo_file(filename, progress, task_id, stats, lock, fallback_tokens,
             category = "Panasonic GH7"
 
         if any(m in model for m in ['ILCE-7M3', 'ILCE-7RM5', 'X-H2S', 'Z 7_2', 'Z 7 II', 'EOS R5', 'DC-GH7']):
-            seq_val = get_sequence_number(exif_data)
-            if has_milliseconds:
-                order_token = milliseconds
-            elif seq_val is not None:
-                order_token = str(seq_val).zfill(3)
-            else:
-                order_token = fallback_tokens.get(filename, "000")
-            base_name = f"{date_part}_{time_without_ms}_{order_token}_{filesize}"
+            # Format: [data]_[czas]_[seq number:3]_[size w bajtach]
+            # Try SequenceNumber (Sony/Fuji/Nikon) then ShotNumberInContinuousBurst (Canon)
+            raw_seq = exif_data.get('SequenceNumber') or exif_data.get('ShotNumberInContinuousBurst') or 0
+            try:
+                # Force to integer if possible, otherwise default to 0
+                seq_val = int(raw_seq)
+            except (ValueError, TypeError):
+                seq_val = 0
+            
+            seq_num = str(seq_val).zfill(3)
+            base_name = f"{date_part}_{time_without_ms}_{seq_num}_{filesize}"
         else:
             base_name = f"{date_part}_{time_without_ms}_{milliseconds}"
 
@@ -231,7 +195,6 @@ def main():
         "Other": 0
     }
     stats_lock = threading.Lock()
-    fallback_tokens = build_fallback_tokens(files)
 
     ui_elements = [progress]
     if args.debug:
@@ -240,7 +203,7 @@ def main():
 
     with Live(ui_group, console=console, refresh_per_second=10):
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-            futures = [executor.submit(rename_photo_file, f, progress, task_id, stats, stats_lock, fallback_tokens, args.debug) for f in files]
+            futures = [executor.submit(rename_photo_file, f, progress, task_id, stats, stats_lock, args.debug) for f in files]
             concurrent.futures.wait(futures)
         
         if args.debug:
