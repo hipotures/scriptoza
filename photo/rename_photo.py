@@ -42,7 +42,8 @@ def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
             date_part = parts[0].replace(':', '')
             time_part = parts[1].split('.')
             time_without_ms = time_part[0].replace(':', '')
-            milliseconds = time_part[1].ljust(3, '0') if len(time_part) > 1 else '000'
+            has_real_subseconds = len(time_part) > 1 and time_part[1] != ''
+            milliseconds = time_part[1].ljust(3, '0')[:3] if has_real_subseconds else '000'
         elif 'CreateDate' in exif_data:
             # Fallback: use CreateDate without milliseconds
             create_date = exif_data['CreateDate']
@@ -50,6 +51,7 @@ def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
             date_part = create_date[:8]
             time_without_ms = create_date[9:] if len(create_date) > 8 else '000000'
             milliseconds = '000'
+            has_real_subseconds = False
         else:
             # No CreateDate tag
             if debug:
@@ -89,8 +91,8 @@ def rename_photo_file(filename, progress, task_id, stats, lock, debug=False):
             except (ValueError, TypeError):
                 seq_val = 0
             
-            seq_num = str(seq_val).zfill(3)
-            base_name = f"{date_part}_{time_without_ms}_{seq_num}_{filesize}"
+            order_token = milliseconds if has_real_subseconds else str(seq_val).zfill(3)
+            base_name = f"{date_part}_{time_without_ms}_{order_token}_{filesize}"
         else:
             base_name = f"{date_part}_{time_without_ms}_{milliseconds}"
 

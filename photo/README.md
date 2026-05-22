@@ -39,12 +39,14 @@ python /path/to/scriptoza/photo/rename_photo.py
 
 ### Output Format
 
-Files are renamed to: `YYYYMMDD_HHMMSS_MMM.ext`
+Files are renamed to: `YYYYMMDD_HHMMSS_MMM.ext` or `YYYYMMDD_HHMMSS_NNN_SIZE.ext` for cameras that use file-size disambiguation.
+
+For the `NNN`/`MMM` token, subsecond timestamps are preferred when available. EXIF sequence numbers are used only when subsecond timestamps are unavailable.
 
 Examples:
 - `20250104_173458_625.jpg` - Sony JPEG
 - `20240317_105747_031.arw` - Sony RAW
-- `20250307_134019_527.jpg` - Panasonic JPEG
+- `20250307_134019_527_28419372.jpg` - Panasonic JPEG with file-size disambiguation
 
 When RAW+JPG pairs are taken at exactly the same time (same millisecond), they will have identical base names:
 - `20250104_173458_625.arw`
@@ -57,6 +59,7 @@ If collision occurs (rare, during burst shooting), automatic counter is added:
 ### Technical Features
 
 - SubSecCreateDate/SubSecDateTimeOriginal for precise timestamp extraction
+- EXIF sequence number fallback when subsecond timestamps are unavailable
 - Thread-safe file operations
 - Automatic lowercase extension normalization
 - Handles missing or invalid EXIF data gracefully
