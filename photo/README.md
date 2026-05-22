@@ -8,7 +8,7 @@ Universal photo file renaming tool supporting multiple camera brands (Sony, Pana
 
 - Automatic camera detection from EXIF metadata
 - Multi-threaded processing (up to 24 threads)
-- Standardized naming: `YYYYMMDD_HHMMSS_MMM.ext` (with milliseconds)
+- Standardized naming: `YYYYMMDD_HHMMSS_NNN.ext` or `YYYYMMDD_HHMMSS_NNN_SIZE.ext`
 - Supports RAW (.arw), JPEG (.jpg, .jpeg) and HEIF (.hif) formats
 - Automatic collision handling with numeric suffixes
 - Preserves matching names for RAW+JPG pairs when possible
@@ -39,28 +39,34 @@ python /path/to/scriptoza/photo/rename_photo.py
 
 ### Output Format
 
-Files are renamed to: `YYYYMMDD_HHMMSS_MMM.ext`
+Files are renamed to: `YYYYMMDD_HHMMSS_NNN.ext` for general cameras, or `YYYYMMDD_HHMMSS_NNN_SIZE.ext` for cameras that need file-size disambiguation.
+
+`NNN` is chosen in this order:
+- milliseconds from `SubSecCreateDate` or `SubSecDateTimeOriginal`
+- EXIF sequence number when milliseconds are unavailable
+- local fallback counter within the same second
 
 Examples:
-- `20250104_173458_625.jpg` - Sony JPEG
-- `20240317_105747_031.arw` - Sony RAW
-- `20250307_134019_527.jpg` - Panasonic JPEG
+- `20250104_173458_625_36553563.jpg` - Sony JPEG with milliseconds and file size
+- `20240317_105747_031_84512032.arw` - Sony RAW with milliseconds and file size
+- `20250307_134019_527_28419372.jpg` - Panasonic JPEG with milliseconds and file size
 
-When RAW+JPG pairs are taken at exactly the same time (same millisecond), they will have identical base names:
+When RAW+JPG pairs are taken at exactly the same time (same millisecond), general-camera names can share the same timestamp token:
 - `20250104_173458_625.arw`
 - `20250104_173458_625.jpg`
 
-If collision occurs (rare, during burst shooting), automatic counter is added:
-- `20250104_173458_625.jpg`
-- `20250104_173458_625_1.jpg`
+For cameras using file-size disambiguation, the size remains at the end of the name:
+- `20250104_173458_625_36553563.jpg`
+- `20250104_173458_625_84512032.arw`
 
 ### Technical Features
 
 - SubSecCreateDate/SubSecDateTimeOriginal for precise timestamp extraction
+- EXIF sequence number fallback when subsecond timestamps are unavailable
+- Same-second local counter fallback when neither milliseconds nor sequence numbers are available
 - Thread-safe file operations
 - Automatic lowercase extension normalization
 - Handles missing or invalid EXIF data gracefully
-- No dependency on filesize (allows RAW+JPG matching)
 
 ### Supported Cameras
 
