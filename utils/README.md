@@ -9,7 +9,7 @@ The `utils/` directory now contains only non-pipeline helpers.
 The event workflow pipeline was moved out of the active utility set:
 
 - compatibility copy: `deprecated/pipeline/`
-- migration target: `/home/xai/DEV/vocatio`
+- migration target: the `vocatio` repository
 
 If you still need the old event workflow scripts, run them from `deprecated/pipeline/`.
 
@@ -22,8 +22,36 @@ If you still need the old event workflow scripts, run them from `deprecated/pipe
 - `safe_rename_tt.py` - Safe date-based renamer for TikTok downloads
 - `scan_mp4_to_json.py` - Scans MP4 files and outputs metadata as JSON
 - `delete-google-chat-messages.js` - Controlled Google Chat message cleanup through a browser CDP session and private match rules
+- `musescore_export_mp3_with_tags.py` - Exports MuseScore `.mscz` files to tagged MP3s named from `workTitle`
 - `install.py` - Installs selected utility scripts into a local bin directory
 - `migrate.py` - Small migration helper for local data transformations
+
+## MuseScore MP3 Export
+
+`musescore_export_mp3_with_tags.py` exports a MuseScore `.mscz` file through MuseScore Studio, reads meaningful score metadata from the embedded `.mscx` XML, and writes ID3 metadata to the final MP3 through `ffmpeg` without recompressing the audio.
+
+The final filename is based on `workTitle`, not the source filename. If the target already exists, the script creates the next versioned name:
+
+```bash
+python3 utils/musescore_export_mp3_with_tags.py /path/to/score.mscz
+```
+
+```text
+Lamento di Maggio.mp3
+Lamento di Maggio_1.mp3
+Lamento di Maggio_2.mp3
+```
+
+Metadata mapping:
+
+```text
+workTitle or movementTitle -> MP3 title and output filename
+composer -> MP3 artist and composer
+copyright -> MP3 copyright
+subtitle and Alt Titles -> MP3 comment
+```
+
+The MuseScore binary is read from `MUSESCORE_BIN`, `--musescore-bin`, or a MuseScore command available in `PATH`.
 
 ## Google Chat Message Cleanup
 

@@ -32,6 +32,7 @@ def main():
         ("photo/convert_hif_to_jpg.py", "convert-hif-to-jpg"),
         ("utils/organize_by_date.py", "organize-by-date"),
         ("utils/migrate.py", "migrate-tt"),
+        ("utils/musescore_export_mp3_with_tags.py", "musescore-export-mp3-with-tags"),
     ]
 
     configs = [

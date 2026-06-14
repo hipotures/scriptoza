@@ -30,6 +30,7 @@ Collection of small utility scripts organized by category. Each category has its
 - `safe_rename_tt.py` - Safe date-based renamer for TikTok downloads
 - `scan_mp4_to_json.py` - Scans MP4 files and outputs metadata as JSON
 - `delete-google-chat-messages.js` - Controlled Google Chat message cleanup through a browser CDP session and private match rules
+- `musescore_export_mp3_with_tags.py` - Exports MuseScore `.mscz` files to tagged MP3s named from `workTitle`
 - `install.py` - Installs selected utility scripts into a local bin directory
 - `migrate.py` - Small migration helper for local data transformations
 

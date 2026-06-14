@@ -6,7 +6,7 @@ Status:
 
 - kept only for backward compatibility
 - no longer part of the active generic utility set
-- migration target is `/home/xai/DEV/vocatio`
+- migration target is the `vocatio` repository
 
 Contents include:
 
