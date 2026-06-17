@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -33,6 +34,8 @@ class ScoreMetadata:
     copyright: str = ""
     subtitle: str = ""
     alt_titles: str = ""
+    mixer_comment: str = ""
+    audio_settings_json: str = ""
 
     @property
     def output_title(self) -> str:
@@ -49,14 +52,165 @@ class ScoreMetadata:
         if self.copyright:
             args.extend(["-metadata", f"copyright={self.copyright}"])
 
-        comment_parts = [value for value in (self.subtitle, self.alt_titles) if value]
+        comment_parts = [value for value in (self.subtitle, self.alt_titles, self.mixer_comment) if value]
         if comment_parts:
             args.extend(["-metadata", f"comment={' | '.join(comment_parts)}"])
+        if self.audio_settings_json:
+            args.extend(["-metadata", f"musescore:audiosettings={self.audio_settings_json}"])
         return args
 
 
 def _clean_text(value: str | None) -> str:
     return " ".join((value or "").split())
+
+
+def _format_number(value: object, *, scale: int = 1) -> str:
+    if not isinstance(value, int | float):
+        return str(value)
+    scaled = value * scale
+    rounded = round(scaled)
+    if abs(scaled - rounded) < 0.000001:
+        return str(rounded)
+    return f"{scaled:.2f}".rstrip("0").rstrip(".")
+
+
+def _instrument_label(instrument_id: object) -> str:
+    if not isinstance(instrument_id, str) or not instrument_id:
+        return "Track"
+    return " ".join(word.capitalize() for word in re.split(r"[_\s-]+", instrument_id) if word)
+
+
+def _sound_label(track: dict[str, object]) -> str:
+    input_settings = track.get("in", {})
+    if not isinstance(input_settings, dict):
+        return ""
+    resource_meta = input_settings.get("resourceMeta", {})
+    if not isinstance(resource_meta, dict):
+        return ""
+    attributes = resource_meta.get("attributes", {})
+    if not isinstance(attributes, dict):
+        attributes = {}
+    for key in ("museName", "presetName", "soundFontName"):
+        value = attributes.get(key)
+        if isinstance(value, str) and value:
+            return value
+    value = resource_meta.get("id")
+    return value if isinstance(value, str) else ""
+
+
+def _aux_sends_summary(out_settings: dict[str, object]) -> str:
+    aux_sends = out_settings.get("auxSends")
+    if not isinstance(aux_sends, list):
+        return ""
+    values: list[str] = []
+    for send in aux_sends:
+        if not isinstance(send, dict) or send.get("active") is False:
+            continue
+        amount = send.get("signalAmount")
+        if isinstance(amount, int | float):
+            values.append(f"{_format_number(amount, scale=100)}%")
+    return ",".join(values)
+
+
+def _fx_summary(out_settings: dict[str, object]) -> str:
+    fx_chain = out_settings.get("fxChain")
+    if not isinstance(fx_chain, dict):
+        return ""
+    names: list[str] = []
+    for key in sorted(fx_chain):
+        fx = fx_chain[key]
+        if not isinstance(fx, dict) or fx.get("active") is False:
+            continue
+        resource_meta = fx.get("resourceMeta", {})
+        if not isinstance(resource_meta, dict):
+            continue
+        fx_id = resource_meta.get("id")
+        if isinstance(fx_id, str) and fx_id:
+            names.append(fx_id)
+    return ",".join(names)
+
+
+def _track_summary(track: dict[str, object]) -> str:
+    out_settings = track.get("out", {})
+    if not isinstance(out_settings, dict):
+        out_settings = {}
+
+    parts = [_instrument_label(track.get("instrumentId"))]
+    sound = _sound_label(track)
+    if sound:
+        parts.append(f"sound={sound}")
+    if "volumeDb" in out_settings:
+        parts.append(f"vol={_format_number(out_settings['volumeDb'])}")
+    if "balance" in out_settings:
+        parts.append(f"pan={_format_number(out_settings['balance'], scale=100)}")
+    aux_sends = _aux_sends_summary(out_settings)
+    if aux_sends:
+        parts.append(f"aux={aux_sends}")
+    return " ".join(parts)
+
+
+def _aux_summary(aux_settings: dict[str, object], index: int) -> str:
+    out_settings = aux_settings.get("out", {})
+    if not isinstance(out_settings, dict):
+        out_settings = {}
+
+    parts = [f"Aux{index}"]
+    if "volumeDb" in out_settings:
+        parts.append(f"vol={_format_number(out_settings['volumeDb'])}")
+    if "balance" in out_settings:
+        parts.append(f"pan={_format_number(out_settings['balance'], scale=100)}")
+    fx = _fx_summary(out_settings)
+    if fx:
+        parts.append(f"fx={fx}")
+    return " ".join(parts)
+
+
+def _master_summary(audio_settings: dict[str, object]) -> str:
+    master = audio_settings.get("master")
+    if not isinstance(master, dict):
+        return ""
+
+    parts = ["Master"]
+    if "volumeDb" in master:
+        parts.append(f"vol={_format_number(master['volumeDb'])}")
+    if "balance" in master:
+        parts.append(f"pan={_format_number(master['balance'], scale=100)}")
+    fx = _fx_summary(master)
+    if fx:
+        parts.append(f"fx={fx}")
+    return " ".join(parts)
+
+
+def _mixer_comment(audio_settings: dict[str, object]) -> str:
+    summaries: list[str] = []
+
+    tracks = audio_settings.get("tracks")
+    if isinstance(tracks, list):
+        summaries.extend(_track_summary(track) for track in tracks if isinstance(track, dict))
+
+    aux = audio_settings.get("aux")
+    if isinstance(aux, list):
+        summaries.extend(
+            _aux_summary(aux_settings, index)
+            for index, aux_settings in enumerate(aux, start=1)
+            if isinstance(aux_settings, dict)
+        )
+
+    master = _master_summary(audio_settings)
+    if master:
+        summaries.append(master)
+
+    return f"MuseScore mixer: {'; '.join(summaries)}" if summaries else ""
+
+
+def _extract_audio_settings(archive: zipfile.ZipFile) -> tuple[str, str]:
+    if "audiosettings.json" not in archive.namelist():
+        return "", ""
+    audio_settings = json.loads(archive.read("audiosettings.json"))
+    if not isinstance(audio_settings, dict):
+        return "", ""
+    audio_settings_json = json.dumps(audio_settings, ensure_ascii=False, separators=(",", ":"))
+    return _mixer_comment(audio_settings), audio_settings_json
 
 
 def extract_metadata(score_path: Path) -> ScoreMetadata:
@@ -66,6 +220,7 @@ def extract_metadata(score_path: Path) -> ScoreMetadata:
             raise ValueError(f"Expected exactly one .mscx file in {score_path}, found {len(mscx_names)}")
         with archive.open(mscx_names[0]) as score_xml:
             root = ElementTree.parse(score_xml).getroot()
+        mixer_comment, audio_settings_json = _extract_audio_settings(archive)
 
     tags: dict[str, str] = {}
     for tag in root.iter("metaTag"):
@@ -80,6 +235,8 @@ def extract_metadata(score_path: Path) -> ScoreMetadata:
         copyright=tags.get("copyright", ""),
         subtitle=tags.get("subtitle", ""),
         alt_titles=tags.get("Alt Titles", ""),
+        mixer_comment=mixer_comment,
+        audio_settings_json=audio_settings_json,
     )
 
 
@@ -221,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        metadata = extract_metadata(args.score)
         output_path = export_with_tags(
             args.score,
             output_dir=args.output_dir,
@@ -233,6 +391,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(output_path)
+    if metadata.mixer_comment:
+        print(metadata.mixer_comment)
+    if metadata.audio_settings_json:
+        print(f"musescore:audiosettings={metadata.audio_settings_json}")
     return 0
 
 

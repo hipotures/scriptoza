@@ -49,6 +49,7 @@ workTitle or movementTitle -> MP3 title and output filename
 composer -> MP3 artist and composer
 copyright -> MP3 copyright
 subtitle and Alt Titles -> MP3 comment
+audiosettings.json -> MP3 comment summary and musescore:audiosettings custom tag, also printed after export
 ```
 
 The MuseScore binary is read from `MUSESCORE_BIN`, `--musescore-bin`, or a MuseScore command available in `PATH`.
