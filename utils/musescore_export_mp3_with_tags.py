@@ -371,6 +371,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="MuseScore binary/AppImage path. Defaults to MUSESCORE_BIN or a MuseScore command in PATH.",
     )
     parser.add_argument("--ffmpeg-bin", default="ffmpeg", help="ffmpeg binary name or path")
+    parser.add_argument(
+        "--print-mixer-json",
+        action="store_true",
+        help="Print the full audiosettings.json metadata after export. By default only the readable mixer summary is printed.",
+    )
     return parser
 
 
@@ -393,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     print(output_path)
     if metadata.mixer_comment:
         print(metadata.mixer_comment)
-    if metadata.audio_settings_json:
+    if args.print_mixer_json and metadata.audio_settings_json:
         print(f"musescore:audiosettings={metadata.audio_settings_json}")
     return 0
 
