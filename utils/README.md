@@ -52,7 +52,7 @@ subtitle and Alt Titles -> MP3 comment
 audiosettings.json -> MP3 comment summary and musescore:audiosettings custom tag
 ```
 
-After export, the script prints the MP3 path and the readable MuseScore mixer summary. Use `--print-mixer-json` to also print the full `audiosettings.json` value.
+After export, the script prints the MP3 path and the readable MuseScore mixer summary, one mixer entry per line. Use `--print-mixer-json` to also print the full `audiosettings.json` value.
 
 The MuseScore binary is read from `MUSESCORE_BIN`, `--musescore-bin`, or a MuseScore command available in `PATH`.
 

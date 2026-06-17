@@ -35,6 +35,7 @@ class ScoreMetadata:
     subtitle: str = ""
     alt_titles: str = ""
     mixer_comment: str = ""
+    mixer_lines: tuple[str, ...] = ()
     audio_settings_json: str = ""
 
     @property
@@ -181,7 +182,7 @@ def _master_summary(audio_settings: dict[str, object]) -> str:
     return " ".join(parts)
 
 
-def _mixer_comment(audio_settings: dict[str, object]) -> str:
+def _mixer_lines(audio_settings: dict[str, object]) -> tuple[str, ...]:
     summaries: list[str] = []
 
     tracks = audio_settings.get("tracks")
@@ -200,6 +201,11 @@ def _mixer_comment(audio_settings: dict[str, object]) -> str:
     if master:
         summaries.append(master)
 
+    return tuple(summaries)
+
+
+def _mixer_comment(audio_settings: dict[str, object]) -> str:
+    summaries = _mixer_lines(audio_settings)
     return f"MuseScore mixer: {'; '.join(summaries)}" if summaries else ""
 
 
@@ -213,6 +219,15 @@ def _extract_audio_settings(archive: zipfile.ZipFile) -> tuple[str, str]:
     return _mixer_comment(audio_settings), audio_settings_json
 
 
+def _extract_mixer_lines(archive: zipfile.ZipFile) -> tuple[str, ...]:
+    if "audiosettings.json" not in archive.namelist():
+        return ()
+    audio_settings = json.loads(archive.read("audiosettings.json"))
+    if not isinstance(audio_settings, dict):
+        return ()
+    return _mixer_lines(audio_settings)
+
+
 def extract_metadata(score_path: Path) -> ScoreMetadata:
     with zipfile.ZipFile(score_path) as archive:
         mscx_names = [name for name in archive.namelist() if name.endswith(".mscx")]
@@ -221,6 +236,7 @@ def extract_metadata(score_path: Path) -> ScoreMetadata:
         with archive.open(mscx_names[0]) as score_xml:
             root = ElementTree.parse(score_xml).getroot()
         mixer_comment, audio_settings_json = _extract_audio_settings(archive)
+        mixer_lines = _extract_mixer_lines(archive)
 
     tags: dict[str, str] = {}
     for tag in root.iter("metaTag"):
@@ -236,6 +252,7 @@ def extract_metadata(score_path: Path) -> ScoreMetadata:
         subtitle=tags.get("subtitle", ""),
         alt_titles=tags.get("Alt Titles", ""),
         mixer_comment=mixer_comment,
+        mixer_lines=mixer_lines,
         audio_settings_json=audio_settings_json,
     )
 
@@ -396,8 +413,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(output_path)
-    if metadata.mixer_comment:
-        print(metadata.mixer_comment)
+    if metadata.mixer_lines:
+        print("MuseScore mixer:")
+        for line in metadata.mixer_lines:
+            print(f"  {line}")
     if args.print_mixer_json and metadata.audio_settings_json:
         print(f"musescore:audiosettings={metadata.audio_settings_json}")
     return 0
