@@ -61,6 +61,35 @@ python video/check_4k.py /path/to/videos \
 
 ---
 
+## follow_crop_to_audio.py
+
+Render a moving crop from an `identity-path-v1` JSON and fit the accelerated video to an external audio file.
+
+### Features
+
+- Reads the source video path, source resolution, and tracked points from the JSON file
+- Crops dynamically along two or more tracked points with piecewise linear interpolation
+- Delays audio by 3 seconds and adds a 3-second tail by default
+- Speeds the selected video segment so the final file duration matches the padded audio duration
+- Uses Rich tables and progress output for render settings and FFmpeg progress
+
+### Requirements
+
+- Python 3.10+
+- `ffmpeg` and `ffprobe` available in `PATH`
+- `rich` Python package
+
+### Usage
+
+```bash
+python video/follow_crop_to_audio.py /tmp/identity-path-1782496038379.json /path/to/audio.wav 1080x1920
+python video/follow_crop_to_audio.py /tmp/identity-path-1782496038379.json /path/to/audio.wav 1920x1080 moon_follow.mp4
+```
+
+Edit the constants at the top of the script to change audio padding, codec, CRF, preset, bitrate, output suffix, or overwrite behavior.
+
+---
+
 ## check_collisions.py
 
 Find files that would collide after compression because they share a basename but have different extensions.

@@ -15,6 +15,7 @@ Collection of small utility scripts organized by category. Each category has its
 - `sort_dji.py` - Sorts DJI Pocket files into a separate folder
 - `find_vbc.py` - Lists videos with or without VBC metadata tags
 - `review_large_mp4.py` - Interactively reviews and cleans up N largest MP4 files
+- `follow_crop_to_audio.py` - Renders a dynamic crop from identity-path points and fits video speed to an external audio file
 
 ### Photo (photo/)
 

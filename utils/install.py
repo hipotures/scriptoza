@@ -26,6 +26,7 @@ def main():
         ("video/rename_video_by_tags.py", "rename-video-by-tags"),
         ("video/rename_video_by_tags.py", "rename-video"),
         ("video/check_4k.py", "check-4k"),
+        ("video/follow_crop_to_audio.py", "follow-crop-to-audio"),
         ("video/sort_dji.py", "sort-dji"),
         ("video/sort_video_dated.py", "sort-video-dated"),
         ("photo/rename_photo.py", "rename-photo"),
