@@ -68,6 +68,21 @@ class RenderTiming:
     speed_factor: float
 
 
+@dataclass(frozen=True)
+class RenderOptions:
+    audio_lead_in_seconds: float = AUDIO_LEAD_IN_SECONDS
+    audio_tail_seconds: float = AUDIO_TAIL_SECONDS
+    video_codec: str = VIDEO_CODEC
+    video_crf: int = VIDEO_CRF
+    video_preset: str = VIDEO_PRESET
+    audio_codec: str = AUDIO_CODEC
+    audio_bitrate: str = AUDIO_BITRATE
+    output_suffix: str = OUTPUT_SUFFIX
+    overwrite_output: bool = OVERWRITE_OUTPUT
+    ffmpeg_bin: str = FFMPEG_BIN
+    ffprobe_bin: str = FFPROBE_BIN
+
+
 def parse_resolution(value: str) -> tuple[int, int]:
     match = re.fullmatch(r"\s*(\d+)\s*[xX]\s*(\d+)\s*", value)
     if not match:
@@ -120,9 +135,17 @@ def load_identity_path(path: Path) -> IdentityPath:
     )
 
 
-def calculate_timing(identity: IdentityPath, audio_duration: float) -> RenderTiming:
+def calculate_timing(
+    identity: IdentityPath,
+    audio_duration: float,
+    *,
+    audio_lead_in_seconds: float = AUDIO_LEAD_IN_SECONDS,
+    audio_tail_seconds: float = AUDIO_TAIL_SECONDS,
+) -> RenderTiming:
     if not math.isfinite(audio_duration) or audio_duration <= 0:
         raise ValueError("Audio duration must be a positive finite number")
+    _validate_non_negative_seconds(audio_lead_in_seconds, "audio lead-in")
+    _validate_non_negative_seconds(audio_tail_seconds, "audio tail")
 
     source_start = identity.points[0].t
     source_end = identity.points[-1].t
@@ -130,7 +153,7 @@ def calculate_timing(identity: IdentityPath, audio_duration: float) -> RenderTim
     if source_duration <= 0:
         raise ValueError("Identity path source duration must be greater than zero")
 
-    final_duration = AUDIO_LEAD_IN_SECONDS + audio_duration + AUDIO_TAIL_SECONDS
+    final_duration = audio_lead_in_seconds + audio_duration + audio_tail_seconds
     if final_duration <= 0:
         raise ValueError("Final duration must be greater than zero")
 
@@ -162,6 +185,8 @@ def build_filter_complex(
     target_width: int,
     target_height: int,
     timing: RenderTiming,
+    audio_lead_in_seconds: float = AUDIO_LEAD_IN_SECONDS,
+    audio_tail_seconds: float = AUDIO_TAIL_SECONDS,
 ) -> str:
     relative_points = tuple(
         IdentityPoint(t=point.t - timing.source_start, x=point.x, y=point.y)
@@ -179,7 +204,7 @@ def build_filter_complex(
         crop_size=target_height,
         source_size_symbol="ih",
     )
-    lead_ms = int(round(AUDIO_LEAD_IN_SECONDS * 1000))
+    lead_ms = int(round(audio_lead_in_seconds * 1000))
     video_chain = (
         f"[0:v]trim=start={_fmt(timing.source_start)}:end={_fmt(timing.source_end)},"
         f"setpts=PTS-STARTPTS,"
@@ -189,7 +214,7 @@ def build_filter_complex(
     audio_chain = (
         f"[1:a]asetpts=PTS-STARTPTS,"
         f"adelay={lead_ms}:all=1,"
-        f"apad=pad_dur={_fmt(AUDIO_TAIL_SECONDS)},"
+        f"apad=pad_dur={_fmt(audio_tail_seconds)},"
         f"atrim=duration={_fmt(timing.final_duration)}[a]"
     )
     return f"{video_chain};{audio_chain}"
@@ -203,13 +228,14 @@ def build_ffmpeg_command(
     target_width: int,
     target_height: int,
     timing: RenderTiming,
+    options: RenderOptions = RenderOptions(),
 ) -> list[str]:
     return [
-        FFMPEG_BIN,
+        options.ffmpeg_bin,
         "-hide_banner",
         "-v",
         "error",
-        "-y" if OVERWRITE_OUTPUT else "-n",
+        "-y" if options.overwrite_output else "-n",
         "-i",
         str(identity.source_path),
         "-i",
@@ -220,21 +246,23 @@ def build_ffmpeg_command(
             target_width=target_width,
             target_height=target_height,
             timing=timing,
+            audio_lead_in_seconds=options.audio_lead_in_seconds,
+            audio_tail_seconds=options.audio_tail_seconds,
         ),
         "-map",
         "[v]",
         "-map",
         "[a]",
         "-c:v",
-        VIDEO_CODEC,
+        options.video_codec,
         "-crf",
-        str(VIDEO_CRF),
+        str(options.video_crf),
         "-preset",
-        VIDEO_PRESET,
+        options.video_preset,
         "-c:a",
-        AUDIO_CODEC,
+        options.audio_codec,
         "-b:a",
-        AUDIO_BITRATE,
+        options.audio_bitrate,
         "-movflags",
         "+faststart",
         "-progress",
@@ -244,9 +272,9 @@ def build_ffmpeg_command(
     ]
 
 
-def probe_duration(path: Path) -> float:
+def probe_duration(path: Path, ffprobe_bin: str = FFPROBE_BIN) -> float:
     command = [
-        FFPROBE_BIN,
+        ffprobe_bin,
         "-v",
         "error",
         "-show_entries",
@@ -311,8 +339,13 @@ def run_ffmpeg(command: list[str], final_duration: float) -> None:
         progress.update(task, completed=total_ms)
 
 
-def default_output_path(source_path: Path, target_width: int, target_height: int) -> Path:
-    return Path.cwd() / f"{source_path.stem}_{target_width}x{target_height}_{OUTPUT_SUFFIX}.mp4"
+def default_output_path(
+    source_path: Path,
+    target_width: int,
+    target_height: int,
+    output_suffix: str = OUTPUT_SUFFIX,
+) -> Path:
+    return Path.cwd() / f"{source_path.stem}_{target_width}x{target_height}_{output_suffix}.mp4"
 
 
 def render_summary(
@@ -323,6 +356,7 @@ def render_summary(
     target_width: int,
     target_height: int,
     timing: RenderTiming,
+    options: RenderOptions = RenderOptions(),
 ) -> None:
     console.print(Panel.fit("[bold cyan]Dynamic Follow Crop[/bold cyan]", border_style="cyan"))
     table = Table(title="Render settings", expand=False)
@@ -338,11 +372,14 @@ def render_summary(
     table.add_row("Audio duration", f"{timing.audio_duration:.3f}s")
     table.add_row("Final duration", f"{timing.final_duration:.3f}s")
     table.add_row("Speed factor", f"{timing.speed_factor:.6f}x")
-    table.add_row("Quality", f"{VIDEO_CODEC}, CRF {VIDEO_CRF}, preset {VIDEO_PRESET}")
+    table.add_row("Audio lead-in", f"{options.audio_lead_in_seconds:.3f}s")
+    table.add_row("Audio tail", f"{options.audio_tail_seconds:.3f}s")
+    table.add_row("Quality", f"{options.video_codec}, CRF {options.video_crf}, preset {options.video_preset}")
+    table.add_row("Audio encoding", f"{options.audio_codec}, {options.audio_bitrate}")
     console.print(table)
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Render a dynamic crop from an identity-path JSON and fit it to an external audio file."
     )
@@ -350,11 +387,48 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("audio_file", type=Path, help="Path to the audio file")
     parser.add_argument("resolution", help="Target crop resolution, for example 1080x1920")
     parser.add_argument("output_file", nargs="?", type=Path, help="Output video path")
+    parser.add_argument("--audio-lead-in", type=float, default=AUDIO_LEAD_IN_SECONDS, help="Seconds of silence before audio starts")
+    parser.add_argument("--audio-tail", type=float, default=AUDIO_TAIL_SECONDS, help="Seconds of padding after audio ends")
+    parser.add_argument("--video-codec", default=VIDEO_CODEC, help="FFmpeg video codec")
+    parser.add_argument("--crf", type=int, default=VIDEO_CRF, help="Video CRF quality value")
+    parser.add_argument("--preset", default=VIDEO_PRESET, help="Video encoder preset")
+    parser.add_argument("--audio-codec", default=AUDIO_CODEC, help="FFmpeg audio codec")
+    parser.add_argument("--audio-bitrate", default=AUDIO_BITRATE, help="Audio bitrate")
+    parser.add_argument("--output-suffix", default=OUTPUT_SUFFIX, help="Suffix for the default output filename")
+    parser.add_argument("--overwrite", action="store_true", default=OVERWRITE_OUTPUT, help="Overwrite existing output file")
+    parser.add_argument("--ffmpeg-bin", default=FFMPEG_BIN, help="ffmpeg executable path or name")
+    parser.add_argument("--ffprobe-bin", default=FFPROBE_BIN, help="ffprobe executable path or name")
+    return parser
+
+
+def options_from_args(args: argparse.Namespace) -> RenderOptions:
+    _validate_non_negative_seconds(args.audio_lead_in, "audio lead-in")
+    _validate_non_negative_seconds(args.audio_tail, "audio tail")
+    if args.crf < 0:
+        raise ValueError("CRF must be zero or greater")
+    return RenderOptions(
+        audio_lead_in_seconds=args.audio_lead_in,
+        audio_tail_seconds=args.audio_tail,
+        video_codec=args.video_codec,
+        video_crf=args.crf,
+        video_preset=args.preset,
+        audio_codec=args.audio_codec,
+        audio_bitrate=args.audio_bitrate,
+        output_suffix=args.output_suffix,
+        overwrite_output=args.overwrite,
+        ffmpeg_bin=args.ffmpeg_bin,
+        ffprobe_bin=args.ffprobe_bin,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_arg_parser()
     args = parser.parse_args(argv)
 
     try:
-        ensure_tool_available(FFMPEG_BIN)
-        ensure_tool_available(FFPROBE_BIN)
+        options = options_from_args(args)
+        ensure_tool_available(options.ffmpeg_bin)
+        ensure_tool_available(options.ffprobe_bin)
         identity_json = args.identity_json.expanduser()
         audio_path = args.audio_file.expanduser()
         target_width, target_height = parse_resolution(args.resolution)
@@ -363,10 +437,15 @@ def main(argv: list[str] | None = None) -> int:
         output_path = (
             args.output_file.expanduser()
             if args.output_file is not None
-            else default_output_path(identity.source_path, target_width, target_height)
+            else default_output_path(identity.source_path, target_width, target_height, options.output_suffix)
         )
-        validate_output_path(output_path)
-        timing = calculate_timing(identity, probe_duration(audio_path))
+        validate_output_path(output_path, options.overwrite_output)
+        timing = calculate_timing(
+            identity,
+            probe_duration(audio_path, options.ffprobe_bin),
+            audio_lead_in_seconds=options.audio_lead_in_seconds,
+            audio_tail_seconds=options.audio_tail_seconds,
+        )
         command = build_ffmpeg_command(
             identity=identity,
             audio_path=audio_path,
@@ -374,6 +453,7 @@ def main(argv: list[str] | None = None) -> int:
             target_width=target_width,
             target_height=target_height,
             timing=timing,
+            options=options,
         )
         render_summary(
             identity=identity,
@@ -382,6 +462,7 @@ def main(argv: list[str] | None = None) -> int:
             target_width=target_width,
             target_height=target_height,
             timing=timing,
+            options=options,
         )
         run_ffmpeg(command, timing.final_duration)
         console.print(f"[bold green]Done:[/bold green] {output_path}")
@@ -419,8 +500,8 @@ def validate_inputs(
         )
 
 
-def validate_output_path(path: Path) -> None:
-    if path.exists() and not OVERWRITE_OUTPUT:
+def validate_output_path(path: Path, overwrite_output: bool = OVERWRITE_OUTPUT) -> None:
+    if path.exists() and not overwrite_output:
         raise FileExistsError(f"Output file already exists: {path}")
     if not path.parent.exists():
         raise FileNotFoundError(f"Output directory does not exist: {path.parent}")
@@ -462,6 +543,11 @@ def _finite_float(value: object, name: str) -> float:
     if not math.isfinite(result):
         raise ValueError(f"Identity JSON {name} must be finite")
     return result
+
+
+def _validate_non_negative_seconds(value: float, name: str) -> None:
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be a non-negative finite number")
 
 
 def _uri_to_path(uri: str) -> Path:

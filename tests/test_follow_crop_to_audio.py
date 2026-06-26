@@ -8,11 +8,14 @@ from rich.progress import TimeRemainingColumn
 from video.follow_crop_to_audio import (
     IdentityPath,
     IdentityPoint,
+    build_arg_parser,
     build_crop_expression,
+    build_ffmpeg_command,
     build_filter_complex,
     build_progress_columns,
     calculate_timing,
     load_identity_path,
+    options_from_args,
     parse_resolution,
 )
 
@@ -126,6 +129,137 @@ class FollowCropToAudioTests(unittest.TestCase):
         self.assertIn("adelay=3000:all=1", filter_complex)
         self.assertIn("apad=pad_dur=3.000000", filter_complex)
         self.assertIn("atrim=duration=10.000000[a]", filter_complex)
+
+    def test_custom_audio_padding_changes_timing_and_filter(self) -> None:
+        identity = IdentityPath(
+            source_path=Path("/video.mp4"),
+            source_width=7680,
+            source_height=4320,
+            points=(
+                IdentityPoint(t=0.0, x=890.0, y=184.0),
+                IdentityPoint(t=10.0, x=1090.0, y=284.0),
+            ),
+        )
+
+        timing = calculate_timing(
+            identity,
+            audio_duration=4.0,
+            audio_lead_in_seconds=1.0,
+            audio_tail_seconds=2.0,
+        )
+        filter_complex = build_filter_complex(
+            identity=identity,
+            target_width=100,
+            target_height=50,
+            timing=timing,
+            audio_lead_in_seconds=1.0,
+            audio_tail_seconds=2.0,
+        )
+
+        self.assertAlmostEqual(timing.final_duration, 7.0)
+        self.assertAlmostEqual(timing.speed_factor, 10.0 / 7.0)
+        self.assertIn("setpts=PTS/1.428571", filter_complex)
+        self.assertIn("adelay=1000:all=1", filter_complex)
+        self.assertIn("apad=pad_dur=2.000000", filter_complex)
+        self.assertIn("atrim=duration=7.000000[a]", filter_complex)
+
+    def test_cli_options_override_render_settings(self) -> None:
+        args = build_arg_parser().parse_args(
+            [
+                "identity.json",
+                "audio.wav",
+                "1200x1200",
+                "out.mp4",
+                "--audio-lead-in",
+                "1",
+                "--audio-tail",
+                "2",
+                "--video-codec",
+                "libx265",
+                "--crf",
+                "22",
+                "--preset",
+                "medium",
+                "--audio-codec",
+                "libopus",
+                "--audio-bitrate",
+                "160k",
+                "--output-suffix",
+                "custom",
+                "--overwrite",
+                "--ffmpeg-bin",
+                "/usr/bin/ffmpeg",
+                "--ffprobe-bin",
+                "/usr/bin/ffprobe",
+            ]
+        )
+
+        options = options_from_args(args)
+
+        self.assertEqual(options.audio_lead_in_seconds, 1.0)
+        self.assertEqual(options.audio_tail_seconds, 2.0)
+        self.assertEqual(options.video_codec, "libx265")
+        self.assertEqual(options.video_crf, 22)
+        self.assertEqual(options.video_preset, "medium")
+        self.assertEqual(options.audio_codec, "libopus")
+        self.assertEqual(options.audio_bitrate, "160k")
+        self.assertEqual(options.output_suffix, "custom")
+        self.assertTrue(options.overwrite_output)
+        self.assertEqual(options.ffmpeg_bin, "/usr/bin/ffmpeg")
+        self.assertEqual(options.ffprobe_bin, "/usr/bin/ffprobe")
+
+    def test_ffmpeg_command_uses_render_options(self) -> None:
+        identity = IdentityPath(
+            source_path=Path("/video.mp4"),
+            source_width=7680,
+            source_height=4320,
+            points=(
+                IdentityPoint(t=0.0, x=890.0, y=184.0),
+                IdentityPoint(t=10.0, x=1090.0, y=284.0),
+            ),
+        )
+        args = build_arg_parser().parse_args(
+            [
+                "identity.json",
+                "audio.wav",
+                "1200x1200",
+                "out.mp4",
+                "--video-codec",
+                "libx265",
+                "--crf",
+                "22",
+                "--preset",
+                "medium",
+                "--audio-codec",
+                "libopus",
+                "--audio-bitrate",
+                "160k",
+                "--overwrite",
+                "--ffmpeg-bin",
+                "custom-ffmpeg",
+            ]
+        )
+        options = options_from_args(args)
+        timing = calculate_timing(identity, audio_duration=4.0)
+
+        command = build_ffmpeg_command(
+            identity=identity,
+            audio_path=Path("/audio.wav"),
+            output_path=Path("/out.mp4"),
+            target_width=100,
+            target_height=50,
+            timing=timing,
+            options=options,
+        )
+
+        self.assertEqual(command[0], "custom-ffmpeg")
+        self.assertIn("-y", command)
+        self.assertNotIn("-n", command)
+        self.assertEqual(command[command.index("-c:v") + 1], "libx265")
+        self.assertEqual(command[command.index("-crf") + 1], "22")
+        self.assertEqual(command[command.index("-preset") + 1], "medium")
+        self.assertEqual(command[command.index("-c:a") + 1], "libopus")
+        self.assertEqual(command[command.index("-b:a") + 1], "160k")
 
     def test_progress_columns_include_eta(self) -> None:
         columns = build_progress_columns()
