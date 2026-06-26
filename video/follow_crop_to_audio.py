@@ -513,21 +513,29 @@ def render_summary(
     table = Table(title="Render settings", expand=False)
     table.add_column("Item", style="cyan", no_wrap=True)
     table.add_column("Value", style="green")
+
+    _add_summary_section(table, "Source")
     table.add_row("Source video", str(identity.source_path))
     table.add_row("Audio file", str(audio_path))
-    table.add_row("Output file", str(output_path))
     table.add_row("Source resolution", f"{identity.source_width}x{identity.source_height}")
-    table.add_row("Target crop", f"{target_width}x{target_height}")
+
+    _add_summary_section(table, "Timeline")
     table.add_row("Source segment", f"{timing.source_start:.3f}s to {timing.source_end:.3f}s")
-    table.add_row("Source duration", f"{timing.source_duration:.3f}s")
-    table.add_row("Audio duration", f"{timing.audio_duration:.3f}s")
-    table.add_row("Final duration", f"{timing.final_duration:.3f}s")
-    table.add_row("Speed factor", f"{timing.speed_factor:.6f}x")
     if options.source_end is not None:
         table.add_row("Source end override", f"{options.source_end:.3f}s")
+    table.add_row("Source duration", f"{timing.source_duration:.3f}s")
+    table.add_row("Audio duration", f"{timing.audio_duration:.3f}s")
     table.add_row("Audio lead-in", f"{options.audio_lead_in_seconds:.3f}s")
     table.add_row("Audio tail", f"{options.audio_tail_seconds:.3f}s")
+    table.add_row("Final duration", f"{timing.final_duration:.3f}s")
+    table.add_row("Speed factor", f"{timing.speed_factor:.6f}x")
+
+    _add_summary_section(table, "Video")
+    table.add_row("Target crop", f"{target_width}x{target_height}")
     table.add_row("Quality", f"{options.video_codec}, CRF {options.video_crf}, preset {options.video_preset}")
+    table.add_row("FPS mode", options.fps_mode)
+
+    _add_summary_section(table, "Audio settings")
     table.add_row("Audio encoding", f"{options.audio_codec}, {options.audio_bitrate}")
     table.add_row("Audio gain", f"{options.audio_gain_db:+.3f} dB")
     table.add_row(
@@ -539,12 +547,15 @@ def render_summary(
         ),
     )
     if audio_stats:
+        _add_summary_section(table, "Audio analysis")
         table.add_row("Audio mean volume", _format_optional_db(audio_stats.mean_volume))
         table.add_row("Audio max volume", _format_optional_db(audio_stats.max_volume))
         table.add_row("Audio loudness", _format_optional_lufs(audio_stats.integrated_loudness))
         table.add_row("Audio true peak", _format_optional_db(audio_stats.true_peak))
         table.add_row("Audio LRA", _format_optional_lu(audio_stats.loudness_range))
-    table.add_row("FPS mode", options.fps_mode)
+
+    _add_summary_section(table, "Output")
+    table.add_row("Output file", str(output_path))
     console.print(table)
 
 
@@ -793,6 +804,12 @@ def _timestamp_to_ms(value: str) -> int | None:
 
 def _fmt(value: float) -> str:
     return f"{value:.6f}"
+
+
+def _add_summary_section(table: Table, title: str) -> None:
+    if table.rows:
+        table.add_section()
+    table.add_row(f"[bold white]{title}[/bold white]", "")
 
 
 def _format_optional_db(value: float | None) -> str:

@@ -1,11 +1,15 @@
 import json
 import tempfile
 import unittest
+from io import StringIO
 from pathlib import Path
 
+from rich.console import Console
 from rich.progress import TimeRemainingColumn
 
+import video.follow_crop_to_audio as follow_crop
 from video.follow_crop_to_audio import (
+    AudioStats,
     IdentityPath,
     IdentityPoint,
     build_arg_parser,
@@ -20,6 +24,7 @@ from video.follow_crop_to_audio import (
     parse_time_value,
     parse_volumedetect_output,
     parse_resolution,
+    render_summary,
 )
 
 
@@ -380,6 +385,48 @@ class FollowCropToAudioTests(unittest.TestCase):
 
         self.assertEqual(volume, {"mean_volume": -27.7, "max_volume": -9.6})
         self.assertEqual(loudness, {"input_i": -24.44, "input_tp": -9.56, "input_lra": 10.70})
+
+    def test_render_summary_groups_settings_into_sections(self) -> None:
+        identity = IdentityPath(
+            source_path=Path("/video.mp4"),
+            source_width=7680,
+            source_height=4320,
+            points=(
+                IdentityPoint(t=0.0, x=890.0, y=184.0),
+                IdentityPoint(t=10.0, x=1090.0, y=284.0),
+            ),
+        )
+        timing = calculate_timing(identity, audio_duration=4.0)
+        buffer = StringIO()
+        original_console = follow_crop.console
+        follow_crop.console = Console(file=buffer, force_terminal=False, width=160)
+
+        try:
+            render_summary(
+                identity=identity,
+                audio_path=Path("/audio.wav"),
+                output_path=Path("/out.mp4"),
+                target_width=100,
+                target_height=50,
+                timing=timing,
+                audio_stats=AudioStats(
+                    mean_volume=-27.7,
+                    max_volume=-9.6,
+                    integrated_loudness=-24.44,
+                    true_peak=-9.56,
+                    loudness_range=10.70,
+                ),
+            )
+        finally:
+            follow_crop.console = original_console
+
+        output = buffer.getvalue()
+        for label in ("Source", "Timeline", "Video", "Audio settings", "Audio analysis", "Output"):
+            self.assertIn(label, output)
+        self.assertLess(output.index("Source"), output.index("Timeline"))
+        self.assertLess(output.index("Timeline"), output.index("Video"))
+        self.assertLess(output.index("Video"), output.index("Audio settings"))
+        self.assertLess(output.index("Audio analysis"), output.index("Output"))
 
     def test_progress_columns_include_eta(self) -> None:
         columns = build_progress_columns()
