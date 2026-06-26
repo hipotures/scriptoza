@@ -16,6 +16,7 @@ from video.follow_crop_to_audio import (
     calculate_timing,
     load_identity_path,
     options_from_args,
+    parse_time_value,
     parse_resolution,
 )
 
@@ -85,6 +86,39 @@ class FollowCropToAudioTests(unittest.TestCase):
         self.assertAlmostEqual(timing.source_end, 425.351293545)
         self.assertAlmostEqual(timing.final_duration, 116.0)
         self.assertAlmostEqual(timing.speed_factor, 425.351293545 / 116.0)
+
+    def test_parse_time_value_accepts_seconds_minutes_and_hours(self) -> None:
+        self.assertAlmostEqual(parse_time_value("450"), 450.0)
+        self.assertAlmostEqual(parse_time_value("7:30"), 450.0)
+        self.assertAlmostEqual(parse_time_value("01:02:03.5"), 3723.5)
+
+        with self.assertRaises(ValueError):
+            parse_time_value("bad")
+
+    def test_source_end_extends_segment_and_holds_last_position(self) -> None:
+        identity = IdentityPath(
+            source_path=Path("/video.mp4"),
+            source_width=7680,
+            source_height=4320,
+            points=(
+                IdentityPoint(t=0.0, x=890.0, y=184.0),
+                IdentityPoint(t=10.0, x=1090.0, y=284.0),
+            ),
+        )
+
+        timing = calculate_timing(identity, audio_duration=4.0, source_end=30.0)
+        filter_complex = build_filter_complex(
+            identity=identity,
+            target_width=100,
+            target_height=50,
+            timing=timing,
+        )
+
+        self.assertAlmostEqual(timing.source_end, 30.0)
+        self.assertAlmostEqual(timing.source_duration, 30.0)
+        self.assertIn("trim=start=0.000000:end=30.000000", filter_complex)
+        self.assertIn("if(lte(t\\,10.000000)", filter_complex)
+        self.assertIn("\\,1090.000000))-50.000000", filter_complex)
 
     def test_build_crop_expression_uses_piecewise_interpolation_and_clamp(self) -> None:
         points = (
@@ -186,6 +220,8 @@ class FollowCropToAudioTests(unittest.TestCase):
                 "160k",
                 "--fps-mode",
                 "cfr",
+                "--source-end",
+                "7:30",
                 "--output-suffix",
                 "custom",
                 "--overwrite",
@@ -206,6 +242,7 @@ class FollowCropToAudioTests(unittest.TestCase):
         self.assertEqual(options.audio_codec, "libopus")
         self.assertEqual(options.audio_bitrate, "160k")
         self.assertEqual(options.fps_mode, "cfr")
+        self.assertEqual(options.source_end, 450.0)
         self.assertEqual(options.output_suffix, "custom")
         self.assertTrue(options.overwrite_output)
         self.assertEqual(options.ffmpeg_bin, "/usr/bin/ffmpeg")

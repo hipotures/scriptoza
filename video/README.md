@@ -72,6 +72,7 @@ Render a moving crop from an `identity-path-v1` JSON and fit the accelerated vid
 - Delays audio by 3 seconds and adds a 3-second tail by default; both values can be changed from CLI
 - Speeds the selected video segment so the final file duration matches the padded audio duration
 - Preserves accelerated video frames by default with `--fps-mode passthrough`
+- Can extend the source segment beyond the last tracked point with `--source-end`; the crop holds the last point position
 - Uses Rich tables and progress output for render settings and FFmpeg progress
 
 ### Requirements
@@ -86,6 +87,7 @@ Render a moving crop from an `identity-path-v1` JSON and fit the accelerated vid
 python video/follow_crop_to_audio.py /tmp/identity-path-1782496038379.json /path/to/audio.wav 1080x1920
 python video/follow_crop_to_audio.py /tmp/identity-path-1782496038379.json /path/to/audio.wav 1920x1080 moon_follow.mp4
 python video/follow_crop_to_audio.py /tmp/identity-path-1782496038379.json /path/to/audio.wav 1200x1200 moon_follow.mp4 --audio-lead-in 1
+python video/follow_crop_to_audio.py /tmp/identity-path-1782496038379.json /path/to/audio.wav 2160x3840 moon_follow.mp4 --source-end 7:30
 ```
 
 Useful options:
@@ -93,6 +95,7 @@ Useful options:
 ```bash
 --audio-lead-in 1
 --audio-tail 3
+--source-end 7:30
 --video-codec libx265
 --crf 20
 --preset slow
