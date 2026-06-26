@@ -35,6 +35,11 @@ VIDEO_CRF = 18
 VIDEO_PRESET = "slow"
 AUDIO_CODEC = "aac"
 AUDIO_BITRATE = "192k"
+AUDIO_GAIN_DB = 0.0
+AUDIO_NORMALIZE = False
+AUDIO_LOUDNESS_I = -16.0
+AUDIO_LOUDNESS_TP = -1.5
+AUDIO_LOUDNESS_LRA = 11.0
 FPS_MODE = "passthrough"
 OUTPUT_SUFFIX = "follow_audio"
 OVERWRITE_OUTPUT = False
@@ -79,11 +84,25 @@ class RenderOptions:
     video_preset: str = VIDEO_PRESET
     audio_codec: str = AUDIO_CODEC
     audio_bitrate: str = AUDIO_BITRATE
+    audio_gain_db: float = AUDIO_GAIN_DB
+    audio_normalize: bool = AUDIO_NORMALIZE
+    audio_loudness_i: float = AUDIO_LOUDNESS_I
+    audio_loudness_tp: float = AUDIO_LOUDNESS_TP
+    audio_loudness_lra: float = AUDIO_LOUDNESS_LRA
     fps_mode: str = FPS_MODE
     output_suffix: str = OUTPUT_SUFFIX
     overwrite_output: bool = OVERWRITE_OUTPUT
     ffmpeg_bin: str = FFMPEG_BIN
     ffprobe_bin: str = FFPROBE_BIN
+
+
+@dataclass(frozen=True)
+class AudioStats:
+    mean_volume: float | None = None
+    max_volume: float | None = None
+    integrated_loudness: float | None = None
+    true_peak: float | None = None
+    loudness_range: float | None = None
 
 
 def parse_resolution(value: str) -> tuple[int, int]:
@@ -221,6 +240,7 @@ def build_filter_complex(
     timing: RenderTiming,
     audio_lead_in_seconds: float = AUDIO_LEAD_IN_SECONDS,
     audio_tail_seconds: float = AUDIO_TAIL_SECONDS,
+    options: RenderOptions = RenderOptions(),
 ) -> str:
     relative_points = tuple(
         IdentityPoint(t=point.t - timing.source_start, x=point.x, y=point.y)
@@ -245,12 +265,24 @@ def build_filter_complex(
         f"crop=w={target_width}:h={target_height}:x='{x_expression}':y='{y_expression}',"
         f"setpts=PTS/{_fmt(timing.speed_factor)}[v]"
     )
-    audio_chain = (
-        f"[1:a]asetpts=PTS-STARTPTS,"
-        f"adelay={lead_ms}:all=1,"
-        f"apad=pad_dur={_fmt(audio_tail_seconds)},"
-        f"atrim=duration={_fmt(timing.final_duration)}[a]"
+    audio_filters = ["asetpts=PTS-STARTPTS"]
+    if options.audio_gain_db:
+        audio_filters.append(f"volume={_fmt(options.audio_gain_db)}dB")
+    if options.audio_normalize:
+        audio_filters.append(
+            "loudnorm="
+            f"I={_fmt(options.audio_loudness_i)}:"
+            f"TP={_fmt(options.audio_loudness_tp)}:"
+            f"LRA={_fmt(options.audio_loudness_lra)}"
+        )
+    audio_filters.extend(
+        [
+            f"adelay={lead_ms}:all=1",
+            f"apad=pad_dur={_fmt(audio_tail_seconds)}",
+            f"atrim=duration={_fmt(timing.final_duration)}",
+        ]
     )
+    audio_chain = f"[1:a]{','.join(audio_filters)}[a]"
     return f"{video_chain};{audio_chain}"
 
 
@@ -282,6 +314,7 @@ def build_ffmpeg_command(
             timing=timing,
             audio_lead_in_seconds=options.audio_lead_in_seconds,
             audio_tail_seconds=options.audio_tail_seconds,
+            options=options,
         ),
         "-map",
         "[v]",
@@ -330,6 +363,87 @@ def probe_duration(path: Path, ffprobe_bin: str = FFPROBE_BIN) -> float:
     if not math.isfinite(duration) or duration <= 0:
         raise RuntimeError(f"Invalid duration for {path}: {duration}")
     return duration
+
+
+def probe_audio_stats(path: Path, ffmpeg_bin: str = FFMPEG_BIN) -> AudioStats:
+    try:
+        volume_result = subprocess.run(
+            [
+                ffmpeg_bin,
+                "-hide_banner",
+                "-nostats",
+                "-i",
+                str(path),
+                "-filter:a",
+                "volumedetect",
+                "-f",
+                "null",
+                "/dev/null",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        volume_values = parse_volumedetect_output(volume_result.stderr)
+    except (OSError, subprocess.SubprocessError):
+        volume_values = {}
+
+    try:
+        loudness_result = subprocess.run(
+            [
+                ffmpeg_bin,
+                "-hide_banner",
+                "-nostats",
+                "-i",
+                str(path),
+                "-af",
+                "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+                "-f",
+                "null",
+                "/dev/null",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        loudness_values = parse_loudnorm_output(loudness_result.stderr)
+    except (OSError, subprocess.SubprocessError):
+        loudness_values = {}
+
+    return AudioStats(
+        mean_volume=volume_values.get("mean_volume"),
+        max_volume=volume_values.get("max_volume"),
+        integrated_loudness=loudness_values.get("input_i"),
+        true_peak=loudness_values.get("input_tp"),
+        loudness_range=loudness_values.get("input_lra"),
+    )
+
+
+def parse_volumedetect_output(output: str) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for key in ("mean_volume", "max_volume"):
+        match = re.search(rf"{key}:\s*(-?\d+(?:\.\d+)?)\s*dB", output)
+        if match:
+            values[key] = float(match.group(1))
+    return values
+
+
+def parse_loudnorm_output(output: str) -> dict[str, float]:
+    start = output.find("{")
+    end = output.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return {}
+    try:
+        data = json.loads(output[start : end + 1])
+    except json.JSONDecodeError:
+        return {}
+    values: dict[str, float] = {}
+    for key in ("input_i", "input_tp", "input_lra"):
+        value = data.get(key)
+        if isinstance(value, str | int | float):
+            try:
+                values[key] = float(value)
+            except ValueError:
+                pass
+    return values
 
 
 def build_progress_columns() -> tuple[object, ...]:
@@ -393,6 +507,7 @@ def render_summary(
     target_height: int,
     timing: RenderTiming,
     options: RenderOptions = RenderOptions(),
+    audio_stats: AudioStats | None = None,
 ) -> None:
     console.print(Panel.fit("[bold cyan]Dynamic Follow Crop[/bold cyan]", border_style="cyan"))
     table = Table(title="Render settings", expand=False)
@@ -414,6 +529,21 @@ def render_summary(
     table.add_row("Audio tail", f"{options.audio_tail_seconds:.3f}s")
     table.add_row("Quality", f"{options.video_codec}, CRF {options.video_crf}, preset {options.video_preset}")
     table.add_row("Audio encoding", f"{options.audio_codec}, {options.audio_bitrate}")
+    table.add_row("Audio gain", f"{options.audio_gain_db:+.3f} dB")
+    table.add_row(
+        "Audio normalize",
+        (
+            f"loudnorm I={options.audio_loudness_i:g} TP={options.audio_loudness_tp:g} LRA={options.audio_loudness_lra:g}"
+            if options.audio_normalize
+            else "off"
+        ),
+    )
+    if audio_stats:
+        table.add_row("Audio mean volume", _format_optional_db(audio_stats.mean_volume))
+        table.add_row("Audio max volume", _format_optional_db(audio_stats.max_volume))
+        table.add_row("Audio loudness", _format_optional_lufs(audio_stats.integrated_loudness))
+        table.add_row("Audio true peak", _format_optional_db(audio_stats.true_peak))
+        table.add_row("Audio LRA", _format_optional_lu(audio_stats.loudness_range))
     table.add_row("FPS mode", options.fps_mode)
     console.print(table)
 
@@ -434,6 +564,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--preset", default=VIDEO_PRESET, help="Video encoder preset")
     parser.add_argument("--audio-codec", default=AUDIO_CODEC, help="FFmpeg audio codec")
     parser.add_argument("--audio-bitrate", default=AUDIO_BITRATE, help="Audio bitrate")
+    parser.add_argument("--audio-gain-db", type=float, default=AUDIO_GAIN_DB, help="Audio gain in dB before delay and padding")
+    parser.add_argument("--audio-normalize", action="store_true", default=AUDIO_NORMALIZE, help="Enable one-pass FFmpeg loudnorm on the audio")
+    parser.add_argument("--audio-loudness-i", type=float, default=AUDIO_LOUDNESS_I, help="loudnorm integrated loudness target")
+    parser.add_argument("--audio-loudness-tp", type=float, default=AUDIO_LOUDNESS_TP, help="loudnorm true peak target")
+    parser.add_argument("--audio-loudness-lra", type=float, default=AUDIO_LOUDNESS_LRA, help="loudnorm loudness range target")
     parser.add_argument("--fps-mode", default=FPS_MODE, help="FFmpeg output FPS mode")
     parser.add_argument("--output-suffix", default=OUTPUT_SUFFIX, help="Suffix for the default output filename")
     parser.add_argument("--overwrite", action="store_true", default=OVERWRITE_OUTPUT, help="Overwrite existing output file")
@@ -456,6 +591,11 @@ def options_from_args(args: argparse.Namespace) -> RenderOptions:
         video_preset=args.preset,
         audio_codec=args.audio_codec,
         audio_bitrate=args.audio_bitrate,
+        audio_gain_db=args.audio_gain_db,
+        audio_normalize=args.audio_normalize,
+        audio_loudness_i=args.audio_loudness_i,
+        audio_loudness_tp=args.audio_loudness_tp,
+        audio_loudness_lra=args.audio_loudness_lra,
         fps_mode=args.fps_mode,
         output_suffix=args.output_suffix,
         overwrite_output=args.overwrite,
@@ -490,6 +630,7 @@ def main(argv: list[str] | None = None) -> int:
             audio_lead_in_seconds=options.audio_lead_in_seconds,
             audio_tail_seconds=options.audio_tail_seconds,
         )
+        audio_stats = probe_audio_stats(audio_path, options.ffmpeg_bin)
         command = build_ffmpeg_command(
             identity=identity,
             audio_path=audio_path,
@@ -507,6 +648,7 @@ def main(argv: list[str] | None = None) -> int:
             target_height=target_height,
             timing=timing,
             options=options,
+            audio_stats=audio_stats,
         )
         run_ffmpeg(command, timing.final_duration)
         console.print(f"[bold green]Done:[/bold green] {output_path}")
@@ -651,6 +793,18 @@ def _timestamp_to_ms(value: str) -> int | None:
 
 def _fmt(value: float) -> str:
     return f"{value:.6f}"
+
+
+def _format_optional_db(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f} dB"
+
+
+def _format_optional_lufs(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f} LUFS"
+
+
+def _format_optional_lu(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f} LU"
 
 
 if __name__ == "__main__":

@@ -16,7 +16,9 @@ from video.follow_crop_to_audio import (
     calculate_timing,
     load_identity_path,
     options_from_args,
+    parse_loudnorm_output,
     parse_time_value,
+    parse_volumedetect_output,
     parse_resolution,
 )
 
@@ -218,6 +220,15 @@ class FollowCropToAudioTests(unittest.TestCase):
                 "libopus",
                 "--audio-bitrate",
                 "160k",
+                "--audio-gain-db",
+                "6",
+                "--audio-normalize",
+                "--audio-loudness-i",
+                "-14",
+                "--audio-loudness-tp",
+                "-2",
+                "--audio-loudness-lra",
+                "9",
                 "--fps-mode",
                 "cfr",
                 "--source-end",
@@ -241,6 +252,11 @@ class FollowCropToAudioTests(unittest.TestCase):
         self.assertEqual(options.video_preset, "medium")
         self.assertEqual(options.audio_codec, "libopus")
         self.assertEqual(options.audio_bitrate, "160k")
+        self.assertEqual(options.audio_gain_db, 6.0)
+        self.assertTrue(options.audio_normalize)
+        self.assertEqual(options.audio_loudness_i, -14.0)
+        self.assertEqual(options.audio_loudness_tp, -2.0)
+        self.assertEqual(options.audio_loudness_lra, 9.0)
         self.assertEqual(options.fps_mode, "cfr")
         self.assertEqual(options.source_end, 450.0)
         self.assertEqual(options.output_suffix, "custom")
@@ -301,6 +317,69 @@ class FollowCropToAudioTests(unittest.TestCase):
         self.assertEqual(command[command.index("-c:a") + 1], "libopus")
         self.assertEqual(command[command.index("-b:a") + 1], "160k")
         self.assertEqual(command[command.index("-fps_mode") + 1], "passthrough")
+
+    def test_audio_gain_and_loudnorm_are_added_before_delay(self) -> None:
+        identity = IdentityPath(
+            source_path=Path("/video.mp4"),
+            source_width=7680,
+            source_height=4320,
+            points=(
+                IdentityPoint(t=0.0, x=890.0, y=184.0),
+                IdentityPoint(t=10.0, x=1090.0, y=284.0),
+            ),
+        )
+        args = build_arg_parser().parse_args(
+            [
+                "identity.json",
+                "audio.wav",
+                "1200x1200",
+                "out.mp4",
+                "--audio-gain-db",
+                "6",
+                "--audio-normalize",
+                "--audio-loudness-i",
+                "-14",
+                "--audio-loudness-tp",
+                "-2",
+                "--audio-loudness-lra",
+                "9",
+            ]
+        )
+        options = options_from_args(args)
+        timing = calculate_timing(identity, audio_duration=4.0)
+
+        filter_complex = build_filter_complex(
+            identity=identity,
+            target_width=100,
+            target_height=50,
+            timing=timing,
+            options=options,
+        )
+
+        self.assertIn(
+            "[1:a]asetpts=PTS-STARTPTS,volume=6.000000dB,loudnorm=I=-14.000000:TP=-2.000000:LRA=9.000000,adelay=3000:all=1",
+            filter_complex,
+        )
+
+    def test_audio_metric_parsers_read_ffmpeg_output(self) -> None:
+        volume = parse_volumedetect_output(
+            """
+            [Parsed_volumedetect_0] mean_volume: -27.7 dB
+            [Parsed_volumedetect_0] max_volume: -9.6 dB
+            """
+        )
+        loudness = parse_loudnorm_output(
+            """
+            {
+                "input_i" : "-24.44",
+                "input_tp" : "-9.56",
+                "input_lra" : "10.70"
+            }
+            """
+        )
+
+        self.assertEqual(volume, {"mean_volume": -27.7, "max_volume": -9.6})
+        self.assertEqual(loudness, {"input_i": -24.44, "input_tp": -9.56, "input_lra": 10.70})
 
     def test_progress_columns_include_eta(self) -> None:
         columns = build_progress_columns()

@@ -73,6 +73,8 @@ Render a moving crop from an `identity-path-v1` JSON and fit the accelerated vid
 - Speeds the selected video segment so the final file duration matches the padded audio duration
 - Preserves accelerated video frames by default with `--fps-mode passthrough`
 - Can extend the source segment beyond the last tracked point with `--source-end`; the crop holds the last point position
+- Shows input audio volume/loudness metrics in the Rich summary table
+- Can apply audio gain or one-pass loudness normalization during rendering
 - Uses Rich tables and progress output for render settings and FFmpeg progress
 
 ### Requirements
@@ -101,6 +103,11 @@ Useful options:
 --preset slow
 --audio-codec aac
 --audio-bitrate 192k
+--audio-gain-db 8
+--audio-normalize
+--audio-loudness-i -16
+--audio-loudness-tp -1.5
+--audio-loudness-lra 11
 --fps-mode passthrough
 --output-suffix follow_audio
 --overwrite
