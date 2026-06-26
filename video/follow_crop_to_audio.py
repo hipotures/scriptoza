@@ -35,6 +35,7 @@ VIDEO_CRF = 18
 VIDEO_PRESET = "slow"
 AUDIO_CODEC = "aac"
 AUDIO_BITRATE = "192k"
+FPS_MODE = "passthrough"
 OUTPUT_SUFFIX = "follow_audio"
 OVERWRITE_OUTPUT = False
 FFMPEG_BIN = "ffmpeg"
@@ -77,6 +78,7 @@ class RenderOptions:
     video_preset: str = VIDEO_PRESET
     audio_codec: str = AUDIO_CODEC
     audio_bitrate: str = AUDIO_BITRATE
+    fps_mode: str = FPS_MODE
     output_suffix: str = OUTPUT_SUFFIX
     overwrite_output: bool = OVERWRITE_OUTPUT
     ffmpeg_bin: str = FFMPEG_BIN
@@ -263,6 +265,8 @@ def build_ffmpeg_command(
         options.audio_codec,
         "-b:a",
         options.audio_bitrate,
+        "-fps_mode",
+        options.fps_mode,
         "-movflags",
         "+faststart",
         "-progress",
@@ -376,6 +380,7 @@ def render_summary(
     table.add_row("Audio tail", f"{options.audio_tail_seconds:.3f}s")
     table.add_row("Quality", f"{options.video_codec}, CRF {options.video_crf}, preset {options.video_preset}")
     table.add_row("Audio encoding", f"{options.audio_codec}, {options.audio_bitrate}")
+    table.add_row("FPS mode", options.fps_mode)
     console.print(table)
 
 
@@ -394,6 +399,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--preset", default=VIDEO_PRESET, help="Video encoder preset")
     parser.add_argument("--audio-codec", default=AUDIO_CODEC, help="FFmpeg audio codec")
     parser.add_argument("--audio-bitrate", default=AUDIO_BITRATE, help="Audio bitrate")
+    parser.add_argument("--fps-mode", default=FPS_MODE, help="FFmpeg output FPS mode")
     parser.add_argument("--output-suffix", default=OUTPUT_SUFFIX, help="Suffix for the default output filename")
     parser.add_argument("--overwrite", action="store_true", default=OVERWRITE_OUTPUT, help="Overwrite existing output file")
     parser.add_argument("--ffmpeg-bin", default=FFMPEG_BIN, help="ffmpeg executable path or name")
@@ -414,6 +420,7 @@ def options_from_args(args: argparse.Namespace) -> RenderOptions:
         video_preset=args.preset,
         audio_codec=args.audio_codec,
         audio_bitrate=args.audio_bitrate,
+        fps_mode=args.fps_mode,
         output_suffix=args.output_suffix,
         overwrite_output=args.overwrite,
         ffmpeg_bin=args.ffmpeg_bin,

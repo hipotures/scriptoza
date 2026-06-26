@@ -71,6 +71,7 @@ Render a moving crop from an `identity-path-v1` JSON and fit the accelerated vid
 - Crops dynamically along two or more tracked points with piecewise linear interpolation
 - Delays audio by 3 seconds and adds a 3-second tail by default; both values can be changed from CLI
 - Speeds the selected video segment so the final file duration matches the padded audio duration
+- Preserves accelerated video frames by default with `--fps-mode passthrough`
 - Uses Rich tables and progress output for render settings and FFmpeg progress
 
 ### Requirements
@@ -97,6 +98,7 @@ Useful options:
 --preset slow
 --audio-codec aac
 --audio-bitrate 192k
+--fps-mode passthrough
 --output-suffix follow_audio
 --overwrite
 --ffmpeg-bin ffmpeg

@@ -184,6 +184,8 @@ class FollowCropToAudioTests(unittest.TestCase):
                 "libopus",
                 "--audio-bitrate",
                 "160k",
+                "--fps-mode",
+                "cfr",
                 "--output-suffix",
                 "custom",
                 "--overwrite",
@@ -203,6 +205,7 @@ class FollowCropToAudioTests(unittest.TestCase):
         self.assertEqual(options.video_preset, "medium")
         self.assertEqual(options.audio_codec, "libopus")
         self.assertEqual(options.audio_bitrate, "160k")
+        self.assertEqual(options.fps_mode, "cfr")
         self.assertEqual(options.output_suffix, "custom")
         self.assertTrue(options.overwrite_output)
         self.assertEqual(options.ffmpeg_bin, "/usr/bin/ffmpeg")
@@ -260,6 +263,7 @@ class FollowCropToAudioTests(unittest.TestCase):
         self.assertEqual(command[command.index("-preset") + 1], "medium")
         self.assertEqual(command[command.index("-c:a") + 1], "libopus")
         self.assertEqual(command[command.index("-b:a") + 1], "160k")
+        self.assertEqual(command[command.index("-fps_mode") + 1], "passthrough")
 
     def test_progress_columns_include_eta(self) -> None:
         columns = build_progress_columns()
