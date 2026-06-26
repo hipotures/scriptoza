@@ -15,7 +15,16 @@ from urllib.parse import unquote, urlparse
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 
 
@@ -259,15 +268,23 @@ def probe_duration(path: Path) -> float:
     return duration
 
 
-def run_ffmpeg(command: list[str], final_duration: float) -> None:
-    total_ms = max(1, int(round(final_duration * 1000)))
-    with Progress(
+def build_progress_columns() -> tuple[object, ...]:
+    return (
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(bar_width=40),
         MofNCompleteColumn(),
         TaskProgressColumn(),
         TimeElapsedColumn(),
+        TextColumn("ETA"),
+        TimeRemainingColumn(),
+    )
+
+
+def run_ffmpeg(command: list[str], final_duration: float) -> None:
+    total_ms = max(1, int(round(final_duration * 1000)))
+    with Progress(
+        *build_progress_columns(),
         expand=False,
         console=console,
     ) as progress:

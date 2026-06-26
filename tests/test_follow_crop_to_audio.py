@@ -3,11 +3,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from rich.progress import TimeRemainingColumn
+
 from video.follow_crop_to_audio import (
     IdentityPath,
     IdentityPoint,
     build_crop_expression,
     build_filter_complex,
+    build_progress_columns,
     calculate_timing,
     load_identity_path,
     parse_resolution,
@@ -123,6 +126,11 @@ class FollowCropToAudioTests(unittest.TestCase):
         self.assertIn("adelay=3000:all=1", filter_complex)
         self.assertIn("apad=pad_dur=3.000000", filter_complex)
         self.assertIn("atrim=duration=10.000000[a]", filter_complex)
+
+    def test_progress_columns_include_eta(self) -> None:
+        columns = build_progress_columns()
+
+        self.assertTrue(any(isinstance(column, TimeRemainingColumn) for column in columns))
 
 
 if __name__ == "__main__":
