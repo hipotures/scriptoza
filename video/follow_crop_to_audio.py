@@ -78,6 +78,7 @@ class RenderTiming:
 class RenderOptions:
     audio_lead_in_seconds: float = AUDIO_LEAD_IN_SECONDS
     audio_tail_seconds: float = AUDIO_TAIL_SECONDS
+    source_start: float | None = None
     source_end: float | None = None
     video_codec: str = VIDEO_CODEC
     video_crf: int = VIDEO_CRF
@@ -187,6 +188,7 @@ def calculate_timing(
     identity: IdentityPath,
     audio_duration: float,
     *,
+    source_start: float | None = None,
     source_end: float | None = None,
     audio_lead_in_seconds: float = AUDIO_LEAD_IN_SECONDS,
     audio_tail_seconds: float = AUDIO_TAIL_SECONDS,
@@ -196,22 +198,22 @@ def calculate_timing(
     _validate_non_negative_seconds(audio_lead_in_seconds, "audio lead-in")
     _validate_non_negative_seconds(audio_tail_seconds, "audio tail")
 
-    source_start = identity.points[0].t
+    first_point_time = identity.points[0].t
     last_point_time = identity.points[-1].t
+    effective_source_start = first_point_time if source_start is None else source_start
     effective_source_end = last_point_time if source_end is None else source_end
-    if effective_source_end < last_point_time:
-        raise ValueError("source end cannot be earlier than the last identity point")
+    _validate_non_negative_seconds(effective_source_start, "source start")
 
-    source_duration = effective_source_end - source_start
+    source_duration = effective_source_end - effective_source_start
     if source_duration <= 0:
-        raise ValueError("Identity path source duration must be greater than zero")
+        raise ValueError("source end must be greater than source start")
 
     final_duration = audio_lead_in_seconds + audio_duration + audio_tail_seconds
     if final_duration <= 0:
         raise ValueError("Final duration must be greater than zero")
 
     return RenderTiming(
-        source_start=source_start,
+        source_start=effective_source_start,
         source_end=effective_source_end,
         source_duration=source_duration,
         audio_duration=audio_duration,
@@ -521,6 +523,8 @@ def render_summary(
 
     _add_summary_section(table, "Timeline")
     table.add_row("Source segment", f"{timing.source_start:.3f}s to {timing.source_end:.3f}s")
+    if options.source_start is not None:
+        table.add_row("Source start override", f"{options.source_start:.3f}s")
     if options.source_end is not None:
         table.add_row("Source end override", f"{options.source_end:.3f}s")
     table.add_row("Source duration", f"{timing.source_duration:.3f}s")
@@ -569,6 +573,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("output_file", nargs="?", type=Path, help="Output video path")
     parser.add_argument("--audio-lead-in", type=float, default=AUDIO_LEAD_IN_SECONDS, help="Seconds of silence before audio starts")
     parser.add_argument("--audio-tail", type=float, default=AUDIO_TAIL_SECONDS, help="Seconds of padding after audio ends")
+    parser.add_argument("--source-start", help="Source segment start time in seconds, MM:SS, or HH:MM:SS")
     parser.add_argument("--source-end", help="Source segment end time in seconds, MM:SS, or HH:MM:SS; holds the last point after its timestamp")
     parser.add_argument("--video-codec", default=VIDEO_CODEC, help="FFmpeg video codec")
     parser.add_argument("--crf", type=int, default=VIDEO_CRF, help="Video CRF quality value")
@@ -596,6 +601,7 @@ def options_from_args(args: argparse.Namespace) -> RenderOptions:
     return RenderOptions(
         audio_lead_in_seconds=args.audio_lead_in,
         audio_tail_seconds=args.audio_tail,
+        source_start=parse_time_value(args.source_start) if args.source_start is not None else None,
         source_end=parse_time_value(args.source_end) if args.source_end is not None else None,
         video_codec=args.video_codec,
         video_crf=args.crf,
@@ -637,6 +643,7 @@ def main(argv: list[str] | None = None) -> int:
         timing = calculate_timing(
             identity,
             probe_duration(audio_path, options.ffprobe_bin),
+            source_start=options.source_start,
             source_end=options.source_end,
             audio_lead_in_seconds=options.audio_lead_in_seconds,
             audio_tail_seconds=options.audio_tail_seconds,
@@ -775,9 +782,12 @@ def _build_center_expression(points: tuple[IdentityPoint, ...], axis: str) -> st
         end_value = getattr(end, axis)
         segment = (
             f"{_fmt(start_value)}+({_fmt(end_value)}-{_fmt(start_value)})"
-            f"*(t-{_fmt(start.t)})/{_fmt(duration)}"
+            f"*({_format_t_minus(start.t)})/{_fmt(duration)}"
         )
         expression = f"if(lte(t\\,{_fmt(end.t)})\\,{segment}\\,{expression})"
+    if points[0].t > 0:
+        first_value = getattr(points[0], axis)
+        expression = f"if(lte(t\\,{_fmt(points[0].t)})\\,{_fmt(first_value)}\\,{expression})"
     return expression
 
 
@@ -804,6 +814,12 @@ def _timestamp_to_ms(value: str) -> int | None:
 
 def _fmt(value: float) -> str:
     return f"{value:.6f}"
+
+
+def _format_t_minus(value: float) -> str:
+    if value < 0:
+        return f"t+{_fmt(abs(value))}"
+    return f"t-{_fmt(value)}"
 
 
 def _add_summary_section(table: Table, title: str) -> None:

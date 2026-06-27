@@ -127,6 +127,32 @@ class FollowCropToAudioTests(unittest.TestCase):
         self.assertIn("if(lte(t\\,10.000000)", filter_complex)
         self.assertIn("\\,1090.000000))-50.000000", filter_complex)
 
+    def test_source_start_trims_segment_and_rebases_tracking_points(self) -> None:
+        identity = IdentityPath(
+            source_path=Path("/video.mp4"),
+            source_width=7680,
+            source_height=4320,
+            points=(
+                IdentityPoint(t=10.0, x=100.0, y=200.0),
+                IdentityPoint(t=50.0, x=500.0, y=600.0),
+            ),
+        )
+
+        timing = calculate_timing(identity, audio_duration=4.0, source_start=30.0, source_end=70.0)
+        filter_complex = build_filter_complex(
+            identity=identity,
+            target_width=100,
+            target_height=50,
+            timing=timing,
+        )
+
+        self.assertAlmostEqual(timing.source_start, 30.0)
+        self.assertAlmostEqual(timing.source_end, 70.0)
+        self.assertAlmostEqual(timing.source_duration, 40.0)
+        self.assertIn("trim=start=30.000000:end=70.000000", filter_complex)
+        self.assertIn("100.000000+(500.000000-100.000000)*(t+20.000000)/40.000000", filter_complex)
+        self.assertIn("200.000000+(600.000000-200.000000)*(t+20.000000)/40.000000", filter_complex)
+
     def test_build_crop_expression_uses_piecewise_interpolation_and_clamp(self) -> None:
         points = (
             IdentityPoint(t=0.0, x=890.0, y=184.0),
@@ -236,6 +262,8 @@ class FollowCropToAudioTests(unittest.TestCase):
                 "9",
                 "--fps-mode",
                 "cfr",
+                "--source-start",
+                "0:30",
                 "--source-end",
                 "7:30",
                 "--output-suffix",
@@ -263,6 +291,7 @@ class FollowCropToAudioTests(unittest.TestCase):
         self.assertEqual(options.audio_loudness_tp, -2.0)
         self.assertEqual(options.audio_loudness_lra, 9.0)
         self.assertEqual(options.fps_mode, "cfr")
+        self.assertEqual(options.source_start, 30.0)
         self.assertEqual(options.source_end, 450.0)
         self.assertEqual(options.output_suffix, "custom")
         self.assertTrue(options.overwrite_output)
