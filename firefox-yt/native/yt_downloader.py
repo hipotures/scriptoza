@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 
-DOWNLOAD_DIR = "/home/USER/Videos/downloaded"
+CONFIG_PATH = Path(__file__).resolve().with_name("yt_downloader.conf")
 LOG_PATH = Path.home() / ".local" / "state" / "firefox-yt-downloader" / "error.log"
 
 
@@ -53,6 +53,21 @@ def send_message(message):
     sys.stdout.buffer.flush()
 
 
+def load_download_dir():
+    try:
+        lines = [line.strip() for line in CONFIG_PATH.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except OSError as error:
+        raise RuntimeError(f"Cannot read configuration file {CONFIG_PATH}: {error}") from error
+
+    if len(lines) != 1 or not lines[0].startswith("DOWNLOAD_DIR="):
+        raise RuntimeError(f"Configuration file must contain one DOWNLOAD_DIR= line: {CONFIG_PATH}")
+
+    download_dir = Path(lines[0].split("=", 1)[1].strip())
+    if not download_dir.is_absolute():
+        raise RuntimeError("DOWNLOAD_DIR in the configuration must be an absolute path")
+    return download_dir
+
+
 def start_download(message):
     if not isinstance(message, dict):
         raise ValueError("The native message must be a JSON object")
@@ -65,9 +80,7 @@ def start_download(message):
     if yt_dlp is None:
         raise RuntimeError("yt-dlp is not installed or is not on PATH")
 
-    download_path = Path(DOWNLOAD_DIR)
-    if not download_path.is_absolute():
-        raise RuntimeError("DOWNLOAD_DIR must be an absolute path")
+    download_path = load_download_dir()
     download_path.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

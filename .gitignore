@@ -48,6 +48,8 @@ tests/data/
 !firefox-yt/native/
 !firefox-yt/native/*.py
 !firefox-yt/native/*.json
+firefox-yt/native/yt_downloader.conf
+!firefox-yt/native/yt_downloader.conf.example
 
 # Allow deprecated directory and its contents
 !deprecated/

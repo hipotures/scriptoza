@@ -4,20 +4,20 @@ This project adds one Firefox toolbar button that sends the current tab URL to a
 
 ## Configure and install
 
-Edit `DOWNLOAD_DIR` in `native/yt_downloader.py` to an existing or new absolute directory, for example:
-
-```python
-DOWNLOAD_DIR = "/home/USER/Videos/downloaded"
-```
-
-Then run:
+Run the installer. It creates the ignored local configuration file `native/yt_downloader.conf` from the example if it does not already exist:
 
 ```bash
 cd /home/xai/DEV/scriptoza/firefox-yt
 ./install.sh
 ```
 
-The installer places the native messaging manifest at `~/.mozilla/native-messaging-hosts/yt_downloader.json` and makes the Python helper executable. It does not require root privileges.
+Edit `native/yt_downloader.conf` and set your existing or new absolute directory:
+
+```text
+DOWNLOAD_DIR=/home/USER/Videos/downloaded
+```
+
+The configuration file is ignored by Git and is not part of the public source commit. The installer places the native messaging manifest at `~/.mozilla/native-messaging-hosts/yt_downloader.json` and makes the Python helper executable. It does not require root privileges.
 
 In Firefox, open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on...**, and select exactly:
 
@@ -42,4 +42,4 @@ After testing, remove only the installed native manifest with:
 ./uninstall.sh
 ```
 
-Downloaded videos and this source directory are not removed.
+Downloaded videos, the source directory, and the ignored configuration file are not removed.
