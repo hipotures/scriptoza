@@ -1,4 +1,4 @@
-# Firefox yt-dlp Downloader
+# Save This Media
 
 This project adds one Firefox toolbar button that sends the current tab URL to a local Python native messaging host. The host starts `yt-dlp` asynchronously and writes downloads to the configured directory with a local timestamp filename such as `2026-08-14_10-47-32.mp4`.
 

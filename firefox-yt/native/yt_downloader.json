@@ -1,6 +1,6 @@
 {
   "name": "yt_downloader",
-  "description": "Starts yt-dlp for Firefox yt-dlp Downloader",
+  "description": "Starts the local media downloader",
   "path": "__YT_DOWNLOADER_PATH__",
   "type": "stdio",
   "allowed_extensions": [
