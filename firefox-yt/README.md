@@ -47,6 +47,20 @@ Set one line with an absolute path:
 DOWNLOAD_DIR=/home/YOUR_USER/Videos/downloaded
 ```
 
+Optional `yt-dlp` arguments can be added as a second configuration line. For an Instagram story that requires the logged-in Firefox session, use:
+
+```text
+YTDLP_ARGS=--cookies-from-browser firefox
+```
+
+To download only the current item instead of an Instagram story playlist, use:
+
+```text
+YTDLP_ARGS=--cookies-from-browser firefox --no-playlist
+```
+
+The arguments are parsed into separate subprocess arguments; no shell is used.
+
 The directory is created automatically. This file is outside the project and is not committed to Git.
 
 ## 3. Create the extension package
