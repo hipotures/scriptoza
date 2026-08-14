@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Save This Media",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Save media from the current tab locally.",
   "browser_action": {
     "default_title": "Save This Media",
