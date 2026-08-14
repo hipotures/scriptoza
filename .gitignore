@@ -46,6 +46,8 @@ tests/data/
 !firefox-yt/extension/
 !firefox-yt/extension/*.js
 !firefox-yt/extension/*.json
+!firefox-yt/extension/icons/
+!firefox-yt/extension/icons/*.svg
 !firefox-yt/native/
 !firefox-yt/native/*.py
 !firefox-yt/native/*.json

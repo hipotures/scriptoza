@@ -4,7 +4,16 @@
   "version": "1.0",
   "description": "Save media from the current tab locally.",
   "browser_action": {
-    "default_title": "Download video"
+    "default_title": "Save This Media",
+    "default_icon": {
+      "16": "icons/save-this-media.svg",
+      "32": "icons/save-this-media.svg",
+      "64": "icons/save-this-media.svg"
+    }
+  },
+  "icons": {
+    "48": "icons/save-this-media.svg",
+    "96": "icons/save-this-media.svg"
   },
   "background": {
     "scripts": ["background.js"]

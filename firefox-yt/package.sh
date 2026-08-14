@@ -14,5 +14,5 @@ if ! command -v zip >/dev/null 2>&1; then
     exit 1
 fi
 
-(cd "$SCRIPT_DIR/extension" && zip -q -j "$OUTPUT_PATH" manifest.json background.js)
+(cd "$SCRIPT_DIR/extension" && zip -q -r "$OUTPUT_PATH" manifest.json background.js icons)
 printf '%s\n' "Created extension package: $OUTPUT_PATH"
