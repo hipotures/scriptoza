@@ -18,7 +18,7 @@ CONFIG_PATH="$CONFIG_DIR/config"
 chmod +x "$HOST_PATH"
 mkdir -p "$CONFIG_DIR"
 if [ ! -e "$CONFIG_PATH" ]; then
-    printf '%s\n' 'DOWNLOAD_DIR=/home/USER/Videos/downloaded' > "$CONFIG_PATH"
+    printf '%s\n' 'DOWNLOAD_DIR=/home/USER/Videos/downloaded' 'YTDLP_ARGS=-o "{OUTPUT_TEMPLATE}"' > "$CONFIG_PATH"
 fi
 mkdir -p "$HOST_DIR"
 ESCAPED_HOST_PATH="$(printf '%s' "$HOST_PATH" | sed 's/[&|]/\\&/g')"

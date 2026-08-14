@@ -41,25 +41,26 @@ Open the configuration:
 nano ~/.config/firefox-yt-downloader/config
 ```
 
-Set one line with an absolute path:
+Set the download directory and the complete `yt-dlp` argument list:
 
 ```text
 DOWNLOAD_DIR=/home/YOUR_USER/Videos/downloaded
+YTDLP_ARGS=-o "{OUTPUT_TEMPLATE}"
 ```
 
-Optional `yt-dlp` arguments can be added as a second configuration line. For an Instagram story that requires the logged-in Firefox session, use:
+For an Instagram story that requires the logged-in Firefox session, add `--cookies-from-browser firefox` before the required output argument:
 
 ```text
-YTDLP_ARGS=--cookies-from-browser firefox
+YTDLP_ARGS=--cookies-from-browser firefox -o "{OUTPUT_TEMPLATE}"
 ```
 
 To download only the current item instead of an Instagram story playlist, use:
 
 ```text
-YTDLP_ARGS=--cookies-from-browser firefox --no-playlist
+YTDLP_ARGS=--cookies-from-browser firefox --no-playlist -o "{OUTPUT_TEMPLATE}"
 ```
 
-The arguments are parsed into separate subprocess arguments; no shell is used.
+`{OUTPUT_TEMPLATE}` is replaced by `YYYY-MM-DD_HH-MM-SS.%(ext)s` in the configured directory. All arguments are parsed into separate subprocess arguments; no shell is used.
 
 The directory is created automatically. This file is outside the project and is not committed to Git.
 
@@ -144,6 +145,14 @@ Native helper errors are written to:
 ```text
 ~/.local/state/firefox-yt-downloader/error.log
 ```
+
+Each started download is also recorded as one JSON line in:
+
+```text
+~/.local/state/firefox-yt-downloader/history.log
+```
+
+Each line contains the local timestamp, source URL, configured `yt-dlp` arguments, and the output filename without its directory. The filename is shown as `YYYY-MM-DD_HH-MM-SS.%(ext)s` because `yt-dlp` selects the final extension asynchronously.
 
 Syntax checks:
 

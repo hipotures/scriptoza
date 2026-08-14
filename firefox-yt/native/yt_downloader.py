@@ -12,6 +12,7 @@ import sys
 
 CONFIG_PATH = Path.home() / ".config" / "firefox-yt-downloader" / "config"
 LOG_PATH = Path.home() / ".local" / "state" / "firefox-yt-downloader" / "error.log"
+HISTORY_PATH = Path.home() / ".local" / "state" / "firefox-yt-downloader" / "history.log"
 
 
 def log_error(message):
@@ -22,6 +23,21 @@ def log_error(message):
             log_file.write(f"{timestamp} {message}\n")
     except OSError:
         pass
+
+
+def log_history(url, arguments, output_template):
+    record = {
+        "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+        "url": url,
+        "arguments": arguments,
+        "filename": Path(output_template).name,
+    }
+    try:
+        HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with HISTORY_PATH.open("a", encoding="utf-8") as history_file:
+            history_file.write(json.dumps(record, separators=(",", ":")) + "\n")
+    except OSError as error:
+        log_error(f"Cannot write history log: {error}")
 
 
 def read_exact(size):
@@ -67,15 +83,15 @@ def load_config():
             raise RuntimeError(f"Configuration file contains an invalid line: {CONFIG_PATH}")
         config[key] = value.strip()
 
-    if "DOWNLOAD_DIR" not in config:
-        raise RuntimeError(f"Configuration file must contain a DOWNLOAD_DIR= line: {CONFIG_PATH}")
+    if "DOWNLOAD_DIR" not in config or "YTDLP_ARGS" not in config:
+        raise RuntimeError(f"Configuration file must contain DOWNLOAD_DIR= and YTDLP_ARGS= lines: {CONFIG_PATH}")
 
     download_dir = Path(config["DOWNLOAD_DIR"])
     if not download_dir.is_absolute():
         raise RuntimeError("DOWNLOAD_DIR in the configuration must be an absolute path")
 
     try:
-        yt_dlp_args = shlex.split(config.get("YTDLP_ARGS", ""))
+        yt_dlp_args = shlex.split(config["YTDLP_ARGS"])
     except ValueError as error:
         raise RuntimeError(f"YTDLP_ARGS has invalid quoting: {CONFIG_PATH}") from error
     return download_dir, yt_dlp_args
@@ -98,14 +114,23 @@ def start_download(message):
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     output_template = str(download_path / f"{timestamp}.%(ext)s")
+    try:
+        output_index = yt_dlp_args.index("-o")
+        if yt_dlp_args[output_index + 1] != "{OUTPUT_TEMPLATE}":
+            raise ValueError
+    except (ValueError, IndexError) as error:
+        raise RuntimeError("YTDLP_ARGS must contain -o {OUTPUT_TEMPLATE}") from error
+    configured_args = list(yt_dlp_args)
+    yt_dlp_args[output_index + 1] = output_template
     subprocess.Popen(
-        [yt_dlp, *yt_dlp_args, url, "-o", output_template],
+        [yt_dlp, url, *yt_dlp_args],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         close_fds=True,
         start_new_session=True,
     )
+    log_history(url, configured_args, output_template)
     return {"status": "started", "output": output_template}
 
 
