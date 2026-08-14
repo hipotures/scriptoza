@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 
-CONFIG_PATH = Path(__file__).resolve().with_name("yt_downloader.conf")
+CONFIG_PATH = Path.home() / ".config" / "firefox-yt-downloader" / "config"
 LOG_PATH = Path.home() / ".local" / "state" / "firefox-yt-downloader" / "error.log"
 
 

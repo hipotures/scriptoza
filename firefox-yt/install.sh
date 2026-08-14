@@ -5,8 +5,6 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 HOST_PATH="$SCRIPT_DIR/native/yt_downloader.py"
 TEMPLATE_PATH="$SCRIPT_DIR/native/yt_downloader.json"
-CONFIG_PATH="$SCRIPT_DIR/native/yt_downloader.conf"
-CONFIG_TEMPLATE_PATH="$SCRIPT_DIR/native/yt_downloader.conf.example"
 HOME_DIR="$(getent passwd "$(id -u)" | awk -F: '{print $6}')"
 if [ -z "$HOME_DIR" ]; then
     HOME_DIR="${HOME:?Unable to determine the current user home directory}"
@@ -14,10 +12,13 @@ fi
 
 HOST_DIR="$HOME_DIR/.mozilla/native-messaging-hosts"
 HOST_MANIFEST="$HOST_DIR/yt_downloader.json"
+CONFIG_DIR="$HOME_DIR/.config/firefox-yt-downloader"
+CONFIG_PATH="$CONFIG_DIR/config"
 
 chmod +x "$HOST_PATH"
+mkdir -p "$CONFIG_DIR"
 if [ ! -e "$CONFIG_PATH" ]; then
-    cp "$CONFIG_TEMPLATE_PATH" "$CONFIG_PATH"
+    printf '%s\n' 'DOWNLOAD_DIR=/home/USER/Videos/downloaded' > "$CONFIG_PATH"
 fi
 mkdir -p "$HOST_DIR"
 ESCAPED_HOST_PATH="$(printf '%s' "$HOST_PATH" | sed 's/[&|]/\\&/g')"
