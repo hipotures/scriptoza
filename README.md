@@ -35,6 +35,10 @@ Collection of small utility scripts organized by category. Each category has its
 - `install.py` - Installs selected utility scripts into a local bin directory
 - `migrate.py` - Small migration helper for local data transformations
 
+### Firefox (firefox-yt/)
+
+- `firefox-yt` - Minimal Firefox toolbar extension and native `yt-dlp` downloader
+
 ### Deprecated (deprecated/)
 
 - `video/rename_video.py` - Deprecated legacy video renamer kept for reference and excluded from installation

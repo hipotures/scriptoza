@@ -1,0 +1,9 @@
+{
+  "name": "yt_downloader",
+  "description": "Starts yt-dlp for Firefox yt-dlp Downloader",
+  "path": "__YT_DOWNLOADER_PATH__",
+  "type": "stdio",
+  "allowed_extensions": [
+    "firefox-yt-downloader@example.com"
+  ]
+}
