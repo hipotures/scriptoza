@@ -42,12 +42,14 @@ tests/data/
 !firefox-yt/README.md
 !firefox-yt/install.sh
 !firefox-yt/uninstall.sh
+!firefox-yt/package.sh
 !firefox-yt/extension/
 !firefox-yt/extension/*.js
 !firefox-yt/extension/*.json
 !firefox-yt/native/
 !firefox-yt/native/*.py
 !firefox-yt/native/*.json
+firefox-yt/*.xpi
 # Allow deprecated directory and its contents
 !deprecated/
 !deprecated/README.md

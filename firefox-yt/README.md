@@ -27,6 +27,23 @@ In Firefox, open `about:debugging#/runtime/this-firefox`, click **Load Temporary
 
 The extension has no popup or settings page. Click its single toolbar button on a tab whose URL starts with `http://` or `https://` to start the download immediately.
 
+## Permanent installation
+
+The `about:debugging` method is only for development. It is not a permanent installation and the extension is unavailable after Firefox restarts.
+
+Create an XPI package:
+
+```bash
+./package.sh /tmp/firefox-yt.xpi
+```
+
+For the normal Firefox Release, upload `/tmp/firefox-yt.xpi` to Mozilla Add-ons as an unlisted extension, download the signed XPI, then open `about:addons`, click the gear button, choose **Install Add-on From File...**, and select the signed XPI. Release Firefox requires Mozilla signing for permanent extensions.
+
+For Firefox Developer Edition, Nightly, or ESR, you can install the unsigned package permanently for personal use:
+
+1. Open `about:config` and set `xpinstall.signatures.required` to `false`.
+2. Open `about:addons`, click the gear button, choose **Install Add-on From File...**, and select `/tmp/firefox-yt.xpi`.
+
 `yt-dlp` must be installed as an executable named `yt-dlp` on Firefox's `PATH`. Native helper errors are appended to `~/.local/state/firefox-yt-downloader/error.log`; normal downloads produce no helper output.
 
 ## Verify the files
