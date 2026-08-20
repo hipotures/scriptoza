@@ -16,6 +16,7 @@ Collection of small utility scripts organized by category. Each category has its
 - `find_vbc.py` - Lists videos with or without VBC metadata tags
 - `review_large_mp4.py` - Interactively reviews and cleans up N largest MP4 files
 - `follow_crop_to_audio.py` - Renders a dynamic crop from identity-path points and fits video speed to an external audio file
+- `video_rotation_detector.py` - Detects the rotation needed to display videos upright using an Ollama vision model
 
 ### Photo (photo/)
 

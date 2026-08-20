@@ -29,6 +29,7 @@ def main():
         ("video/follow_crop_to_audio.py", "follow-crop-to-audio"),
         ("video/sort_dji.py", "sort-dji"),
         ("video/sort_video_dated.py", "sort-video-dated"),
+        ("video/video_rotation_detector.py", "video-rotation-detector"),
         ("photo/rename_photo.py", "rename-photo"),
         ("photo/convert_hif_to_jpg.py", "convert-hif-to-jpg"),
         ("utils/organize_by_date.py", "organize-by-date"),

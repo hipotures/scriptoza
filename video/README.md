@@ -1,5 +1,35 @@
 # Video Tools
 
+## video_rotation_detector.py
+
+Detect the clockwise rotation required to display videos upright by sending
+sampled frames to a configured Ollama vision model.
+
+### Features
+
+- Scans supported video files in the current directory
+- Samples five frames from each video with OpenCV orientation correction disabled
+- Requires at least two matching valid model responses
+- Writes the result to a matching `.rot` sidecar as `--video-rotate=VALUE`
+- Skips videos that already have a `.rot` sidecar
+- Writes execution details to `/tmp/video_rotation_detector.log`
+- Exits with a clear error without creating a sidecar when the Ollama server is unavailable
+
+### Requirements
+
+- Python 3.9+
+- `opencv-python`, `requests`, and `rich` Python packages
+- An Ollama vision server exposing the configured OpenAI-compatible chat completions endpoint
+
+### Usage
+
+```bash
+cd /path/to/videos
+video-rotation-detector
+```
+
+---
+
 ## rename_video_univ.py
 
 Universal and robust video file renaming tool with deep EXIF tag fallback. Designed to handle various camera models and edge cases (like missing FPS or zeroed dates).
