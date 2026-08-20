@@ -1,4 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "opencv-python>=4.8",
+#     "requests>=2.31",
+#     "rich>=13",
+# ]
+# ///
 
 import base64
 import os

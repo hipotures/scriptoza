@@ -17,9 +17,12 @@ sampled frames to a configured Ollama vision model.
 
 ### Requirements
 
-- Python 3.9+
-- `opencv-python`, `requests`, and `rich` Python packages
+- `uv`
 - An Ollama vision server exposing the configured OpenAI-compatible chat completions endpoint
+
+The script declares `opencv-python`, `requests`, and `rich` as inline
+dependencies. `uv` creates an isolated environment automatically and may
+download missing packages on the first run.
 
 ### Usage
 
