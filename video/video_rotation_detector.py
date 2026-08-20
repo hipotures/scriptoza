@@ -11,7 +11,6 @@
 import base64
 import os
 import re
-import sys
 from collections import Counter
 from datetime import datetime
 
@@ -85,14 +84,14 @@ class OllamaConnectionError(RuntimeError):
 
 
 def log(message=""):
-    print(message, file=sys.stderr)
+    CONSOLE.print(message, markup=False)
     if LOG_HANDLE is not None:
         print(message, file=LOG_HANDLE)
         LOG_HANDLE.flush()
 
 
 def log_rule(title, style="cyan"):
-    CONSOLE.rule(title, style=style)
+    CONSOLE.rule(title, style=style, align="left")
     if LOG_HANDLE is not None:
         print(title, file=LOG_HANDLE)
         LOG_HANDLE.flush()
@@ -334,6 +333,7 @@ def main():
             MofNCompleteColumn(),
             TaskProgressColumn(),
             TimeElapsedColumn(),
+            console=CONSOLE,
             expand=False,
         ) as progress:
             task = progress.add_task(
