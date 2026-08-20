@@ -17,6 +17,7 @@ from datetime import datetime
 
 import cv2
 import requests
+from rich.console import Console
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -76,6 +77,7 @@ Output exactly one number.
 """
 
 LOG_HANDLE = None
+CONSOLE = Console(stderr=True)
 
 
 class OllamaConnectionError(RuntimeError):
@@ -86,6 +88,13 @@ def log(message=""):
     print(message, file=sys.stderr)
     if LOG_HANDLE is not None:
         print(message, file=LOG_HANDLE)
+        LOG_HANDLE.flush()
+
+
+def log_rule(title, style="cyan"):
+    CONSOLE.rule(title, style=style)
+    if LOG_HANDLE is not None:
+        print(title, file=LOG_HANDLE)
         LOG_HANDLE.flush()
 
 
@@ -293,7 +302,7 @@ def main():
 
     try:
         log("")
-        log("=" * 78)
+        log_rule("video-rotation-detector")
         log(
             "video-rotation-detector started: "
             f"{datetime.now().isoformat(timespec='seconds')}"
@@ -302,7 +311,7 @@ def main():
         log(f"server: {BASE_URL}")
         log(f"image width sent to AI: {IMAGE_WIDTH}")
         log(f"log: {LOG_FILE}")
-        log("=" * 78)
+        log("")
 
         files = sorted(
             filename
@@ -335,7 +344,7 @@ def main():
             for filename in files:
                 sidecar_path = rotation_path(filename)
                 log("")
-                log(f"=== {filename} ===")
+                log_rule(filename, style="blue")
 
                 if os.path.exists(sidecar_path):
                     try:
