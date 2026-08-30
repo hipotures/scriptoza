@@ -108,7 +108,7 @@ Unsigned extensions cannot be installed permanently in normal Firefox Release.
 4. Select the downloaded signed `.xpi` file.
 5. Accept the installation.
 
-The extension should appear as `Save This Media`. Pin its one toolbar button and click it on a tab whose URL starts with `http://` or `https://`. The toolbar badge shows blue `…` while contacting the native helper, green `OK` when `yt-dlp` starts, or a red `!` when the request fails. The badge clears after three seconds. Green `OK` confirms that the download process started, not that it finished.
+The extension should appear as `Save This Media`. Pin its one toolbar button and click it on a tab whose URL starts with `http://` or `https://`. The toolbar icon turns green when `yt-dlp` starts or red when the request fails, then returns to its normal color after three seconds. Green confirms that the download process started, not that it finished.
 
 ## 6. Temporary development test (optional)
 
