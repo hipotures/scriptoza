@@ -1,47 +1,34 @@
-## Repository Overview
+# Repository Guidelines
 
-Scriptoza is a collection of standalone utility scripts organized by category:
+## Project Structure & Module Organization
 
-- `video/` - Video utilities
-- `photo/` - Photo utilities
-- `utils/` - General utilities
+Scriptoza is a collection of standalone utilities grouped by purpose. Put video tools in `video/`, photo tools in `photo/`, and general-purpose scripts in `utils/`. Each category has its own `README.md`; update it when behavior or requirements change. `firefox-yt/` contains the Firefox extension, native helper, and packaging scripts. Older utilities live in `deprecated/`. Automated checks are in `tests/`, with test modules named `test_*.py`.
 
-Each category has its own `README.md` with requirements and usage. VBC is maintained separately at https://github.com/hipotures/vbc.
+The root `.gitignore` ignores files by default and allow-lists supported paths and extensions. When adding a new directory or file type, add an explicit allow rule.
 
-## Conventions
+## Build, Test, and Development Commands
 
-- Keep scripts self-contained and easy to run.
-- **Language:** All code, comments, and user interface text (messages, help, logs) must be exclusively in English.
-- **DO NOT add comments** to the code unless explicitly requested by the user.
-- Avoid cross-category dependencies unless there is a clear shared need.
-- Update the category `README.md` when you add or change scripts.
-- Update the root `README.md` with a one-line description of new scripts.
-- This repo uses an ignore-by-default `.gitignore`; update it if you add new directories or file types.
-
-## Running Scripts
-
-Use standard tools unless a category README says otherwise:
+There is no repository-wide build step. Run scripts directly from the repository root, for example:
 
 ```bash
-python3 video/rename_video.py /path/to/test/video.mp4
-python3 photo/rename_photo.py /path/to/test/photo.jpg
-python3 utils/safe_rename_tt.py /path/to/tiktok/downloads/
-./utils/session_stats.sh
+python3 video/check_collisions.py /path/to/videos
+python3 photo/rename_photo.py /path/to/photo.jpg
+python3 utils/install.py
+python3 -m unittest discover -s tests -v
 ```
 
-## UI/UX & Progress Bars
+The installer copies selected utilities to `~/.local/bin` and configuration to `~/.config/scriptoza`. For the Firefox integration, run `firefox-yt/install.sh`; create an extension archive with `firefox-yt/package.sh /tmp/firefox-yt.xpi`.
 
-- **Use `rich.progress`** for any script processing more than one file.
-- **Layout:** Use a left-justified, non-expanding layout (`expand=False`).
-- **Standard Columns:** 
-    - `SpinnerColumn()`
-    - `TextColumn("[progress.description]{task.description}")`
-    - `BarColumn(bar_width=40)`
-    - `MofNCompleteColumn()`
-    - `TaskProgressColumn()`
-    - `TimeElapsedColumn()`
-- **Alignment:** Ensure task descriptions have a consistent width (e.g., using `.ljust(25)`) to prevent the progress bar from shifting horizontally.
+## Coding Style & Naming Conventions
 
-## Testing
+Keep scripts self-contained and avoid cross-category dependencies. Use four-space indentation in Python, `snake_case` for functions and variables, `UPPER_CASE` for constants, and `Path` for filesystem work. Prefer `argparse`, type hints, and standard-library features already used in the repository. JavaScript follows `camelCase`, semicolons, and strict mode. Keep code, help text, logs, and comments in English. Do not add comments unless they clarify genuinely non-obvious behavior.
 
-Manual testing only. Run scripts with sample inputs and verify outputs. If you add automated tests later, document how to run them.
+For multi-file operations, use `rich.progress` with the repository's compact, non-expanding layout and consistently padded task descriptions.
+
+## Testing Guidelines
+
+Tests use the standard-library `unittest` framework. Add focused `TestCase` classes and `test_*` methods under `tests/`. Run the full suite before committing. There is no configured coverage threshold, formatter, or linter; manually exercise changed CLIs with representative inputs and safe options such as `--dry-run` where available.
+
+## Commit & Pull Request Guidelines
+
+Use concise, imperative, sentence-case commit subjects, such as `Add video rotation detector`. Keep each commit scoped to one change. Pull requests should explain the problem and solution, list verification commands, link relevant issues, and include terminal output or screenshots when user-visible behavior changes.
