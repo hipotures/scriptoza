@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import os
 from pathlib import Path
 import shlex
 import shutil
@@ -13,6 +14,7 @@ import sys
 CONFIG_PATH = Path.home() / ".config" / "firefox-yt-downloader" / "config"
 LOG_PATH = Path.home() / ".local" / "state" / "firefox-yt-downloader" / "error.log"
 HISTORY_PATH = Path.home() / ".local" / "state" / "firefox-yt-downloader" / "history.log"
+YTDLP_LOG_PATH = Path.home() / ".local" / "state" / "firefox-yt-downloader" / "yt-dlp.log"
 
 
 def log_error(message):
@@ -97,6 +99,33 @@ def load_config():
     return download_dir, yt_dlp_args
 
 
+def run_download_worker(yt_dlp, url, yt_dlp_args):
+    command = [yt_dlp, url, *yt_dlp_args]
+    try:
+        YTDLP_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with YTDLP_LOG_PATH.open("a", encoding="utf-8", buffering=1) as log_file:
+            timestamp = datetime.datetime.now().isoformat(timespec="seconds")
+            log_file.write(f"\n=== {timestamp} START ===\n")
+            log_file.write(f"command={shlex.join(command)}\n")
+            log_file.write(f"HOME={os.environ.get('HOME', '')}\n")
+            log_file.write(f"PATH={os.environ.get('PATH', '')}\n")
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                close_fds=True,
+            )
+            log_file.write(f"pid={process.pid}\n")
+            exit_code = process.wait()
+            timestamp = datetime.datetime.now().isoformat(timespec="seconds")
+            log_file.write(f"=== {timestamp} EXIT code={exit_code} ===\n")
+            return exit_code
+    except Exception as error:
+        log_error(f"yt-dlp worker failed: {error}")
+        return 1
+
+
 def start_download(message):
     if not isinstance(message, dict):
         raise ValueError("The native message must be a JSON object")
@@ -122,8 +151,9 @@ def start_download(message):
         raise RuntimeError("YTDLP_ARGS must contain -o {OUTPUT_TEMPLATE}") from error
     configured_args = list(yt_dlp_args)
     yt_dlp_args[output_index + 1] = output_template
-    subprocess.Popen(
-        [yt_dlp, url, *yt_dlp_args],
+
+    worker = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "--worker", yt_dlp, url, *yt_dlp_args],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -131,7 +161,7 @@ def start_download(message):
         start_new_session=True,
     )
     log_history(url, configured_args, output_template)
-    return {"status": "started", "output": output_template}
+    return {"status": "started", "output": output_template, "worker_pid": worker.pid}
 
 
 def main():
@@ -152,5 +182,15 @@ def main():
             return
 
 
+def worker_main(arguments):
+    if len(arguments) < 2:
+        log_error("yt-dlp worker received invalid arguments")
+        return 1
+    yt_dlp, url, *yt_dlp_args = arguments
+    return run_download_worker(yt_dlp, url, yt_dlp_args)
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--worker":
+        sys.exit(worker_main(sys.argv[2:]))
     main()
