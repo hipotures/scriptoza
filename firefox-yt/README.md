@@ -154,6 +154,14 @@ Each started download is also recorded as one JSON line in:
 
 Each line contains the local timestamp, source URL, configured `yt-dlp` arguments, and the output filename without its directory. The filename is shown as `YYYY-MM-DD_HH-MM-SS.%(ext)s` because `yt-dlp` selects the final extension asynchronously.
 
+The complete output of each detached `yt-dlp` process is appended to:
+
+```text
+~/.local/state/firefox-yt-downloader/yt-dlp.log
+```
+
+Each run is delimited by `START` and `EXIT` records. The log also records the exact command, `HOME`, `PATH`, the spawned `yt-dlp` PID, and its final exit code. This makes failures that occur after the native host has already returned a successful start response visible instead of discarding them.
+
 Syntax checks:
 
 ```bash
