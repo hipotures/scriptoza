@@ -52,5 +52,10 @@ capacity error for the configured message, case-insensitively. Run one monitor
 per pane. A failed input submission stops the monitor because delivery is
 uncertain.
 
-Logs include timestamps, pane labels and IDs, workspace IDs, detected text positions,
-and actions taken.
+Logs use short local times and human-readable `WORKSPACE:TAB:PANEL` descriptions,
+followed by detected text positions and actions taken. For example:
+
+```text
+14:25:43 Watching V-GPU:kontynuuj-2:codex-gpu
+14:25:43 Detected capacity error in V-GPU:kontynuuj-2:codex-gpu; text positions (row:column): 12:3
+```

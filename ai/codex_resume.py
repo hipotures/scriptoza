@@ -30,6 +30,9 @@ EXTRA_THOUGHT_MENU_PATTERNS = tuple(
     )
     for line in EXTRA_THOUGHT_MENU_LINES
 )
+UNNAMED_PANE = "Unnamed pane"
+UNNAMED_TAB = "Unnamed tab"
+UNNAMED_WORKSPACE = "Unnamed workspace"
 
 
 class HerdrError(RuntimeError):
@@ -37,7 +40,7 @@ class HerdrError(RuntimeError):
 
 
 def log(message):
-    print(f"{datetime.now().astimezone().isoformat(timespec='seconds')} {message}", flush=True)
+    print(f"{datetime.now().astimezone().strftime('%H:%M:%S')} {message}", flush=True)
 
 
 def herdr(*args):
@@ -87,12 +90,54 @@ def discover_targets(pane_targets, tab_targets):
     codex_ids = {
         agent["pane_id"] for agent in inventory("agent") if agent.get("agent") == "codex"
     }
+    tabs = inventory("tab")
     selected = {pane["pane_id"]: pane for pane in panes if pane["pane_id"] in codex_ids}
     if pane_targets:
         selected.update(resolve_targets("pane", pane_targets, [], panes))
     if tab_targets:
-        selected.update(resolve_targets("tab", tab_targets, inventory("tab"), panes))
-    return selected
+        selected.update(resolve_targets("tab", tab_targets, tabs, panes))
+    workspace_names = {
+        workspace.get("workspace_id"): workspace.get("label") or UNNAMED_WORKSPACE
+        for workspace in inventory("workspace")
+    }
+    tab_names = {
+        tab.get("tab_id"): _display_text(tab.get("label"))
+        or _display_text(tab.get("number"))
+        or UNNAMED_TAB
+        for tab in tabs
+    }
+    return {
+        pane_id: {
+            **pane,
+            "workspace_name": workspace_names.get(
+                pane.get("workspace_id"), UNNAMED_WORKSPACE
+            ),
+            "tab_name": tab_names.get(pane.get("tab_id"), UNNAMED_TAB),
+        }
+        for pane_id, pane in selected.items()
+    }
+
+
+def _display_text(value):
+    """Collapse whitespace so terminal metadata cannot create multiline logs."""
+    return " ".join(str(value).split()) if value is not None else ""
+
+
+def _pane_name(pane):
+    label = _display_text(pane.get("label"))
+    if label:
+        return label
+    pane_id = _display_text(pane.get("pane_id"))
+    if pane_id:
+        return pane_id.rsplit(":", 1)[-1]
+    return UNNAMED_PANE
+
+
+def describe_pane(pane):
+    """Return a compact workspace, tab, and pane description."""
+    workspace = _display_text(pane.get("workspace_name")) or UNNAMED_WORKSPACE
+    tab = _display_text(pane.get("tab_name")) or UNNAMED_TAB
+    return f"{workspace}:{tab}:{_pane_name(pane)}"
 
 
 class Monitor:
@@ -107,25 +152,30 @@ class Monitor:
         )
         self.errors = {}
         self.dismissed_menus = set()
-        self.pane_ids = set()
+        self.pane_descriptions = {}
 
     def poll(self, selected):
         current = set(selected)
-        for pane_id in sorted(current - self.pane_ids):
-            pane = selected[pane_id]
-            log(f"Watching {pane.get('label', pane_id)!r} ({pane_id}, workspace {pane['workspace_id']})")
-        for pane_id in sorted(self.pane_ids - current):
-            log(f"Stopped watching {pane_id}")
+        current_descriptions = {
+            pane_id: describe_pane(pane) for pane_id, pane in selected.items()
+        }
+        previous = set(self.pane_descriptions)
+        for pane_id in sorted(current - previous):
+            description = current_descriptions[pane_id]
+            log(f"Watching {description}")
+        for pane_id in sorted(previous - current):
+            description = self.pane_descriptions.pop(pane_id)
+            log(f"Stopped watching {description}")
             self.errors.pop(pane_id, None)
             self.dismissed_menus.discard(pane_id)
-        self.pane_ids = current
+        self.pane_descriptions.update(current_descriptions)
         for pane_id in selected:
-            pane = selected[pane_id]
-            target = f"{pane.get('label', pane_id)!r} ({pane_id}, workspace {pane['workspace_id']})"
+            target = current_descriptions[pane_id]
             try:
                 visible = herdr("pane", "read", pane_id, "--source", "visible", "--format", "text")
             except HerdrError as exc:
-                log(f"Read failed; keeping detection state: {exc}")
+                detail = str(exc).replace(pane_id, target)
+                log(f"Read failed for {target}; keeping detection state: {detail}")
                 continue
             if all(pattern.search(visible) for pattern in EXTRA_THOUGHT_MENU_PATTERNS):
                 if pane_id not in self.dismissed_menus:
@@ -133,12 +183,12 @@ class Monitor:
                     # A timeout can still mean input was delivered; do not retry blindly.
                     self.dismissed_menus.add(pane_id)
                     if self.dry_run:
-                        log(f"DRY RUN {pane_id}: would press 2 (Dismiss and keep waiting)")
+                        log(f"DRY RUN {target}: would press 2 (Dismiss and keep waiting)")
                     else:
                         herdr("pane", "send-keys", pane_id, "2")
                         log(f"Sent key 2 signal to {target}: Dismiss and keep waiting")
                 elif self.dry_run:
-                    log(f"DRY RUN {pane_id}: already handled extra-thought menu")
+                    log(f"DRY RUN {target}: already handled extra-thought menu")
                 continue
             self.dismissed_menus.discard(pane_id)
             # Match Codex's error row, excluding drafts and echoed user prompts.
@@ -177,7 +227,7 @@ class Monitor:
                     positions.append(f"{row}:{column}")
                 log(f"Detected capacity error in {target}; text positions (row:column): {', '.join(positions)}")
                 if self.dry_run:
-                    log(f"DRY RUN {pane_id}: would submit {self.message!r} + Enter")
+                    log(f"DRY RUN {target}: would submit {self.message!r} + Enter")
                 else:
                     # One ordered submission, with Herdr handling bracketed paste.
                     # If this fails, exit: a timeout may still mean input was delivered.
@@ -188,7 +238,7 @@ class Monitor:
                     status = "continuation below latest error; no input sent"
                 else:
                     status = "already handled visible error" if count else "no visible capacity error"
-                log(f"DRY RUN {pane_id}: {status}")
+                log(f"DRY RUN {target}: {status}")
 
 
 def positive_seconds(value):

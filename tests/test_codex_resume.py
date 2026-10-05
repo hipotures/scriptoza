@@ -13,12 +13,39 @@ from unittest.mock import patch
 from ai import codex_resume as monitor_module
 
 
-def make_tab(tab_id: str, label: str) -> dict[str, str]:
-    return {"tab_id": tab_id, "label": label}
+def make_tab(
+    tab_id: str,
+    label: str,
+    number: int = 1,
+    workspace_id: str = "workspace-1",
+) -> dict:
+    return {
+        "tab_id": tab_id,
+        "workspace_id": workspace_id,
+        "label": label,
+        "number": number,
+    }
 
 
-def make_pane(pane_id: str, tab_id: str = "tab-1", label: str = "resume") -> dict[str, str]:
-    return {"pane_id": pane_id, "tab_id": tab_id, "label": label, "workspace_id": "workspace-1"}
+def make_pane(
+    pane_id: str,
+    tab_id: str = "tab-1",
+    label: str = "resume",
+    workspace_id: str = "workspace-1",
+    **metadata: str,
+) -> dict[str, str]:
+    pane = {
+        "pane_id": pane_id,
+        "tab_id": tab_id,
+        "label": label,
+        "workspace_id": workspace_id,
+    }
+    pane.update(metadata)
+    return pane
+
+
+def make_workspace(workspace_id: str = "workspace-1", label: str = "Workspace") -> dict:
+    return {"workspace_id": workspace_id, "label": label, "number": 1}
 
 
 def read_call(pane_id: str) -> tuple[str, ...]:
@@ -149,17 +176,26 @@ class DiscoveryTests(unittest.TestCase):
             {"pane_id": "pane-ssh", "agent": "ssh"},
             {"pane_id": "pane-gone", "agent": "codex"},
         ]
+        tabs = [make_tab("tab-1", "first")]
+        workspaces = [make_workspace()]
         inventory_calls: list[str] = []
 
         def fake_inventory(kind: str) -> list[dict[str, str]]:
             inventory_calls.append(kind)
-            return panes if kind == "pane" else agents
+            return {
+                "pane": panes,
+                "agent": agents,
+                "tab": tabs,
+                "workspace": workspaces,
+            }[kind]
 
         with patch.object(monitor_module, "inventory", side_effect=fake_inventory):
             selected = monitor_module.discover_targets([], [])
 
         self.assertEqual(set(selected), {"pane-codex"})
-        self.assertEqual(inventory_calls, ["pane", "agent"])
+        self.assertEqual(inventory_calls, ["pane", "agent", "tab", "workspace"])
+        self.assertEqual(selected["pane-codex"]["workspace_name"], "Workspace")
+        self.assertEqual(selected["pane-codex"]["tab_name"], "first")
 
     def test_discovery_unions_explicit_panes_and_tabs(self) -> None:
         tabs = [make_tab("tab-1", "workspace"), make_tab("tab-2", "other")]
@@ -175,11 +211,12 @@ class DiscoveryTests(unittest.TestCase):
             {"pane_id": "pane-gone", "agent": "codex"},
             {"pane_id": "pane-unrelated", "agent": "other"},
         ]
+        workspaces = [make_workspace()]
         inventory_calls: list[str] = []
 
         def fake_inventory(kind: str) -> list[dict[str, str]]:
             inventory_calls.append(kind)
-            return {"pane": panes, "agent": agents, "tab": tabs}[kind]
+            return {"pane": panes, "agent": agents, "tab": tabs, "workspace": workspaces}[kind]
 
         with patch.object(monitor_module, "inventory", side_effect=fake_inventory):
             selected = monitor_module.discover_targets(["shared", "ssh"], ["workspace"])
@@ -187,10 +224,95 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(
             set(selected), {"pane-codex", "pane-ssh", "pane-tab-only"}
         )
-        self.assertEqual(inventory_calls, ["pane", "agent", "tab"])
+        self.assertEqual(inventory_calls, ["pane", "agent", "tab", "workspace"])
+        self.assertEqual(selected["pane-codex"]["tab_name"], "workspace")
+
+    def test_discovery_uses_workspace_labels_and_fallback_for_unknown_workspace(self) -> None:
+        panes = [
+            make_pane("pane-named", workspace_id="workspace-named"),
+            make_pane("pane-unnamed", workspace_id="workspace-missing"),
+        ]
+        agents = [
+            {"pane_id": "pane-named", "agent": "codex"},
+            {"pane_id": "pane-unnamed", "agent": "codex"},
+        ]
+        tabs = [make_tab("tab-1", "", number=3)]
+        workspaces = [make_workspace("workspace-named", "V-GPU")]
+
+        def fake_inventory(kind: str) -> list[dict[str, str]]:
+            return {
+                "pane": panes,
+                "agent": agents,
+                "tab": tabs,
+                "workspace": workspaces,
+            }[kind]
+
+        with patch.object(monitor_module, "inventory", side_effect=fake_inventory):
+            selected = monitor_module.discover_targets([], [])
+
+        self.assertEqual(selected["pane-named"]["workspace_name"], "V-GPU")
+        self.assertEqual(selected["pane-unnamed"]["workspace_name"], "Unnamed workspace")
+        self.assertEqual(selected["pane-named"]["tab_name"], "3")
+        self.assertEqual(selected["pane-unnamed"]["tab_name"], "3")
+
+
+class DisplayTests(unittest.TestCase):
+    def test_describe_pane_prefers_panel_label_and_collapses_whitespace(self) -> None:
+        self.assertEqual(
+            monitor_module.describe_pane(
+                {
+                    "workspace_name": "V-GPU",
+                    "tab_name": "kontynuuj-2",
+                    "pane_id": "w4:p3",
+                    "label": " codex\n gpu ",
+                }
+            ),
+            "V-GPU:kontynuuj-2:codex gpu",
+        )
+
+    def test_describe_pane_uses_pane_id_suffix_when_unlabeled(self) -> None:
+        self.assertEqual(
+            monitor_module.describe_pane(
+                {
+                    "workspace_name": "V-GPU",
+                    "tab_name": "3",
+                    "pane_id": "w4:pA",
+                    "label": "",
+                }
+            ),
+            "V-GPU:3:pA",
+        )
+
+    def test_describe_pane_uses_generic_names_when_metadata_is_missing(self) -> None:
+        self.assertEqual(
+            monitor_module.describe_pane({}),
+            "Unnamed workspace:Unnamed tab:Unnamed pane",
+        )
 
 
 class MonitorTests(unittest.TestCase):
+    def test_stopped_pane_keeps_human_description(self) -> None:
+        calls: list[tuple[str, ...]] = []
+        pane = make_pane("pane-1", label="codex-gpu")
+        pane["workspace_name"] = "V-GPU"
+        pane["tab_name"] = "3"
+
+        def fake_herdr(*args: str) -> str:
+            calls.append(args)
+            return "prompt" if args[:2] == ("pane", "read") else ""
+
+        monitor = monitor_module.Monitor("resume")
+        output = StringIO()
+        with patch.object(monitor_module, "herdr", side_effect=fake_herdr), redirect_stdout(
+            output
+        ):
+            monitor.poll({"pane-1": pane})
+            monitor.poll({})
+
+        self.assertIn("Watching V-GPU:3:codex-gpu", output.getvalue())
+        self.assertIn("Stopped watching V-GPU:3:codex-gpu", output.getvalue())
+        self.assertNotIn("pane-1", output.getvalue())
+
     def test_wrapped_capacity_uses_visible_read_and_one_atomic_run(self) -> None:
         wrapped_body = monitor_module.CAPACITY_MESSAGE.replace("model", "mod\nel").replace(
             "capacity", "capac\nity"
@@ -856,12 +978,19 @@ class CliTests(unittest.TestCase):
             {"pane_id": "pane-1", "agent": "codex"},
             {"pane_id": "pane-2", "agent": "codex"},
         ]
+        tabs = [make_tab("tab-1", "first")]
+        workspaces = [make_workspace()]
         inventory_calls: list[str] = []
         calls: list[tuple[str, ...]] = []
 
         def fake_inventory(kind: str) -> list[dict[str, str]]:
             inventory_calls.append(kind)
-            return panes if kind == "pane" else agents
+            return {
+                "pane": panes,
+                "agent": agents,
+                "tab": tabs,
+                "workspace": workspaces,
+            }[kind]
 
         def fake_herdr(*args: str) -> str:
             calls.append(args)
@@ -881,7 +1010,7 @@ class CliTests(unittest.TestCase):
             result = monitor_module.main(["resume", "--once"])
 
         self.assertEqual(result, 0)
-        self.assertEqual(inventory_calls, ["pane", "agent"])
+        self.assertEqual(inventory_calls, ["pane", "agent", "tab", "workspace"])
         self.assertEqual(
             calls,
             [
@@ -905,12 +1034,13 @@ class CliTests(unittest.TestCase):
             {"pane_id": "pane-gone", "agent": "codex"},
             {"pane_id": "pane-unrelated", "agent": "other"},
         ]
+        workspaces = [make_workspace()]
         inventory_calls: list[str] = []
         calls: list[tuple[str, ...]] = []
 
         def fake_inventory(kind: str) -> list[dict[str, str]]:
             inventory_calls.append(kind)
-            return {"pane": panes, "agent": agents, "tab": tabs}[kind]
+            return {"pane": panes, "agent": agents, "tab": tabs, "workspace": workspaces}[kind]
 
         def fake_herdr(*args: str) -> str:
             calls.append(args)
@@ -936,7 +1066,7 @@ class CliTests(unittest.TestCase):
 
         selected_ids = ["pane-codex", "pane-ssh", "pane-tab-only"]
         self.assertEqual(result, 0)
-        self.assertEqual(inventory_calls, ["pane", "agent", "tab"])
+        self.assertEqual(inventory_calls, ["pane", "agent", "tab", "workspace"])
         self.assertCountEqual(
             [call[2] for call in calls if call[:2] == ("pane", "read")], selected_ids
         )
