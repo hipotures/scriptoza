@@ -1,8 +1,8 @@
 # AI Utilities
 
-## Herdr Resume
+## Codex Resume
 
-`herdr_resume.py` monitors visible Herdr panes for Codex states that need an
+`codex_resume.py` monitors visible Herdr panes for Codex states that need an
 automatic response:
 
 - a capacity error, followed by the configured message and Enter;
@@ -13,7 +13,7 @@ The runtime uses Python's standard library and the `herdr` executable installed
 in `PATH`. Run it inside a Herdr-managed pane with `HERDR_ENV=1`:
 
 ```bash
-python3 ai/herdr_resume.py resume
+python3 ai/codex_resume.py resume
 ```
 
 Install from the repository root with:
@@ -22,11 +22,11 @@ Install from the repository root with:
 python3 utils/install.py
 ```
 
-The installer adds the `herdr-resume` command. It uses the existing `rich`
+The installer adds the `codex-resume` command. It uses the existing `rich`
 dependency required by `utils/install.py`:
 
 ```bash
-herdr-resume resume --panes aa,bb,cc --message 'Resume'
+codex-resume resume --panes aa,bb,cc --message 'Resume'
 ```
 
 Automatic discovery includes every live pane whose current-server agent record

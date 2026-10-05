@@ -1,4 +1,4 @@
-"""Offline regression tests for ``herdr_resume``.
+"""Offline regression tests for ``codex_resume``.
 
 All Herdr calls are mocked.  The tests exercise target resolution and monitor
 state transitions without opening a real pane or sending real input.
@@ -10,7 +10,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from ai import herdr_resume as monitor_module
+from ai import codex_resume as monitor_module
 
 
 def make_tab(tab_id: str, label: str) -> dict[str, str]:

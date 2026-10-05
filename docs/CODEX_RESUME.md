@@ -1,18 +1,18 @@
-# Herdr resume history
+# Codex resume history
 
 ## 2026-10-05
 
 Migrated the standalone monitor from the temporary workspace to
-`ai/herdr_resume.py`, with regression tests in `tests/test_herdr_resume.py`.
+`ai/codex_resume.py`, with regression tests in `tests/test_codex_resume.py`.
 Public usage and requirements are in `ai/README.md`. The existing installer
-`utils/install.py` installs it as `~/.local/bin/herdr-resume`.
+`utils/install.py` installs it as `~/.local/bin/codex-resume`.
 
 Current interface:
 
 ```bash
-herdr-resume resume
-herdr-resume resume --panes aa,bb,cc --message "Resume"
-herdr-resume resume --tabs work-1,work-2 --once --dry-run
+codex-resume resume
+codex-resume resume --panes aa,bb,cc --message "Resume"
+codex-resume resume --tabs work-1,work-2 --once --dry-run
 ```
 
 The `resume` command discovers all recognized Codex agents on the current
@@ -43,8 +43,8 @@ Continue development in this repository. Do not restore obsolete script names
 or positional-target aliases.
 
 Verification after migration: all 57 repository tests passed with
-`python3 -m unittest discover -s tests -q` (38 Herdr monitor tests and 19
+`python3 -m unittest discover -s tests -q` (38 Codex monitor tests and 19
 existing tests). Python compilation passed. A real installer run with
 `Path.home()` redirected to a temporary directory copied an executable
-`herdr-resume` whose bytes matched the source; its `resume --help` command
+`codex-resume` whose bytes matched the source; its `resume --help` command
 passed. The user's installed binaries and configuration were not modified.

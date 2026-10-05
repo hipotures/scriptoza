@@ -38,7 +38,7 @@ Collection of small utility scripts organized by category. Each category has its
 
 ### AI (ai/)
 
-- `herdr_resume.py` - Monitors visible Herdr Codex panes, resumes capacity errors, and dismisses the extra-thought wait menu
+- `codex_resume.py` - Monitors visible Codex panes through Herdr, resumes capacity errors, and dismisses the extra-thought wait menu
 
 ### Firefox (firefox-yt/)
 
