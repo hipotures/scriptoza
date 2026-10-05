@@ -487,6 +487,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("list", help="Show the live monitor status without contacting Herdr")
+    commands.add_parser("logs", help="Show recent service logs and follow new entries; Ctrl+C to exit")
     resume = commands.add_parser(
         "resume", help="Monitor all recognized Codex agents plus explicitly selected panes",
         description="Monitor all recognized Codex agents plus selected panes/tabs, deduplicated by pane ID.",
@@ -506,6 +507,16 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.command == "list":
         return list_status()
+    if args.command == "logs":
+        try:
+            os.execvp("journalctl", [
+                "journalctl", "--user", "--unit=codex-resume.service",
+                "--lines=50", "--follow", "--output=cat", "--no-pager",
+            ])
+        except OSError as exc:
+            print(f"Error: cannot open service logs: {exc}", file=sys.stderr)
+            return 1
+        return 0
     if not args.message.strip() or any(ord(character) < 32 or ord(character) == 127 for character in args.message):
         parser.error("--message must be nonempty, single-line text without terminal controls")
 

@@ -2,6 +2,9 @@
 
 ## User service and live watch list (2026-10-05)
 
+`codex-resume logs` shows the last 50 service log entries and follows new ones
+with compact output. Ctrl+C exits the viewer without stopping the service.
+
 The installer now copies `ai/codex-resume.service` to
 `~/.config/systemd/user/codex-resume.service`. Enable login autostart with
 `systemctl --user daemon-reload` and

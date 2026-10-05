@@ -46,6 +46,9 @@ starting the systemd service.
 The `list` command prints the current runtime watch snapshot held by the active
 monitor. It is not a fresh Herdr candidate scan.
 
+`codex-resume logs` shows the last 50 service log entries and follows new ones.
+Press Ctrl+C to exit the log view; the service continues running.
+
 Useful options:
 
 ```text
@@ -82,7 +85,7 @@ Manage it with:
 systemctl --user stop codex-resume.service
 systemctl --user restart codex-resume.service
 systemctl --user disable --now codex-resume.service
-journalctl --user -u codex-resume.service -f
+codex-resume logs
 ```
 
 To use pane-specific settings, create a user drop-in:
