@@ -113,7 +113,7 @@ class Monitor:
         current = set(selected)
         for pane_id in sorted(current - self.pane_ids):
             pane = selected[pane_id]
-            log(f"Watching {pane_id} (tab {pane['tab_id']})")
+            log(f"Watching {pane.get('label', pane_id)!r} ({pane_id}, workspace {pane['workspace_id']})")
         for pane_id in sorted(self.pane_ids - current):
             log(f"Stopped watching {pane_id}")
             self.errors.pop(pane_id, None)
@@ -121,7 +121,7 @@ class Monitor:
         self.pane_ids = current
         for pane_id in selected:
             pane = selected[pane_id]
-            target = f"{pane.get('label', pane_id)!r} ({pane_id}, tab {pane['tab_id']})"
+            target = f"{pane.get('label', pane_id)!r} ({pane_id}, workspace {pane['workspace_id']})"
             try:
                 visible = herdr("pane", "read", pane_id, "--source", "visible", "--format", "text")
             except HerdrError as exc:

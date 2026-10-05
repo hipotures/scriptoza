@@ -29,7 +29,7 @@ latest error prevents duplicate submission; error identity tracking tolerates
 movement/reflow. The complete extra-thought menu sends only key `2`, preserving
 the model, once while continuously visible. A failed send stops monitoring
 because an uncertain delivery must not be retried blindly. Logs include local
-timestamps, pane identity, detection coordinates, and sent actions.
+timestamps, pane identity, workspace IDs, detection coordinates, and sent actions.
 
 Earlier user-authorized live tests verified text plus Enter for a capacity
 error and confirmed that key `2` dismisses the extra-thought menu. The latest

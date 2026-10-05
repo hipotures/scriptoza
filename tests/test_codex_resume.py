@@ -18,7 +18,7 @@ def make_tab(tab_id: str, label: str) -> dict[str, str]:
 
 
 def make_pane(pane_id: str, tab_id: str = "tab-1", label: str = "resume") -> dict[str, str]:
-    return {"pane_id": pane_id, "tab_id": tab_id, "label": label}
+    return {"pane_id": pane_id, "tab_id": tab_id, "label": label, "workspace_id": "workspace-1"}
 
 
 def read_call(pane_id: str) -> tuple[str, ...]:
