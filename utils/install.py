@@ -32,6 +32,7 @@ def main():
         ("video/video_rotation_detector.py", "video-rotation-detector"),
         ("photo/rename_photo.py", "rename-photo"),
         ("photo/convert_hif_to_jpg.py", "convert-hif-to-jpg"),
+        ("ai/herdr_resume.py", "herdr-resume"),
         ("utils/organize_by_date.py", "organize-by-date"),
         ("utils/migrate.py", "migrate-tt"),
         ("utils/musescore_export_mp3_with_tags.py", "musescore-export-mp3-with-tags"),

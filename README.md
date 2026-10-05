@@ -36,6 +36,10 @@ Collection of small utility scripts organized by category. Each category has its
 - `install.py` - Installs selected utility scripts into a local bin directory
 - `migrate.py` - Small migration helper for local data transformations
 
+### AI (ai/)
+
+- `herdr_resume.py` - Monitors visible Herdr Codex panes, resumes capacity errors, and dismisses the extra-thought wait menu
+
 ### Firefox (firefox-yt/)
 
 - `firefox-yt` - Minimal Firefox toolbar extension and native `yt-dlp` downloader

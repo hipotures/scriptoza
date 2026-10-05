@@ -37,6 +37,11 @@ tests/data/
 !utils/*.yaml
 !utils/*.env.example
 
+# Allow AI utilities
+!ai/
+!ai/README.md
+!ai/*.py
+
 # Allow the Firefox yt-dlp downloader
 !firefox-yt/
 !firefox-yt/README.md
