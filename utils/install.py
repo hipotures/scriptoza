@@ -14,12 +14,14 @@ def main():
     repo_dir = Path(__file__).parent.parent.resolve()
     bin_dir = Path.home() / ".local" / "bin"
     config_dir = Path.home() / ".config" / "scriptoza"
+    systemd_user_dir = Path.home() / ".config" / "systemd" / "user"
 
     console.print(Panel.fit("[bold blue]🚀 Scriptoza Installer[/bold blue]", border_style="blue"))
 
     # Ensure directories exist
     bin_dir.mkdir(parents=True, exist_ok=True)
     config_dir.mkdir(parents=True, exist_ok=True)
+    systemd_user_dir.mkdir(parents=True, exist_ok=True)
 
     scripts = [
         ("video/rename_video_univ.py", "rename-video-univ"),
@@ -42,6 +44,10 @@ def main():
         ("video/rename_video.yaml", "rename_video.yaml"),
     ]
 
+    services = [
+        ("ai/codex-resume.service", systemd_user_dir / "codex-resume.service"),
+    ]
+
     table = Table(show_header=True, header_style="bold magenta", box=None)
     table.add_column("Type", style="dim", width=8)
     table.add_column("Source", style="cyan")
@@ -57,7 +63,10 @@ def main():
         console=console,
         transient=True
     ) as progress:
-        task = progress.add_task("Installing items...", total=len(scripts) + len(configs))
+        task = progress.add_task(
+            "Installing items...",
+            total=len(scripts) + len(configs) + len(services),
+        )
 
         for src_rel, dest_name in scripts:
             src = repo_dir / src_rel
@@ -92,11 +101,27 @@ def main():
             table.add_row("Config", src_rel, "➜", dest_name, status)
             progress.advance(task)
 
+        for src_rel, dest in services:
+            src = repo_dir / src_rel
+            status = "[bold green]DONE[/bold green]"
+
+            if src.exists():
+                try:
+                    shutil.copy2(src, dest)
+                except Exception as e:
+                    status = f"[bold red]ERR: {e}[/bold red]"
+            else:
+                status = "[bold yellow]MISSING[/bold yellow]"
+
+            table.add_row("Service", src_rel, "➜", str(dest), status)
+            progress.advance(task)
+
     console.print(table)
     
     console.print(f"\n[bold green]✅ Installation finished successfully![/bold green]")
     console.print(f"[dim]Scripts installed to: {bin_dir}[/dim]")
     console.print(f"[dim]Configs installed to: {config_dir}[/dim]")
+    console.print(f"[dim]User services installed to: {systemd_user_dir}[/dim]")
     console.print("\n[yellow]Note:[/yellow] The 'by tags' script is available as both [bold cyan]rename-video-by-tags[/bold cyan] and [bold cyan]rename-video[/bold cyan].")
 
 if __name__ == "__main__":

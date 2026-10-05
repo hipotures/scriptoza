@@ -24,6 +24,8 @@ If you still need the old event workflow scripts, run them from `deprecated/pipe
 - `delete-google-chat-messages.js` - Controlled Google Chat message cleanup through a browser CDP session and private match rules
 - `musescore_export_mp3_with_tags.py` - Exports MuseScore `.mscz` files to tagged MP3s named from `workTitle`
 - `install.py` - Installs selected utility scripts into a local bin directory
+  and copies the optional `codex-resume` systemd user unit to
+  `~/.config/systemd/user/`
 - `migrate.py` - Small migration helper for local data transformations
 
 ## MuseScore MP3 Export

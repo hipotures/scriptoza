@@ -41,6 +41,7 @@ tests/data/
 !ai/
 !ai/README.md
 !ai/*.py
+!ai/*.service
 
 # Allow the Firefox yt-dlp downloader
 !firefox-yt/

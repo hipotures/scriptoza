@@ -2,14 +2,18 @@
 """Watch Codex agents and selected Herdr panes, resuming errors and dismissing wait menus."""
 
 import argparse
+import errno
+import fcntl
 import json
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
-import time
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
 
 
 CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model."
@@ -39,6 +43,19 @@ class HerdrError(RuntimeError):
     pass
 
 
+class UncertainSendError(HerdrError):
+    """Input delivery may have succeeded even though Herdr reported an error."""
+
+
+class MonitorAlreadyRunning(RuntimeError):
+    pass
+
+
+RUNTIME_DIRECTORY_NAME = "codex-resume"
+LOCK_FILENAME = "monitor.lock"
+STATUS_FILENAME = "status.json"
+
+
 def log(message):
     print(f"{datetime.now().astimezone().strftime('%H:%M:%S')} {message}", flush=True)
 
@@ -64,22 +81,27 @@ def inventory(kind):
 
 
 def resolve_targets(kind, targets, tabs, panes):
-    """Resolve explicit pane or tab selectors, including shared labels."""
+    """Resolve currently live explicit selectors, including shared labels.
+
+    A selector can refer to a pane or tab that has not appeared yet, for
+    example while a remote session is still starting.  Missing selectors are
+    therefore left pending for the next discovery cycle.
+    """
     selected = {}
     items = panes if kind == "pane" else tabs
     for target in targets:
-        id_matches = [item for item in items if target == item[f"{kind}_id"]]
+        id_matches = [item for item in items if target == item.get(f"{kind}_id")]
         label_matches = [item for item in items if target == item.get("label")]
         matches = id_matches or label_matches
         if not matches:
-            raise HerdrError(f"Target not found: {target!r}")
+            continue
         for item in matches:
             members = (
                 [item] if kind == "pane"
                 else [pane for pane in panes if pane["tab_id"] == item["tab_id"]]
             )
             if not members:
-                raise HerdrError(f"Target has no live panes: {target!r}")
+                continue
             for pane in members:
                 selected[pane["pane_id"]] = pane
     return selected
@@ -140,6 +162,189 @@ def describe_pane(pane):
     return f"{workspace}:{tab}:{_pane_name(pane)}"
 
 
+def runtime_directory():
+    """Return the per-user runtime directory used by the monitor."""
+    runtime_root = os.environ.get("XDG_RUNTIME_DIR")
+    if not runtime_root:
+        runtime_root = f"/run/user/{os.getuid()}"
+    return Path(runtime_root) / RUNTIME_DIRECTORY_NAME
+
+
+def _utc_now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+class RuntimeState:
+    """Own the monitor lock and its atomically replaced status snapshot."""
+
+    def __init__(self, directory=None):
+        self.directory = Path(directory) if directory is not None else runtime_directory()
+        self.lock_path = self.directory / LOCK_FILENAME
+        self.status_path = self.directory / STATUS_FILENAME
+        self._lock_file = None
+
+    def acquire(self):
+        self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            self._lock_file = self.lock_path.open("a+", encoding="utf-8")
+            fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if self._lock_file is not None:
+                self._lock_file.close()
+                self._lock_file = None
+            if exc.errno in (errno.EACCES, errno.EAGAIN):
+                raise MonitorAlreadyRunning("Monitor is already running") from exc
+            raise
+
+    def release(self):
+        if self._lock_file is None:
+            return
+        try:
+            fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
+        finally:
+            self._lock_file.close()
+            self._lock_file = None
+
+    def is_locked(self):
+        """Probe whether another process currently owns the monitor lock."""
+        try:
+            lock_file = self.lock_path.open("r", encoding="utf-8")
+        except FileNotFoundError:
+            return False
+        try:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                if exc.errno in (errno.EACCES, errno.EAGAIN):
+                    return True
+                raise
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            return False
+        finally:
+            lock_file.close()
+
+    def write_status(
+        self,
+        status,
+        message,
+        dry_run,
+        panes=(),
+        last_panes=(),
+        error=None,
+        last_check=None,
+    ):
+        payload = {
+            "status": status,
+            "last_check": last_check,
+            "message": message,
+            "dry_run": bool(dry_run),
+            "panes": list(panes),
+            "last_panes": list(last_panes),
+            "error": error,
+        }
+        self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        temporary = self.status_path.with_name(
+            f".{self.status_path.name}.{os.getpid()}.tmp"
+        )
+        try:
+            with temporary.open("w", encoding="utf-8") as stream:
+                json.dump(payload, stream, ensure_ascii=False, separators=(",", ":"))
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.status_path)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    def read_status(self):
+        try:
+            with self.status_path.open("r", encoding="utf-8") as stream:
+                return json.load(stream), None
+        except FileNotFoundError:
+            return None, "status snapshot is not available yet"
+        except (OSError, ValueError, TypeError) as exc:
+            return None, f"cannot read status snapshot: {exc}"
+
+    def clear_status(self):
+        try:
+            self.status_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _format_freshness(timestamp):
+    if not timestamp:
+        return "never"
+    try:
+        checked = datetime.fromisoformat(timestamp)
+        if checked.tzinfo is None:
+            checked = checked.replace(tzinfo=timezone.utc)
+        age = max(0, int((datetime.now(timezone.utc) - checked).total_seconds()))
+    except (TypeError, ValueError, OverflowError):
+        return "unknown"
+    if age < 60:
+        return f"{age}s ago"
+    if age < 3600:
+        return f"{age // 60}m ago"
+    return f"{age // 3600}h ago"
+
+
+def _status_error(value):
+    """Keep stale-status output readable without exposing internal pane IDs."""
+    text = _display_text(value)
+    return re.sub(r"\b[^\s:]+:p[^\s:]+\b", "pane", text)
+
+
+def list_status():
+    """Print the monitor snapshot without contacting Herdr."""
+    state = RuntimeState()
+    try:
+        active = state.is_locked()
+    except OSError as exc:
+        print(f"Monitor status unavailable: cannot inspect lock: {exc}")
+        return 1
+    if not active:
+        print("Monitor is not running")
+        return 1
+    snapshot, read_error = state.read_status()
+    if read_error:
+        print(f"Monitor is running (status unavailable: {read_error})")
+        return 0
+    if not isinstance(snapshot, dict):
+        print("Monitor is running (status unavailable: invalid snapshot)")
+        return 0
+    status = snapshot.get("status", "unknown")
+    if status == "starting":
+        heading = "Monitor is starting"
+    elif status == "stale":
+        heading = "Monitor is running; discovery is stale"
+    elif status == "watching":
+        heading = "Monitor is running"
+    else:
+        heading = "Monitor is running; status is unknown"
+    mode = "dry-run=yes" if snapshot.get("dry_run") else "dry-run=no"
+    message = _display_text(snapshot.get("message")) or "(empty)"
+    freshness = _format_freshness(snapshot.get("last_check"))
+    print(f"{heading}; last check {freshness}; {mode}; message={message!r}")
+    if status == "stale":
+        error = _status_error(snapshot.get("error")) or "discovery failed"
+        print(f"Error: {error}")
+        panes = snapshot.get("last_panes", ())
+        if panes:
+            print("Last known panes:")
+    else:
+        panes = snapshot.get("panes", ())
+    if isinstance(panes, list | tuple):
+        for pane in panes:
+            description = _display_text(pane)
+            if description:
+                print(description)
+    return 0
+
+
 class Monitor:
     def __init__(self, message, dry_run=False):
         self.message = message
@@ -185,7 +390,12 @@ class Monitor:
                     if self.dry_run:
                         log(f"DRY RUN {target}: would press 2 (Dismiss and keep waiting)")
                     else:
-                        herdr("pane", "send-keys", pane_id, "2")
+                        try:
+                            herdr("pane", "send-keys", pane_id, "2")
+                        except HerdrError as exc:
+                            raise UncertainSendError(
+                                f"Input delivery uncertain for {target}: {exc}"
+                            ) from exc
                         log(f"Sent key 2 signal to {target}: Dismiss and keep waiting")
                 elif self.dry_run:
                     log(f"DRY RUN {target}: already handled extra-thought menu")
@@ -231,7 +441,12 @@ class Monitor:
                 else:
                     # One ordered submission, with Herdr handling bracketed paste.
                     # If this fails, exit: a timeout may still mean input was delivered.
-                    herdr("pane", "run", pane_id, self.message)
+                    try:
+                        herdr("pane", "run", pane_id, self.message)
+                    except HerdrError as exc:
+                        raise UncertainSendError(
+                            f"Input delivery uncertain for {target}: {exc}"
+                        ) from exc
                     log(f"Sent {self.message!r} + Enter signal to {target}")
             elif self.dry_run:
                 if already_continued:
@@ -258,9 +473,20 @@ def selector_list(value):
     return targets
 
 
+def _safe_status_update(state, **kwargs):
+    if state is None:
+        return
+    try:
+        state.write_status(**kwargs)
+    except (OSError, TypeError, ValueError) as exc:
+        # State output must never trigger another pane input.
+        log(f"Status update failed: {exc}")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("list", help="Show the live monitor status without contacting Herdr")
     resume = commands.add_parser(
         "resume", help="Monitor all recognized Codex agents plus explicitly selected panes",
         description="Monitor all recognized Codex agents plus selected panes/tabs, deduplicated by pane ID.",
@@ -278,33 +504,119 @@ def main(argv=None):
     resume.add_argument("--once", action="store_true", help="Check all selected panes once, then exit")
     resume.add_argument("--dry-run", action="store_true", help="Log detections without sending input")
     args = parser.parse_args(argv)
-    if os.environ.get("HERDR_ENV") != "1":
-        parser.error("Run this script inside a Herdr-managed pane (HERDR_ENV=1)")
+    if args.command == "list":
+        return list_status()
     if not args.message.strip() or any(ord(character) < 32 or ord(character) == 127 for character in args.message):
         parser.error("--message must be nonempty, single-line text without terminal controls")
+
+    # A one-shot dry run only reads panes, so it remains usable while the live
+    # monitor owns the lock and does not create or replace its status state.
+    state = None
+    if not (args.once and args.dry_run):
+        state = RuntimeState()
+        try:
+            state.acquire()
+        except MonitorAlreadyRunning as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        except OSError as exc:
+            print(f"Error: cannot initialize monitor runtime state: {exc}", file=sys.stderr)
+            return 1
+
     monitor = Monitor(args.message, args.dry_run)
-    log(f"{'Dry run' if args.dry_run else 'Monitor'} started; interval={args.interval:g}s; Ctrl+C to stop")
     first = True
+    stop_requested = threading.Event()
+    previous_sigterm = None
+    signal_installed = False
+
+    def handle_sigterm(signum, frame):
+        stop_requested.set()
+
     try:
+        try:
+            previous_sigterm = signal.getsignal(signal.SIGTERM)
+            signal.signal(signal.SIGTERM, handle_sigterm)
+            signal_installed = True
+        except (OSError, ValueError):
+            # Tests or embedded callers may not run the monitor on the main thread.
+            pass
+        _safe_status_update(
+            state,
+            status="starting",
+            message=args.message,
+            dry_run=args.dry_run,
+            panes=(),
+            last_panes=(),
+            error=None,
+            last_check=None,
+        )
+        log(
+            f"{'Dry run' if args.dry_run else 'Monitor'} started; "
+            f"interval={args.interval:g}s; Ctrl+C to stop"
+        )
         while True:
+            if stop_requested.is_set():
+                log("Monitor stopped")
+                return 0
             try:
                 selected = discover_targets(args.panes, args.tabs)
             except HerdrError as exc:
                 if first or args.once:
                     raise
-                log(f"Discovery failed; no input sent this cycle: {exc}")
+                detail = f"Discovery failed; no input sent this cycle: {exc}"
+                log(detail)
+                _safe_status_update(
+                    state,
+                    status="stale",
+                    message=args.message,
+                    dry_run=args.dry_run,
+                    panes=(),
+                    last_panes=tuple(sorted(monitor.pane_descriptions.values())),
+                    error=detail,
+                    last_check=_utc_now(),
+                )
             else:
                 monitor.poll(selected)
+                _safe_status_update(
+                    state,
+                    status="watching",
+                    message=args.message,
+                    dry_run=args.dry_run,
+                    panes=tuple(sorted(monitor.pane_descriptions.values())),
+                    last_panes=(),
+                    error=None,
+                    last_check=_utc_now(),
+                )
             first = False
             if args.once:
                 return 0
-            time.sleep(args.interval)
+            if stop_requested.wait(args.interval):
+                log("Monitor stopped")
+                return 0
     except KeyboardInterrupt:
         log("Monitor stopped")
         return 0
+    except UncertainSendError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
     except HerdrError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
+    finally:
+        if signal_installed:
+            try:
+                signal.signal(signal.SIGTERM, previous_sigterm)
+            except (OSError, ValueError) as exc:
+                log(f"Signal handler cleanup failed: {exc}")
+        if state is not None:
+            try:
+                state.clear_status()
+            except OSError as exc:
+                log(f"Status cleanup failed: {exc}")
+            try:
+                state.release()
+            except OSError as exc:
+                log(f"Lock cleanup failed: {exc}")
 
 
 if __name__ == "__main__":

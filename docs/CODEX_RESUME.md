@@ -1,5 +1,25 @@
 # Codex resume history
 
+## User service and live watch list (2026-10-05)
+
+The installer now copies `ai/codex-resume.service` to
+`~/.config/systemd/user/codex-resume.service`. Enable login autostart with
+`systemctl --user daemon-reload` and
+`systemctl --user enable --now codex-resume.service`. The generic unit uses the
+default `Resume` message; see `ai/README.md` for a user drop-in with explicit
+pane selectors and a different message.
+
+`codex-resume list` reads the active monitor's runtime snapshot without calling
+Herdr. It shows the last check time, mode, message, and readable watch names.
+An inactive monitor does not expose old snapshots as a current watch list;
+discovery failures mark the snapshot stale. A user runtime lock prevents
+simultaneous monitors. A one-shot dry run can still run beside the monitor.
+
+Monitoring no longer requires `HERDR_ENV=1`. Missing explicit selectors stay
+pending until the pane or tab appears, without blocking other Codex sessions.
+The service retries ordinary startup failures after five seconds, but uncertain
+input delivery exits with status `2`, which prevents automatic restart.
+
 ## 2026-10-05
 
 Migrated the standalone monitor from the temporary workspace to

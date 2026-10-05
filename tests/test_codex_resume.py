@@ -7,6 +7,7 @@ state transitions without opening a real pane or sending real input.
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -154,13 +155,24 @@ class TargetResolutionTests(unittest.TestCase):
             {"pane-collision"},
         )
 
-    def test_missing_target_and_empty_tab_are_rejected(self) -> None:
-        with self.assertRaisesRegex(monitor_module.HerdrError, "Target not found"):
-            monitor_module.resolve_targets("pane", ["does-not-exist"], [], self.panes)
+    def test_missing_target_and_empty_tab_remain_pending(self) -> None:
+        self.assertEqual(
+            monitor_module.resolve_targets("pane", ["does-not-exist"], [], self.panes),
+            {},
+        )
 
         empty_tab = [make_tab("tab-empty", "empty")]
-        with self.assertRaisesRegex(monitor_module.HerdrError, "Target has no live panes"):
-            monitor_module.resolve_targets("tab", ["empty"], empty_tab, [])
+        self.assertEqual(
+            monitor_module.resolve_targets("tab", ["empty"], empty_tab, []),
+            {},
+        )
+
+    def test_missing_explicit_target_does_not_hide_live_auto_target(self) -> None:
+        selected = monitor_module.resolve_targets(
+            "pane", ["does-not-exist", "pane-1"], [], self.panes
+        )
+
+        self.assertEqual(set(selected), {"pane-1"})
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -972,6 +984,17 @@ class ExtraThoughtMenuTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.runtime_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.runtime_directory.cleanup)
+        self.runtime_environment = patch.dict(
+            os.environ,
+            {"XDG_RUNTIME_DIR": self.runtime_directory.name},
+            clear=False,
+        )
+        self.runtime_environment.start()
+        self.addCleanup(self.runtime_environment.stop)
+
     def test_once_discovers_codex_agents_and_uses_english_default_message(self) -> None:
         panes = [make_pane("pane-1"), make_pane("pane-2")]
         agents = [
@@ -1075,17 +1098,16 @@ class CliTests(unittest.TestCase):
         )
         self.assertEqual(len(calls), 2 * len(selected_ids))
 
-    def test_outside_herdr_environment_performs_no_control(self) -> None:
+    def test_outside_herdr_environment_is_allowed(self) -> None:
         with patch.dict(os.environ, {"HERDR_ENV": "0"}), patch.object(
-            monitor_module, "inventory"
-        ) as inventory, patch.object(monitor_module, "herdr") as herdr, redirect_stderr(
+            monitor_module, "inventory", return_value=[]
+        ) as inventory, patch.object(monitor_module, "herdr") as herdr, redirect_stdout(
             StringIO()
         ):
-            with self.assertRaises(SystemExit) as raised:
-                monitor_module.main(["resume", "--once"])
+            result = monitor_module.main(["resume", "--once"])
 
-        self.assertEqual(raised.exception.code, 2)
-        inventory.assert_not_called()
+        self.assertEqual(result, 0)
+        self.assertEqual(inventory.call_count, 4)
         herdr.assert_not_called()
 
     def test_invalid_interval_is_rejected_before_any_control(self) -> None:
@@ -1137,6 +1159,162 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, 2)
         inventory.assert_not_called()
+        herdr.assert_not_called()
+
+
+class RuntimeStateTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.runtime_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.runtime_directory.cleanup)
+        self.environment = patch.dict(
+            os.environ,
+            {"XDG_RUNTIME_DIR": self.runtime_directory.name},
+            clear=False,
+        )
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+
+    def test_lock_is_exclusive_and_lock_file_survives_release(self) -> None:
+        first = monitor_module.RuntimeState()
+        second = monitor_module.RuntimeState()
+        first.acquire()
+        self.addCleanup(first.release)
+
+        with self.assertRaises(monitor_module.MonitorAlreadyRunning):
+            second.acquire()
+
+        first.release()
+        self.assertTrue(first.lock_path.exists())
+        second.acquire()
+        second.release()
+
+    def test_status_snapshot_is_atomic_and_contains_human_panes(self) -> None:
+        state = monitor_module.RuntimeState()
+        state.write_status(
+            status="watching",
+            message="Kontynuuj",
+            dry_run=False,
+            panes=("V-GPU:1:codex-gpu",),
+            last_check="2026-10-05T12:00:00+00:00",
+        )
+
+        snapshot, error = state.read_status()
+        self.assertIsNone(error)
+        self.assertEqual(snapshot["panes"], ["V-GPU:1:codex-gpu"])
+        self.assertEqual(snapshot["message"], "Kontynuuj")
+        self.assertTrue(state.status_path.exists())
+        self.assertEqual(list(state.directory.glob("*.tmp")), [])
+
+    def test_list_reports_active_stale_and_does_not_call_herdr(self) -> None:
+        state = monitor_module.RuntimeState()
+        state.acquire()
+        self.addCleanup(state.release)
+        state.write_status(
+            status="stale",
+            message="Resume",
+            dry_run=False,
+            last_panes=("V-GPU:1:codex-gpu",),
+            error="discovery failed for w4:p1",
+            last_check="2026-10-05T12:00:00+00:00",
+        )
+        output = StringIO()
+        with patch.object(monitor_module, "herdr") as herdr, redirect_stdout(output):
+            result = monitor_module.main(["list"])
+
+        self.assertEqual(result, 0)
+        self.assertIn("discovery is stale", output.getvalue())
+        self.assertIn("Error: discovery failed", output.getvalue())
+        self.assertNotIn("w4:p1", output.getvalue())
+        self.assertIn("V-GPU:1:codex-gpu", output.getvalue())
+        self.assertNotIn("w4:p", output.getvalue())
+        herdr.assert_not_called()
+
+    def test_list_reports_inactive_even_with_stale_snapshot(self) -> None:
+        state = monitor_module.RuntimeState()
+        state.write_status(
+            status="watching",
+            message="Resume",
+            dry_run=False,
+            panes=("V-GPU:1:codex-gpu",),
+            last_check="2026-10-05T12:00:00+00:00",
+        )
+        output = StringIO()
+        with patch.object(monitor_module, "herdr") as herdr, redirect_stdout(output):
+            result = monitor_module.main(["list"])
+
+        self.assertEqual(result, 1)
+        self.assertEqual(output.getvalue().strip(), "Monitor is not running")
+        herdr.assert_not_called()
+
+    def test_once_cleans_status_but_keeps_lock_file(self) -> None:
+        with patch.object(monitor_module, "inventory", return_value=[]), patch.object(
+            monitor_module, "herdr"
+        ):
+            result = monitor_module.main(["resume", "--once"])
+
+        state = monitor_module.RuntimeState()
+        self.assertEqual(result, 0)
+        self.assertFalse(state.status_path.exists())
+        self.assertTrue(state.lock_path.exists())
+
+    def test_duplicate_monitor_is_denied_before_discovery(self) -> None:
+        state = monitor_module.RuntimeState()
+        state.acquire()
+        self.addCleanup(state.release)
+        with patch.object(monitor_module, "inventory") as inventory, patch.object(
+            monitor_module, "herdr"
+        ) as herdr, redirect_stderr(StringIO()):
+            result = monitor_module.main(["resume", "--once"])
+
+        self.assertEqual(result, 1)
+        inventory.assert_not_called()
+        herdr.assert_not_called()
+
+    def test_uncertain_send_returns_exit_code_two(self) -> None:
+        panes = [make_pane("pane-1")]
+        agents = [{"pane_id": "pane-1", "agent": "codex"}]
+        tabs = [make_tab("tab-1", "first")]
+        workspaces = [make_workspace()]
+
+        def fake_inventory(kind: str) -> list[dict[str, str]]:
+            return {
+                "pane": panes,
+                "agent": agents,
+                "tab": tabs,
+                "workspace": workspaces,
+            }[kind]
+
+        def fake_herdr(*args: str) -> str:
+            if args[:2] == ("pane", "read"):
+                return real_capacity_error(("context-1", "context-2", "context-3"))
+            raise monitor_module.HerdrError("send outcome uncertain")
+
+        error = StringIO()
+        with patch.object(monitor_module, "inventory", side_effect=fake_inventory), patch.object(
+            monitor_module, "herdr", side_effect=fake_herdr
+        ), patch.object(
+            monitor_module.RuntimeState,
+            "clear_status",
+            side_effect=OSError("cleanup failed"),
+        ), redirect_stderr(error), redirect_stdout(StringIO()):
+            result = monitor_module.main(["resume", "--once"])
+
+        self.assertEqual(result, 2)
+        self.assertIn("Input delivery uncertain", error.getvalue())
+
+    def test_once_dry_run_bypasses_lock_and_state(self) -> None:
+        state = monitor_module.RuntimeState()
+        state.acquire()
+        self.addCleanup(state.release)
+        with patch.object(monitor_module, "inventory", return_value=[]), patch.object(
+            monitor_module, "herdr"
+        ) as herdr, redirect_stdout(StringIO()):
+            result = monitor_module.main(["resume", "--once", "--dry-run"])
+
+        self.assertEqual(result, 0)
+        state_snapshot, error = state.read_status()
+        self.assertIsNone(state_snapshot)
+        self.assertIn("not available", error)
         herdr.assert_not_called()
 
 
