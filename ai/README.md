@@ -43,7 +43,7 @@ machine, workspace, tab, pane, and current state.
 | --- | --- | --- |
 | `blocked` | Blinking red | Waiting for an answer or approval |
 | `done` | Green | Completed; Herdr has not marked the result as seen |
-| `working` | Gently pulsing blue | Working |
+| `working` | Steady blue | Working |
 | `unknown` | Yellow | Herdr cannot classify the agent's state |
 | `idle` | Gray | Ready for another instruction |
 

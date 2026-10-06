@@ -52,7 +52,11 @@ export async function run() {
         'Blocked indicator did not blink');
     check(widget._panelDots.find(({state}) => state === 'done').dot.opacity === 255,
         'Done should remain steady while blocked blinks');
+    for (const {dot} of widget._panelDots.filter(({state}) => state === 'working'))
+        check(dot.opacity === 255, 'Working dots should remain steady while blocked blinks');
     widget._indicator.menu.close();
+    widget._render({...data, agents: agents.filter(agent => agent.state !== 'blocked')});
+    check(!widget._blinkSource, 'Working agents must not start an animation timer');
     check(collector.calls === 0, 'Opening the menu triggered a poll');
     await Promise.all([widget._refresh(), widget._refresh()]);
     check(collector.calls === 1, 'Overlapping refreshes were not suppressed');

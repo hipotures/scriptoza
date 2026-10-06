@@ -140,7 +140,7 @@ export default class CodexStatus extends Extension {
             dot.remove_all_transitions();
             dot.opacity = 255;
         }
-        if (!this._panelDots.some(({state}) => state === 'blocked' || state === 'working'))
+        if (!this._panelDots.some(({state}) => state === 'blocked'))
             return;
         let dim = false;
         this._blinkSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 600, () => {
@@ -148,9 +148,6 @@ export default class CodexStatus extends Extension {
             for (const {state, dot} of this._panelDots) {
                 if (state === 'blocked')
                     dot.opacity = dim ? 70 : 255;
-                else if (state === 'working')
-                    dot.ease({opacity: dim ? 130 : 255,
-                        duration: 550, mode: Clutter.AnimationMode.EASE_IN_OUT_SINE});
             }
             for (const dot of this._blockedDots)
                 dot.opacity = dim ? 70 : 255;
