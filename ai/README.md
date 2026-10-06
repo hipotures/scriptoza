@@ -51,7 +51,7 @@ The table order is also the menu's state priority. `done` means the turn
 finished, not necessarily that the task succeeded. Reading status does not
 change `done` to `idle`.
 
-Polling starts immediately and then runs every 10 seconds. A slow round never
+Polling starts immediately and then runs every 5 seconds. A slow round never
 overlaps the next round, and opening the menu does not trigger extra requests.
 Each round reads the enabled machine list once and requests one `api snapshot`
 per server, concurrently. Snapshots contain agent and layout names in one
@@ -61,7 +61,7 @@ also covers SSH child processes, and disabling the widget terminates their
 process groups. Unreachable remote machines are ignored: they have no
 rows or warning indicators and their agents do not contribute to counters.
 An unavailable remote profile is not queried again for 60 seconds, while active
-agents continue updating every 10 seconds. A recovered machine returns on the
+agents continue updating every 5 seconds. A recovered machine returns on the
 next retry. The Herdr CLI does not expose the client's sidebar connection
 state in its machine list; failed remote snapshot requests identify machines
 to ignore. A machine-list or local-server failure is still reported in the menu.

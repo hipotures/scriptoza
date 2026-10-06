@@ -87,7 +87,7 @@ collector._readJson = async args => {
     return {result: {snapshot: snapshot(['done'])}};
 };
 (async () => {
-    check(POLL_SECONDS === 10, 'Polling interval');
+    check(POLL_SECONDS === 5, 'Polling interval');
     let result = await collector.collect();
     check(result.agents.length === 2 && result.errors.length === 0, 'Local and remote Codexes');
     check(calls.some(args => args.join(' ') === '--machine gpu-id api snapshot'), 'Remote routing');

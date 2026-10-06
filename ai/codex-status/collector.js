@@ -5,7 +5,7 @@ import GLib from 'gi://GLib';
 
 import {cleanText, normalizeAgents} from './model.js';
 
-export const POLL_SECONDS = 10;
+export const POLL_SECONDS = 5;
 const OFFLINE_RETRY_SECONDS = 60;
 
 export class Collector {

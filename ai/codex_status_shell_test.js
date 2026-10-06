@@ -69,11 +69,11 @@ export async function run() {
     widget._collector.close();
     widget._collector = collector;
     widget._busy = false;
-    await pause(9500);
-    check(collector.calls === 1, 'Polled before 10 seconds');
+    await pause(4500);
+    check(collector.calls === 1, 'Polled before 5 seconds');
     await pause(900);
-    check(collector.calls === 2, 'Did not poll at 10 seconds');
-    check(GLib.get_monotonic_time() - pollStarted >= 10000000, 'Polling cadence');
+    check(collector.calls === 2, 'Did not poll at 5 seconds');
+    check(GLib.get_monotonic_time() - pollStarted >= 5000000, 'Polling cadence');
     widget.disable();
     check(!widget._pollSource && !widget._blinkSource && !widget._collector && !widget._indicator,
         'Disable did not release sources and actors');
