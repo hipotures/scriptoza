@@ -731,6 +731,50 @@ class MonitorTests(unittest.TestCase):
 
 
 class ExtraThoughtMenuTests(unittest.TestCase):
+    def test_two_option_menu_sends_key_one_once_and_rearms(self) -> None:
+        for marker in ("›", ">", "❯", ""):
+            for wrapped in (False, True):
+                with self.subTest(marker=marker, wrapped=wrapped):
+                    headline, dismiss, learn = monitor_module.EXTRA_THOUGHT_MENUS["1"]
+                    visible = "\n".join((headline, f"{marker} {dismiss}", learn))
+                    if wrapped:
+                        visible = visible.replace("request", "requ\nest").replace(
+                            "Dismiss", "Di\nsmiss"
+                        ).replace("Learn", "Le\narn")
+                    responses = iter((visible, visible, "prompt", visible))
+                    calls = []
+
+                    def fake_herdr(*args: str) -> str:
+                        calls.append(args)
+                        if args[:2] == ("pane", "read"):
+                            return next(responses)
+                        return ""
+
+                    monitor = monitor_module.Monitor("resume")
+                    with patch.object(monitor_module, "herdr", side_effect=fake_herdr), redirect_stdout(StringIO()):
+                        for _ in range(4):
+                            monitor.poll({"pane-1": make_pane("pane-1")})
+
+                    self.assertEqual(
+                        calls,
+                        [
+                            read_call("pane-1"),
+                            ("pane", "send-keys", "pane-1", "1"),
+                            read_call("pane-1"),
+                            read_call("pane-1"),
+                            read_call("pane-1"),
+                            ("pane", "send-keys", "pane-1", "1"),
+                        ],
+                    )
+
+    def test_two_option_menu_dry_run_reports_key_one(self) -> None:
+        visible = "\n".join(monitor_module.EXTRA_THOUGHT_MENUS["1"])
+        output = StringIO()
+        with patch.object(monitor_module, "herdr", return_value=visible) as herdr, redirect_stdout(output):
+            monitor_module.Monitor("resume", dry_run=True).poll({"pane-1": make_pane("pane-1")})
+        herdr.assert_called_once_with(*read_call("pane-1"))
+        self.assertIn("would press 1 (Dismiss and keep waiting)", output.getvalue())
+
     def test_complete_menu_sends_exact_key_two_without_enter(self) -> None:
         visible = extra_thought_menu(marker="›")
         calls: list[tuple[str, ...]] = []
@@ -804,11 +848,14 @@ class ExtraThoughtMenuTests(unittest.TestCase):
         )
 
     def test_incomplete_or_quoted_headline_without_exact_menu_does_not_send(self) -> None:
-        lines = monitor_module.EXTRA_THOUGHT_MENU_LINES
+        lines = monitor_module.EXTRA_THOUGHT_MENUS["2"]
         variants = {
             "missing option": "\n".join(lines[:3]),
             "quoted headline": "\n".join((f'"{lines[0]}"', *lines[1:])),
             "quoted and incomplete": "\n".join((f'"{lines[0]}"', lines[1], lines[2])),
+            "two-option missing learn more": "\n".join(monitor_module.EXTRA_THOUGHT_MENUS["1"][:2]),
+            "two-option quoted headline": "\n".join((f'"{lines[0]}"', *monitor_module.EXTRA_THOUGHT_MENUS["1"][1:])),
+            "mixed option numbering": "\n".join((lines[0], "1. Dismiss and keep waiting", "3. Learn more")),
         }
         for name, visible in variants.items():
             with self.subTest(name=name):

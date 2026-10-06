@@ -6,7 +6,8 @@
 
 - a capacity error, followed by the configured message and Enter;
 - the complete “Giving this request a little extra thought” menu, dismissed by
-  pressing option `2` without Enter while preserving the current model.
+  pressing “Dismiss and keep waiting” without Enter while preserving the current
+  model (option `1` in the two-option menu or `2` when a faster-model retry is offered).
 
 The runtime uses Python's standard library and the `herdr` executable in
 `PATH`. It connects to the current user's Herdr server, so it can run from any

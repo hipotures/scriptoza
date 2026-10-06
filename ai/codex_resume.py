@@ -19,21 +19,31 @@ from pathlib import Path
 CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model."
 # Herdr's visible text includes terminal line wrapping, even inside words.
 CAPACITY_PATTERN = re.compile(r"\s*".join(map(re.escape, CAPACITY_MESSAGE.replace(" ", ""))))
-EXTRA_THOUGHT_MENU_LINES = (
-    "Giving this request a little extra thought",
-    "1. Retry with a faster model",
-    "2. Dismiss and keep waiting",
-    "3. Learn more",
-)
-EXTRA_THOUGHT_MENU_PATTERNS = tuple(
-    re.compile(
-        r"^[^\S\n]*(?:[›>❯][^\S\n]*)?"
-        + r"\s*".join(map(re.escape, line.replace(" ", "")))
-        + r"[^\S\n]*$",
-        re.MULTILINE,
+EXTRA_THOUGHT_MENUS = {
+    "1": (
+        "Giving this request a little extra thought",
+        "1. Dismiss and keep waiting",
+        "2. Learn more",
+    ),
+    "2": (
+        "Giving this request a little extra thought",
+        "1. Retry with a faster model",
+        "2. Dismiss and keep waiting",
+        "3. Learn more",
+    ),
+}
+EXTRA_THOUGHT_MENU_PATTERNS = {
+    key: tuple(
+        re.compile(
+            r"^[^\S\n]*(?:[›>❯][^\S\n]*)?"
+            + r"\s*".join(map(re.escape, line.replace(" ", "")))
+            + r"[^\S\n]*$",
+            re.MULTILINE,
+        )
+        for line in lines
     )
-    for line in EXTRA_THOUGHT_MENU_LINES
-)
+    for key, lines in EXTRA_THOUGHT_MENUS.items()
+}
 UNNAMED_PANE = "Unnamed pane"
 UNNAMED_TAB = "Unnamed tab"
 UNNAMED_WORKSPACE = "Unnamed workspace"
@@ -382,21 +392,26 @@ class Monitor:
                 detail = str(exc).replace(pane_id, target)
                 log(f"Read failed for {target}; keeping detection state: {detail}")
                 continue
-            if all(pattern.search(visible) for pattern in EXTRA_THOUGHT_MENU_PATTERNS):
+            dismiss_key = next(
+                (key for key, patterns in EXTRA_THOUGHT_MENU_PATTERNS.items()
+                 if all(pattern.search(visible) for pattern in patterns)),
+                None,
+            )
+            if dismiss_key is not None:
                 if pane_id not in self.dismissed_menus:
                     log(f"Detected extra-thought menu in {target}")
                     # A timeout can still mean input was delivered; do not retry blindly.
                     self.dismissed_menus.add(pane_id)
                     if self.dry_run:
-                        log(f"DRY RUN {target}: would press 2 (Dismiss and keep waiting)")
+                        log(f"DRY RUN {target}: would press {dismiss_key} (Dismiss and keep waiting)")
                     else:
                         try:
-                            herdr("pane", "send-keys", pane_id, "2")
+                            herdr("pane", "send-keys", pane_id, dismiss_key)
                         except HerdrError as exc:
                             raise UncertainSendError(
                                 f"Input delivery uncertain for {target}: {exc}"
                             ) from exc
-                        log(f"Sent key 2 signal to {target}: Dismiss and keep waiting")
+                        log(f"Sent key {dismiss_key} signal to {target}: Dismiss and keep waiting")
                 elif self.dry_run:
                     log(f"DRY RUN {target}: already handled extra-thought menu")
                 continue
