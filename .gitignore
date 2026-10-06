@@ -42,6 +42,11 @@ tests/data/
 !ai/README.md
 !ai/*.py
 !ai/*.service
+!ai/*.js
+!ai/codex-status/
+!ai/codex-status/*.js
+!ai/codex-status/*.json
+!ai/codex-status/*.css
 
 # Allow the Firefox yt-dlp downloader
 !firefox-yt/

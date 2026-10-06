@@ -1,0 +1,25 @@
+.codex-status-panel {
+    spacing: 5px;
+}
+
+.codex-status-scroll {
+    max-height: 420px;
+    min-width: 400px;
+}
+
+.codex-status-heading {
+    font-weight: bold;
+}
+
+.codex-status-row {
+    spacing: 12px;
+}
+
+.codex-status-footer {
+    font-size: 0.85em;
+    color: #b0b0b0;
+}
+
+.codex-status-error {
+    color: #f8e45c;
+}

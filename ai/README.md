@@ -1,5 +1,86 @@
 # AI Utilities
 
+## GNOME Codex Status
+
+`codex-status/` is a GNOME Shell 50 extension written in JavaScript/GJS. It
+shows local Codex agents and Codex agents on every enabled saved Herdr machine.
+It reads agent status directly from Herdr and runs independently of
+`codex-resume`; it never sends input, marks completions as seen, or controls
+services.
+It requires `herdr` and GNU coreutils `timeout` in the user's executable paths.
+
+Install and enable it for your user:
+
+```bash
+bash ai/install_codex_status.sh
+```
+
+Log out and log back in after installing or updating it. GNOME Shell 50 loads
+extension code at session startup and does not support reloading it through
+the old `ReloadExtension` D-Bus method. Existing enabled extensions are preserved.
+The installer copies only this widget's files into
+`~/.local/share/gnome-shell/extensions/codex-status@scriptoza/` (or under
+`XDG_DATA_HOME` when set).
+
+The panel shows the highest-priority state and its count out of the total
+number of agents, for example a red `1/6` means one of six agents needs attention.
+Click it to see every agent's machine, workspace, tab, pane, and current state.
+
+| Herdr state | Appearance | Meaning |
+| --- | --- | --- |
+| `blocked` | Blinking red | Waiting for an answer or approval |
+| `done` | Green | Completed; Herdr has not marked the result as seen |
+| `working` | Gently pulsing blue | Working |
+| `unknown` | Yellow | Herdr cannot classify the agent's state |
+| `idle` | Gray | Ready for another instruction |
+| Local connection unavailable | Dim gray, crossed circle | Local Herdr could not be read |
+
+The table order is also the panel's state priority. `done` means the turn
+finished, not necessarily that the task succeeded. Reading status does not
+change `done` to `idle`.
+
+Polling starts immediately and then runs every 10 seconds. A slow round never
+overlaps the next round, and opening the menu does not trigger extra requests.
+Each round reads the enabled machine list once and requests one `api snapshot`
+per server, concurrently. Snapshots contain agent and layout names in one
+response. Subprocess communication is asynchronous; an 8-second timeout stops
+unresponsive requests, with a one-second termination grace period. The timeout
+also covers SSH child processes, and disabling the widget terminates their
+process groups. Unreachable remote machines are ignored: they have no
+rows or warning indicators and their agents do not contribute to counters.
+An unavailable remote profile is not queried again for 60 seconds, while active
+agents continue updating every 10 seconds. A recovered machine returns on the
+next retry. The Herdr CLI does not expose the client's sidebar connection
+state in its machine list; failed remote snapshot requests identify machines
+to ignore. A machine-list or local-server failure is still reported in the menu.
+Disabling the extension removes timers, destroys its panel/menu, and stops its
+pending commands.
+
+The menu footer shows the update time, total polling latency, and time spent
+parsing JSON. Run the standalone GJS benchmark for three rounds and their mean:
+
+```bash
+gjs -m ai/codex_status_benchmark.js
+```
+
+On the development machine, six agents across local and remote servers required
+approximately 45 KB of JSON per round. The first round took 4.18 seconds and
+eight requests, including an unreachable SSH machine. The next two rounds
+skipped that machine and took 323 and 328 ms (326 ms mean), with seven requests
+each. JSON parsing averaged 0.63 ms in those rounds, approximately 0.2% of their
+latency. The standalone three-round benchmark and its child processes used 0.49
+seconds of CPU over 24.92 seconds and peaked at 32 MB RSS. These are measurements
+of this machine/network, not guaranteed timings or GNOME Shell memory overhead.
+
+Offline collector/model tests run with the repository's unittest suite when
+`gjs` is installed. Rendering, blinking, and cleanup can also be verified in an
+isolated headless GNOME Shell:
+
+```bash
+gnome-extensions pack ai/codex-status --extra-source=collector.js --extra-source=model.js --out-dir=/tmp --force
+dbus-run-session -- gnome-shell-test-tool --headless --extension /tmp/codex-status@scriptoza.shell-extension.zip ai/codex_status_shell_test.js
+```
+
 ## Codex Resume
 
 `codex_resume.py` monitors Codex panes and responds to two visible states:

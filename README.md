@@ -39,6 +39,7 @@ Collection of small utility scripts organized by category. Each category has its
 ### AI (ai/)
 
 - `codex_resume.py` - Monitors visible Codex panes through Herdr, resumes capacity errors, and dismisses the extra-thought wait menu
+- `codex-status/` - GNOME top panel indicator for local and remote Herdr Codex agent states
 
 ### Firefox (firefox-yt/)
 
