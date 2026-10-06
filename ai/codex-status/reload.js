@@ -1,7 +1,6 @@
 'use strict';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import St from 'gi://St';
 
 export async function reload() {
     const extension = Main.extensionManager.lookup('codex-status@scriptoza');
@@ -12,10 +11,6 @@ export async function reload() {
     const previous = extension.stateObj;
     previous.disable();
     try {
-        const theme = St.ThemeContext.get_for_stage(global.stage).get_theme();
-        const stylesheet = extension.dir.get_child('stylesheet.css');
-        theme.unload_stylesheet(stylesheet);
-        theme.load_stylesheet(stylesheet);
         replacement.enable();
         extension.stateObj = replacement;
     } catch (error) {

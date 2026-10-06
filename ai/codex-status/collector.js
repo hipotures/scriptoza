@@ -66,25 +66,6 @@ export class Collector {
         }
     }
 
-    async listClients() {
-        const data = await this._readJson(['client', 'list', '--json'],
-            {requests: 0, parseMs: 0, bytes: 0});
-        if (!Array.isArray(data.clients) || data.clients.some(client =>
-            !Number.isInteger(client.pid) || client.pid <= 0 ||
-            !Array.isArray(client.ancestor_pids) || client.ancestor_pids.some(pid =>
-                !Number.isInteger(pid) || pid <= 0)))
-            throw new Error('Invalid Herdr client list');
-        return data.clients;
-    }
-
-    async focusClient(pid, agent) {
-        const data = await this._readJson(['client', 'focus', '--client-pid', String(pid),
-            '--endpoint', agent.serverId, '--pane', agent.paneId],
-        {requests: 0, parseMs: 0, bytes: 0});
-        if (data.accepted !== true)
-            throw new Error('Herdr did not accept the navigation request');
-    }
-
     async collect() {
         const start = GLib.get_monotonic_time();
         const metrics = {requests: 0, bytes: 0, parseMs: 0, totalMs: 0};

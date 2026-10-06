@@ -45,22 +45,6 @@ export async function run() {
         'Agents sharing the same status have separate dots');
     for (const {state, dot} of widget._panelDots)
         check(state !== 'idle' && dot.text === '●', 'Panel contains only dots, with idle hidden');
-    const rows = [];
-    function findRows(actor) {
-        if (actor.has_style_class_name?.('codex-status-row'))
-            rows.push(actor);
-        for (const child of actor.get_children())
-            findRows(child);
-    }
-    findRows(widget._indicator.menu.box);
-    check(rows.length === agents.length && rows.every(row => row.reactive && row.can_focus),
-        'Every agent row must support pointer and keyboard activation');
-    const focusAgent = widget._focusAgent;
-    let activated = null;
-    widget._focusAgent = agent => { activated = agent; };
-    rows[0].emit('activate', null);
-    check(activated?.state === 'blocked', 'Clickable row must navigate to its own agent');
-    widget._focusAgent = focusAgent;
     check(widget._indicator.accessible_name.includes('1 Idle'), 'Idle remains in the full agent list');
     widget._indicator.menu.open();
     await pause(700);

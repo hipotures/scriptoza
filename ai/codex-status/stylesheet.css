@@ -15,11 +15,6 @@
     spacing: 12px;
 }
 
-.codex-status-row:hover, .codex-status-row:focus, .codex-status-row:active {
-    background-color: rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
-}
-
 .codex-status-footer {
     font-size: 0.85em;
     color: #b0b0b0;
