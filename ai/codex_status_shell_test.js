@@ -21,7 +21,9 @@ export async function run() {
     await pause(1500);
     const extension = Main.extensionManager.lookup('codex-status@scriptoza');
     check(extension?.state === 1, 'Extension did not enable');
+    await (await import(extension.dir.get_child('reload.js').get_uri())).reload();
     const widget = extension.stateObj;
+    check(widget._indicator.get_first_child().get_n_children() === 5, 'Panel should not contain a terminal icon');
     widget._collector.close();
     const collector = {close() {}, calls: 0, async collect() {
         this.calls++;
@@ -37,9 +39,14 @@ export async function run() {
     for (let index = 0; index < 30; index++)
         widget._render(data);
     check(widget._indicator.menu.box.get_n_children() === 5, 'Menu leaked children');
+    check(widget._panelStates.size === 4 && !widget._panelStates.has('idle'), 'Idle is hidden only on the panel');
+    for (const {group, count} of widget._panelStates.values())
+        check(group.visible && count.text === '1', 'Each non-idle state has its own counter');
+    check(widget._indicator.accessible_name.includes('1 Idle'), 'Idle remains in the full agent list');
     widget._indicator.menu.open();
     await pause(700);
-    check(widget._dot.opacity === 70, 'Blocked indicator did not blink');
+    check(widget._panelStates.get('blocked').dot.opacity === 70, 'Blocked indicator did not blink');
+    check(widget._panelStates.get('done').dot.opacity === 255, 'Done should remain steady while blocked blinks');
     widget._indicator.menu.close();
     check(collector.calls === 0, 'Opening the menu triggered a poll');
     await Promise.all([widget._refresh(), widget._refresh()]);

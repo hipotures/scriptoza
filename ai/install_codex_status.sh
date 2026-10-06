@@ -11,7 +11,7 @@ if [[ "$shell_version" != "GNOME Shell 50."* ]]; then
 fi
 
 install -d "$target_dir"
-for filename in metadata.json extension.js collector.js model.js stylesheet.css; do
+for filename in metadata.json extension.js collector.js model.js reload.js stylesheet.css; do
     install -m 644 "$source_dir/$filename" "$target_dir/$filename"
 done
 
@@ -24,7 +24,7 @@ imports.gi.Gio.Settings.sync();'
 if gnome-extensions info "$extension_id" >/dev/null 2>&1; then
     gnome-extensions enable "$extension_id"
     gnome-extensions info "$extension_id"
-    echo "Log out and log back in to load updated extension code."
+    echo "Reload panel code through Looking Glass as described in ai/README.md, or log out and log back in."
 else
     echo "Installed and enabled for the next GNOME session. Log out and log back in to load the extension."
 fi

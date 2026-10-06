@@ -18,14 +18,22 @@ export default class CodexStatus extends Extension {
         this._busy = false;
         this._blinkSource = 0;
         this._pollSource = 0;
-        this._state = 'unknown';
+        this._counts = {};
         this._indicator = new PanelMenu.Button(0.0, 'Codex agent status', false);
         const box = new St.BoxLayout({style_class: 'codex-status-panel'});
-        box.add_child(new St.Icon({icon_name: 'utilities-terminal-symbolic', style_class: 'system-status-icon'}));
-        this._dot = new St.Label({text: '●', y_align: Clutter.ActorAlign.CENTER});
-        this._count = new St.Label({text: '…', y_align: Clutter.ActorAlign.CENTER});
-        box.add_child(this._dot);
-        box.add_child(this._count);
+        this._panelStates = new Map();
+        for (const state of ['blocked', 'done', 'working', 'unknown']) {
+            const group = new St.BoxLayout({style: 'spacing: 4px;', visible: false});
+            const dot = new St.Label({text: '●', style: `color: ${STATES[state].color};`,
+                y_align: Clutter.ActorAlign.CENTER});
+            const count = new St.Label({text: '0', y_align: Clutter.ActorAlign.CENTER});
+            group.add_child(dot);
+            group.add_child(count);
+            box.add_child(group);
+            this._panelStates.set(state, {group, dot, count});
+        }
+        this._emptyCount = new St.Label({text: '…', y_align: Clutter.ActorAlign.CENTER});
+        box.add_child(this._emptyCount);
         this._indicator.add_child(box);
         this._indicator.menu.addMenuItem(new PopupMenu.PopupMenuItem('Checking Codex agents…', {reactive: false}));
         Main.panel.addToStatusArea(this.uuid, this._indicator);
@@ -47,8 +55,8 @@ export default class CodexStatus extends Extension {
         this._collector = null;
         this._indicator?.destroy();
         this._indicator = null;
-        this._dot = null;
-        this._count = null;
+        this._panelStates = null;
+        this._emptyCount = null;
         this._blockedDots = [];
     }
 
@@ -74,10 +82,16 @@ export default class CodexStatus extends Extension {
 
     _render({agents, errors, metrics}) {
         const summary = summarize(agents, errors);
-        this._state = summary.state;
-        this._dot.set_text(summary.state === 'offline' ? '⊗' : '●');
-        this._dot.set_style(`color: ${STATES[summary.state].color};`);
-        this._count.set_text(summary.total ? `${summary.count}/${summary.total}` : '0');
+        this._counts = summary.counts;
+        let visibleStates = 0;
+        for (const [state, {group, count}] of this._panelStates) {
+            group.visible = summary.counts[state] > 0;
+            count.set_text(String(summary.counts[state]));
+            if (group.visible)
+                visibleStates++;
+        }
+        this._emptyCount.visible = visibleStates === 0;
+        this._emptyCount.set_text(errors.length > 0 ? '⊗' : '0');
         this._indicator.accessible_name = `Codex: ${Object.entries(summary.counts)
             .filter(([, count]) => count > 0).map(([state, count]) => `${count} ${STATES[state].label}`).join(', ') || 'No agents'}`;
         this._indicator.menu.removeAll();
@@ -134,20 +148,23 @@ export default class CodexStatus extends Extension {
         if (this._blinkSource)
             GLib.Source.remove(this._blinkSource);
         this._blinkSource = 0;
-        this._dot.remove_all_transitions();
-        this._dot.opacity = 255;
-        if (this._state !== 'blocked' && this._state !== 'working')
+        for (const {dot} of this._panelStates.values()) {
+            dot.remove_all_transitions();
+            dot.opacity = 255;
+        }
+        if (!this._counts.blocked && !this._counts.working)
             return;
         let dim = false;
         this._blinkSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 600, () => {
             dim = !dim;
-            if (this._state === 'blocked') {
-                this._dot.opacity = dim ? 70 : 255;
+            if (this._counts.blocked) {
+                this._panelStates.get('blocked').dot.opacity = dim ? 70 : 255;
                 for (const dot of this._blockedDots)
-                    dot.opacity = this._dot.opacity;
-            } else {
-                this._dot.ease({opacity: dim ? 130 : 255, duration: 550, mode: Clutter.AnimationMode.EASE_IN_OUT_SINE});
+                    dot.opacity = dim ? 70 : 255;
             }
+            if (this._counts.working)
+                this._panelStates.get('working').dot.ease({opacity: dim ? 130 : 255,
+                    duration: 550, mode: Clutter.AnimationMode.EASE_IN_OUT_SINE});
             return GLib.SOURCE_CONTINUE;
         });
     }

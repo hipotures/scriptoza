@@ -22,9 +22,21 @@ The installer copies only this widget's files into
 `~/.local/share/gnome-shell/extensions/codex-status@scriptoza/` (or under
 `XDG_DATA_HOME` when set).
 
-The panel shows the highest-priority state and its count out of the total
-number of agents, for example a red `1/6` means one of six agents needs attention.
-Click it to see every agent's machine, workspace, tab, pane, and current state.
+For an already loaded widget, panel code can be updated without logging out:
+install the updated files, press Alt+F2, enter `lg`, then paste this into the
+Looking Glass evaluator (adjust the home directory or `XDG_DATA_HOME` if needed):
+
+```javascript
+await (await import('file:///home/user/.local/share/gnome-shell/extensions/codex-status@scriptoza/reload.js')).reload()
+```
+
+This reloads the panel module while retaining GNOME's extension registration.
+Collector/model changes and stylesheet changes require a new session.
+
+The panel shows separate colored counters for every nonempty `blocked`, `done`,
+`working`, and `unknown` state. Idle counters are hidden from the panel.
+Click it to see the complete list, including idle agents, with each agent's
+machine, workspace, tab, pane, and current state.
 
 | Herdr state | Appearance | Meaning |
 | --- | --- | --- |
@@ -35,7 +47,7 @@ Click it to see every agent's machine, workspace, tab, pane, and current state.
 | `idle` | Gray | Ready for another instruction |
 | Local connection unavailable | Dim gray, crossed circle | Local Herdr could not be read |
 
-The table order is also the panel's state priority. `done` means the turn
+The table order is also the menu's state priority. `done` means the turn
 finished, not necessarily that the task succeeded. Reading status does not
 change `done` to `idle`.
 
@@ -77,7 +89,7 @@ Offline collector/model tests run with the repository's unittest suite when
 isolated headless GNOME Shell:
 
 ```bash
-gnome-extensions pack ai/codex-status --extra-source=collector.js --extra-source=model.js --out-dir=/tmp --force
+gnome-extensions pack ai/codex-status --extra-source=collector.js --extra-source=model.js --extra-source=reload.js --out-dir=/tmp --force
 dbus-run-session -- gnome-shell-test-tool --headless --extension /tmp/codex-status@scriptoza.shell-extension.zip ai/codex_status_shell_test.js
 ```
 
