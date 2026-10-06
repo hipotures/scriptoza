@@ -5,8 +5,8 @@
 `codex-status/` is a GNOME Shell 50 extension written in JavaScript/GJS. It
 shows local Codex agents and Codex agents on every enabled saved Herdr machine.
 It reads agent status directly from Herdr and runs independently of
-`codex-resume`; it never sends input, marks completions as seen, or controls
-services.
+`codex-resume`. Background polling never sends input, marks completions as seen,
+or controls services. Clicking an agent explicitly focuses it in Herdr.
 It requires `herdr` and GNU coreutils `timeout` in the user's executable paths.
 
 Install and enable it for your user:
@@ -27,17 +27,29 @@ install the updated files, press Alt+F2, enter `lg`, then paste this into the
 Looking Glass evaluator (adjust the home directory or `XDG_DATA_HOME` if needed):
 
 ```javascript
-await (await import('file:///home/user/.local/share/gnome-shell/extensions/codex-status@scriptoza/reload.js')).reload()
+await (await import('file:///home/user/.local/share/gnome-shell/extensions/codex-status@scriptoza/reload.js?revision=' + Date.now())).reload()
 ```
 
-This reloads the panel module while retaining GNOME's extension registration.
-Collector/model changes and stylesheet changes require a new session.
+This reloads the panel, collector, navigation code, and stylesheet while retaining
+GNOME's extension registration. Model changes require a new session.
 
 The panel shows one colored dot per non-idle agent, with no icon or counters.
-Agents sharing a state have separate dots. Idle agents are hidden from the panel;
-if every agent is idle, the indicator is hidden until another state appears.
+Agents sharing a state have separate dots. Idle agents are hidden from the panel
+while any other state is present. If all agents are idle, every idle agent has
+its own gray dot so the full list remains accessible.
 Click it to see the complete list, including idle agents, with each agent's
 machine, workspace, tab, pane, and current state.
+
+Agent rows highlight across their full width and are clickable. Clicking a row
+switches the existing Herdr client to the agent's machine and pane and raises
+its terminal window. This requires a Herdr build supporting `client list --json`
+and `client focus --client-pid PID --endpoint ID --pane ID`. After updating Herdr,
+detach and reopen its TUI client to load that support; keep its server and agents
+running. The widget chooses the most recently used terminal window with a
+registered Herdr client. Multiple clients in the same terminal window are
+ambiguous and produce a notification instead of navigating to the wrong client.
+The same applies to multiple windows sharing a terminal server process when
+their process IDs cannot identify the Herdr window uniquely.
 
 | Herdr state | Appearance | Meaning |
 | --- | --- | --- |
@@ -89,7 +101,7 @@ Offline collector/model tests run with the repository's unittest suite when
 isolated headless GNOME Shell:
 
 ```bash
-gnome-extensions pack ai/codex-status --extra-source=collector.js --extra-source=model.js --extra-source=reload.js --out-dir=/tmp --force
+gnome-extensions pack ai/codex-status --extra-source=collector.js --extra-source=model.js --extra-source=navigation.js --extra-source=reload.js --out-dir=/tmp --force
 dbus-run-session -- gnome-shell-test-tool --headless --extension /tmp/codex-status@scriptoza.shell-extension.zip ai/codex_status_shell_test.js
 ```
 

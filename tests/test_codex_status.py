@@ -18,6 +18,7 @@ import GLib from 'gi://GLib';
 import System from 'system';
 import {{normalizeAgents, summarize, sortAgents}} from '{(EXTENSION / 'model.js').as_uri()}';
 import {{Collector, POLL_SECONDS}} from '{(EXTENSION / 'collector.js').as_uri()}';
+import {{selectClientWindow}} from '{(EXTENSION / 'navigation.js').as_uri()}';
 function check(condition, message) {{ if (!condition) throw new Error(message); }}
 function snapshot(states = ['working']) {{
     return {{
@@ -37,6 +38,58 @@ function snapshot(states = ['working']) {{
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("CRITICAL", result.stderr)
+
+    def test_navigation_matches_terminal_process_ancestry(self):
+        self.run_gjs("""
+const clients = [{pid: 50, ancestor_pids: [20, 1]}, {pid: 51, ancestor_pids: [21, 1]}];
+const first = {};
+const second = {};
+const windows = [{pid: 20, userTime: 10, window: first}, {pid: 21, userTime: 30, window: second},
+    {pid: 80, userTime: 50, window: {}}];
+const selected = selectClientWindow(clients, windows);
+check(selected.pid === 51 && selected.window === second, 'Most recently used Herdr window');
+let rejected = false;
+try { selectClientWindow(clients, [{pid: 80}]); } catch { rejected = true; }
+check(rejected, 'Do not raise unrelated desktop windows');
+rejected = false;
+try { selectClientWindow([...clients, {pid: 52, ancestor_pids: [21]}], windows); }
+catch { rejected = true; }
+check(rejected, 'Do not select an ambiguous client in a terminal window');
+rejected = false;
+try { selectClientWindow(clients, [...windows, {pid: 21, userTime: 40, window: {}}]); }
+catch { rejected = true; }
+check(rejected, 'Do not raise unrelated windows sharing a terminal server process');
+""")
+
+    def test_navigation_routes_to_local_client_with_explicit_remote_identity(self):
+        self.run_gjs("""
+const loop = new GLib.MainLoop(null, false);
+const collector = new Collector();
+const calls = [];
+let accepted = true;
+collector._readJson = async args => {
+    calls.push(args);
+    return args[1] === 'list' ? {clients: [{pid: 50, ancestor_pids: [20]}]} : {accepted};
+};
+(async () => {
+    check((await collector.listClients())[0].pid === 50, 'Discover client');
+    await collector.focusClient(50, {serverId: 'gpu-id', paneId: 'w1:p0'});
+    check(calls[1].join(' ') === 'client focus --client-pid 50 --endpoint gpu-id --pane w1:p0',
+        'Remote identity routed through local TUI, not a remote server command');
+    await collector.focusClient(50, {serverId: 'local', paneId: 'w1:p0'});
+    check(calls[2].includes('local'), 'Local identity remains explicit');
+    accepted = false;
+    let rejected = false;
+    try { await collector.focusClient(50, {serverId: 'local', paneId: 'gone'}); }
+    catch { rejected = true; }
+    check(rejected, 'Rejected navigation must not appear successful');
+    collector._readJson = async () => ({clients: [{pid: 0, ancestor_pids: []}]});
+    rejected = false;
+    try { await collector.listClients(); } catch { rejected = true; }
+    check(rejected, 'Malformed clients rejected');
+})().catch(error => { printerr(error.stack); System.exit(1); }).finally(() => { collector.close(); loop.quit(); });
+loop.run();
+""")
 
     def test_statuses_priority_and_unknown_values(self):
         self.run_gjs("""

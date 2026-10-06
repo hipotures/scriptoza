@@ -10,12 +10,14 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 const {Collector, POLL_SECONDS} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
+const {selectClientWindow} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 import {STATES, sortAgents, summarize} from './model.js';
 
 export default class CodexStatus extends Extension {
     enable() {
         this._collector = new Collector();
         this._busy = false;
+        this._navigating = false;
         this._blinkSource = 0;
         this._pollSource = 0;
         this._indicator = new PanelMenu.Button(0.0, 'Codex agent status', false);
@@ -72,7 +74,9 @@ export default class CodexStatus extends Extension {
         const summary = summarize(agents, errors);
         this._panelBox.destroy_all_children();
         this._panelDots = [];
-        for (const agent of sortAgents(agents).filter(agent => agent.state !== 'idle')) {
+        const sorted = sortAgents(agents);
+        const active = sorted.filter(agent => agent.state !== 'idle');
+        for (const agent of active.length ? active : sorted) {
             const dot = new St.Label({text: '●', style: `color: ${STATES[agent.state].color};`,
                 accessible_name: `${agent.location}: ${STATES[agent.state].label}`,
                 y_align: Clutter.ActorAlign.CENTER});
@@ -91,13 +95,14 @@ export default class CodexStatus extends Extension {
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         const section = new PopupMenu.PopupMenuSection();
-        const scroll = new St.ScrollView({style_class: 'codex-status-scroll', overlay_scrollbars: true});
+        const scroll = new St.ScrollView({style_class: 'codex-status-scroll', overlay_scrollbars: true, x_expand: true});
         scroll.add_child(section.actor);
         const container = new PopupMenu.PopupBaseMenuItem({reactive: false});
         container.add_child(scroll);
         this._indicator.menu.addMenuItem(container);
         for (const agent of sortAgents(agents)) {
-            const row = new PopupMenu.PopupBaseMenuItem({reactive: false, style_class: 'codex-status-row'});
+            const row = new PopupMenu.PopupBaseMenuItem({style_class: 'codex-status-row'});
+            row.connect('activate', () => this._focusAgent(agent));
             const dot = new St.Label({
                 text: agent.state === 'offline' ? '⊗' : '●',
                 style: `color: ${STATES[agent.state].color};`,
@@ -130,6 +135,31 @@ export default class CodexStatus extends Extension {
         footer.label.add_style_class_name('codex-status-footer');
         this._indicator.menu.addMenuItem(footer);
         this._updateAnimation();
+    }
+
+    async _focusAgent(agent) {
+        if (this._navigating || !this._collector)
+            return;
+        this._navigating = true;
+        this._indicator.menu.close();
+        const collector = this._collector;
+        try {
+            const clients = await collector.listClients();
+            if (this._collector !== collector)
+                return;
+            const windows = global.get_window_actors().map(actor => actor.meta_window)
+                .map(window => ({pid: window.get_pid(), userTime: window.get_user_time(), window}));
+            const target = selectClientWindow(clients, windows);
+            await collector.focusClient(target.pid, agent);
+            if (this._collector === collector && target.window.get_compositor_private())
+                Main.activateWindow(target.window);
+        } catch (error) {
+            if (this._collector === collector)
+                Main.notify('Codex Status', `Cannot open ${agent.location}: ${error.message}`);
+        } finally {
+            if (this._collector === collector)
+                this._navigating = false;
+        }
     }
 
     _updateAnimation() {
