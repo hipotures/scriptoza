@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -83,9 +84,10 @@ def herdr(*args):
     return result.stdout
 
 
-def inventory(kind):
+def inventory(kind, machine=None):
+    prefix = ("--machine", machine) if machine else ()
     try:
-        return json.loads(herdr(kind, "list"))["result"][f"{kind}s"]
+        return json.loads(herdr(*prefix, kind, "list"))["result"][f"{kind}s"]
     except (ValueError, KeyError, TypeError) as exc:
         raise HerdrError(f"Invalid JSON from herdr {kind} list") from exc
 
@@ -117,12 +119,12 @@ def resolve_targets(kind, targets, tabs, panes):
     return selected
 
 
-def discover_targets(pane_targets, tab_targets):
-    panes = inventory("pane")
+def discover_targets(pane_targets, tab_targets, machine=None):
+    panes = inventory("pane", machine)
     codex_ids = {
-        agent["pane_id"] for agent in inventory("agent") if agent.get("agent") == "codex"
+        agent["pane_id"] for agent in inventory("agent", machine) if agent.get("agent") == "codex"
     }
-    tabs = inventory("tab")
+    tabs = inventory("tab", machine)
     selected = {pane["pane_id"]: pane for pane in panes if pane["pane_id"] in codex_ids}
     if pane_targets:
         selected.update(resolve_targets("pane", pane_targets, [], panes))
@@ -130,7 +132,7 @@ def discover_targets(pane_targets, tab_targets):
         selected.update(resolve_targets("tab", tab_targets, tabs, panes))
     workspace_names = {
         workspace.get("workspace_id"): workspace.get("label") or UNNAMED_WORKSPACE
-        for workspace in inventory("workspace")
+        for workspace in inventory("workspace", machine)
     }
     tab_names = {
         tab.get("tab_id"): _display_text(tab.get("label"))
@@ -148,6 +150,50 @@ def discover_targets(pane_targets, tab_targets):
         }
         for pane_id, pane in selected.items()
     }
+
+
+def machine_profiles():
+    try:
+        profiles = json.loads(herdr("machine", "list", "--json"))
+        if not isinstance(profiles, list):
+            raise ValueError("Expected a machine list")
+        return [profile for profile in profiles if profile["enabled"]]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HerdrError("Invalid JSON from herdr machine list") from exc
+
+
+def discover_all_targets(pane_targets, tab_targets, previous):
+    servers = [(None, "Local")] + [
+        (profile["id"], profile["label"]) for profile in machine_profiles()
+    ]
+    selected = {}
+    errors = {}
+    with ThreadPoolExecutor(max_workers=len(servers)) as executor:
+        futures = [
+            (machine, label, executor.submit(discover_targets, pane_targets, tab_targets, machine))
+            for machine, label in servers
+        ]
+        for machine, label, future in futures:
+            try:
+                panes = future.result()
+            except HerdrError as exc:
+                errors[label] = str(exc)
+                for key, pane in previous.items():
+                    if pane.get("machine_id") == machine:
+                        selected[key] = {**pane, "discovery_failed": True}
+                continue
+            for pane_id, pane in panes.items():
+                key = f"{machine}/{pane_id}" if machine else pane_id
+                selected[key] = {**pane, "machine_id": machine, "machine_name": label}
+    if len(errors) == len(servers):
+        raise HerdrError("; ".join(f"{label}: {error}" for label, error in errors.items()))
+    return selected, errors
+
+
+def pane_herdr(pane, command, *args):
+    machine = pane.get("machine_id")
+    prefix = ("--machine", machine) if machine else ()
+    return herdr(*prefix, "pane", command, pane["pane_id"], *args)
 
 
 def _display_text(value):
@@ -169,7 +215,9 @@ def describe_pane(pane):
     """Return a compact workspace, tab, and pane description."""
     workspace = _display_text(pane.get("workspace_name")) or UNNAMED_WORKSPACE
     tab = _display_text(pane.get("tab_name")) or UNNAMED_TAB
-    return f"{workspace}:{tab}:{_pane_name(pane)}"
+    description = f"{workspace}:{tab}:{_pane_name(pane)}"
+    machine = _display_text(pane.get("machine_name"))
+    return f"{machine}/{description}" if pane.get("machine_id") else description
 
 
 def runtime_directory():
@@ -347,6 +395,8 @@ def list_status():
             print("Last known panes:")
     else:
         panes = snapshot.get("panes", ())
+        if snapshot.get("error"):
+            print(f"Error: {_status_error(snapshot['error'])}")
     if isinstance(panes, list | tuple):
         for pane in panes:
             description = _display_text(pane)
@@ -386,10 +436,13 @@ class Monitor:
         self.pane_descriptions.update(current_descriptions)
         for pane_id in selected:
             target = current_descriptions[pane_id]
+            pane = selected[pane_id]
+            if pane.get("discovery_failed"):
+                continue
             try:
-                visible = herdr("pane", "read", pane_id, "--source", "visible", "--format", "text")
+                visible = pane_herdr(pane, "read", "--source", "visible", "--format", "text")
             except HerdrError as exc:
-                detail = str(exc).replace(pane_id, target)
+                detail = str(exc).replace(pane["pane_id"], target)
                 log(f"Read failed for {target}; keeping detection state: {detail}")
                 continue
             dismiss_key = next(
@@ -406,7 +459,7 @@ class Monitor:
                         log(f"DRY RUN {target}: would press {dismiss_key} (Dismiss and keep waiting)")
                     else:
                         try:
-                            herdr("pane", "send-keys", pane_id, dismiss_key)
+                            pane_herdr(pane, "send-keys", dismiss_key)
                         except HerdrError as exc:
                             raise UncertainSendError(
                                 f"Input delivery uncertain for {target}: {exc}"
@@ -457,7 +510,7 @@ class Monitor:
                     # One ordered submission, with Herdr handling bracketed paste.
                     # If this fails, exit: a timeout may still mean input was delivered.
                     try:
-                        herdr("pane", "run", pane_id, self.message)
+                        pane_herdr(pane, "run", self.message)
                     except HerdrError as exc:
                         raise UncertainSendError(
                             f"Input delivery uncertain for {target}: {exc}"
@@ -504,8 +557,8 @@ def main(argv=None):
     commands.add_parser("list", help="Show the live monitor status without contacting Herdr")
     commands.add_parser("logs", help="Show recent service logs and follow new entries; Ctrl+C to exit")
     resume = commands.add_parser(
-        "resume", help="Monitor all recognized Codex agents plus explicitly selected panes",
-        description="Monitor all recognized Codex agents plus selected panes/tabs, deduplicated by pane ID.",
+        "resume", help="Monitor Codex agents locally and on enabled Herdr machines",
+        description="Monitor all Codex agents locally and on enabled Herdr machines, plus selected panes/tabs.",
     )
     resume.add_argument(
         "--panes", type=selector_list, metavar="NAME,NAME,...",
@@ -550,6 +603,8 @@ def main(argv=None):
             return 1
 
     monitor = Monitor(args.message, args.dry_run)
+    selected = {}
+    discovery_errors = {}
     first = True
     stop_requested = threading.Event()
     previous_sigterm = None
@@ -585,7 +640,7 @@ def main(argv=None):
                 log("Monitor stopped")
                 return 0
             try:
-                selected = discover_targets(args.panes, args.tabs)
+                selected, errors = discover_all_targets(args.panes, args.tabs, selected)
             except HerdrError as exc:
                 if first or args.once:
                     raise
@@ -602,6 +657,12 @@ def main(argv=None):
                     last_check=_utc_now(),
                 )
             else:
+                for label, error in errors.items():
+                    if discovery_errors.get(label) != error:
+                        log(f"Discovery failed for {label}; keeping detection state: {error}")
+                for label in discovery_errors.keys() - errors.keys():
+                    log(f"Discovery recovered for {label}")
+                discovery_errors = errors
                 monitor.poll(selected)
                 _safe_status_update(
                     state,
@@ -610,7 +671,7 @@ def main(argv=None):
                     dry_run=args.dry_run,
                     panes=tuple(sorted(monitor.pane_descriptions.values())),
                     last_panes=(),
-                    error=None,
+                    error="; ".join(f"{label}: {error}" for label, error in errors.items()) or None,
                     last_check=_utc_now(),
                 )
             first = False

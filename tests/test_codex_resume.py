@@ -6,6 +6,7 @@ state transitions without opening a real pane or sending real input.
 
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+import json
 import os
 import tempfile
 import unittest
@@ -192,7 +193,7 @@ class DiscoveryTests(unittest.TestCase):
         workspaces = [make_workspace()]
         inventory_calls: list[str] = []
 
-        def fake_inventory(kind: str) -> list[dict[str, str]]:
+        def fake_inventory(kind: str, machine=None) -> list[dict[str, str]]:
             inventory_calls.append(kind)
             return {
                 "pane": panes,
@@ -226,7 +227,7 @@ class DiscoveryTests(unittest.TestCase):
         workspaces = [make_workspace()]
         inventory_calls: list[str] = []
 
-        def fake_inventory(kind: str) -> list[dict[str, str]]:
+        def fake_inventory(kind: str, machine=None) -> list[dict[str, str]]:
             inventory_calls.append(kind)
             return {"pane": panes, "agent": agents, "tab": tabs, "workspace": workspaces}[kind]
 
@@ -251,7 +252,7 @@ class DiscoveryTests(unittest.TestCase):
         tabs = [make_tab("tab-1", "", number=3)]
         workspaces = [make_workspace("workspace-named", "V-GPU")]
 
-        def fake_inventory(kind: str) -> list[dict[str, str]]:
+        def fake_inventory(kind: str, machine=None) -> list[dict[str, str]]:
             return {
                 "pane": panes,
                 "agent": agents,
@@ -266,6 +267,149 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(selected["pane-unnamed"]["workspace_name"], "Unnamed workspace")
         self.assertEqual(selected["pane-named"]["tab_name"], "3")
         self.assertEqual(selected["pane-unnamed"]["tab_name"], "3")
+
+
+class MachineDiscoveryTests(unittest.TestCase):
+    def test_machine_profiles_include_only_enabled_machines(self) -> None:
+        profiles = [
+            {"id": "gpu-id", "label": "gpu", "enabled": True},
+            {"id": "cpu-id", "label": "cpu", "enabled": False},
+        ]
+        with patch.object(monitor_module, "herdr", return_value=json.dumps(profiles)) as herdr:
+            self.assertEqual(monitor_module.machine_profiles(), profiles[:1])
+        herdr.assert_called_once_with("machine", "list", "--json")
+
+    def test_invalid_machine_inventory_is_fatal(self) -> None:
+        for response in ("invalid", "{}", '[{"id":"gpu"}]'):
+            with self.subTest(response=response), patch.object(monitor_module, "herdr", return_value=response):
+                with self.assertRaises(monitor_module.HerdrError):
+                    monitor_module.machine_profiles()
+
+    def test_remote_inventory_uses_machine_prefix(self) -> None:
+        with patch.object(monitor_module, "herdr", return_value='{"result":{"agents":[]}}') as herdr:
+            self.assertEqual(monitor_module.inventory("agent", "gpu-id"), [])
+        herdr.assert_called_once_with("--machine", "gpu-id", "agent", "list")
+
+    def test_all_servers_discover_agents_and_additional_selectors(self) -> None:
+        profiles = [{"id": "gpu-id", "label": "gpu", "enabled": True}]
+
+        def fake_inventory(kind, machine=None):
+            return {
+                "pane": [make_pane("w9:p1", label="codex"), make_pane("w9:p2", label="extra")],
+                "agent": [{"pane_id": "w9:p1", "agent": "codex"}],
+                "tab": [make_tab("tab-1", "1")],
+                "workspace": [make_workspace(label="phase1" if machine else "local")],
+            }[kind]
+
+        with patch.object(monitor_module, "machine_profiles", return_value=profiles), patch.object(
+            monitor_module, "inventory", side_effect=fake_inventory
+        ):
+            selected, errors = monitor_module.discover_all_targets(["extra"], ["1"], {})
+        self.assertEqual(errors, {})
+        self.assertEqual(set(selected), {"w9:p1", "w9:p2", "gpu-id/w9:p1", "gpu-id/w9:p2"})
+        self.assertEqual(monitor_module.describe_pane(selected["gpu-id/w9:p1"]), "gpu/phase1:1:codex")
+
+    def test_same_pane_id_on_multiple_servers_routes_input_and_deduplicates_independently(self) -> None:
+        local = make_pane("w9:p1")
+        remote = {**local, "machine_id": "gpu-id", "machine_name": "gpu"}
+        selected = {"w9:p1": local, "gpu-id/w9:p1": remote}
+        for visible, action in (
+            ("\n".join(monitor_module.EXTRA_THOUGHT_MENUS["1"]), ("send-keys", "1")),
+            (real_capacity_error(), ("run", "Resume")),
+        ):
+            with self.subTest(action=action):
+                calls = []
+
+                def fake_herdr(*args):
+                    calls.append(args)
+                    command = args[2:] if args[0] == "--machine" else args
+                    return visible if command[:2] == ("pane", "read") else ""
+
+                monitor = monitor_module.Monitor("Resume")
+                with patch.object(monitor_module, "herdr", side_effect=fake_herdr), redirect_stdout(StringIO()):
+                    monitor.poll(selected)
+                    monitor.poll(selected)
+                self.assertEqual(calls, [
+                    read_call("w9:p1"),
+                    ("pane", action[0], "w9:p1", action[1]),
+                    ("--machine", "gpu-id", *read_call("w9:p1")),
+                    ("--machine", "gpu-id", "pane", action[0], "w9:p1", action[1]),
+                    read_call("w9:p1"),
+                    ("--machine", "gpu-id", *read_call("w9:p1")),
+                ])
+
+    def test_failed_remote_discovery_preserves_state_without_input_and_recovers(self) -> None:
+        profiles = [{"id": "gpu-id", "label": "gpu", "enabled": True}]
+        remote = {**make_pane("w9:p1"), "machine_id": "gpu-id", "machine_name": "gpu"}
+        previous = {"gpu-id/w9:p1": remote}
+
+        def failed_discovery(panes, tabs, machine):
+            if machine:
+                raise monitor_module.HerdrError("unreachable")
+            return {"local": make_pane("local")}
+
+        monitor = monitor_module.Monitor("Resume")
+        monitor.dismissed_menus.add("gpu-id/w9:p1")
+        monitor.errors["gpu-id/w9:p1"] = (1, 1, "context")
+        monitor.pane_descriptions["gpu-id/w9:p1"] = monitor_module.describe_pane(remote)
+        with patch.object(monitor_module, "machine_profiles", return_value=profiles), patch.object(
+            monitor_module, "discover_targets", side_effect=failed_discovery
+        ):
+            selected, errors = monitor_module.discover_all_targets([], [], previous)
+        self.assertEqual(errors, {"gpu": "unreachable"})
+        self.assertTrue(selected["gpu-id/w9:p1"]["discovery_failed"])
+        with patch.object(monitor_module, "herdr", return_value="prompt") as herdr, redirect_stdout(StringIO()):
+            monitor.poll(selected)
+        herdr.assert_called_once_with(*read_call("local"))
+        self.assertIn("gpu-id/w9:p1", monitor.dismissed_menus)
+        self.assertEqual(monitor.errors["gpu-id/w9:p1"], (1, 1, "context"))
+
+        def recovered_discovery(panes, tabs, machine):
+            return {"w9:p1": make_pane("w9:p1")} if machine else {}
+
+        with patch.object(monitor_module, "machine_profiles", return_value=profiles), patch.object(
+            monitor_module, "discover_targets", side_effect=recovered_discovery
+        ):
+            selected, errors = monitor_module.discover_all_targets([], [], selected)
+        self.assertEqual(errors, {})
+        self.assertNotIn("discovery_failed", selected["gpu-id/w9:p1"])
+        visible = "\n".join(monitor_module.EXTRA_THOUGHT_MENUS["1"])
+        with patch.object(monitor_module, "herdr", return_value=visible) as herdr, redirect_stdout(StringIO()):
+            monitor.poll(selected)
+        herdr.assert_called_once_with("--machine", "gpu-id", *read_call("w9:p1"))
+
+    def test_remote_discovery_continues_when_local_server_is_down(self) -> None:
+        profiles = [{"id": "gpu-id", "label": "gpu", "enabled": True}]
+
+        def fake_discovery(panes, tabs, machine):
+            if not machine:
+                raise monitor_module.HerdrError("local unavailable")
+            return {"w9:p1": make_pane("w9:p1")}
+
+        with patch.object(monitor_module, "machine_profiles", return_value=profiles), patch.object(
+            monitor_module, "discover_targets", side_effect=fake_discovery
+        ):
+            selected, errors = monitor_module.discover_all_targets([], [], {})
+        self.assertEqual(set(selected), {"gpu-id/w9:p1"})
+        self.assertEqual(errors, {"Local": "local unavailable"})
+
+    def test_removed_profile_drops_its_previous_panes(self) -> None:
+        previous = {"gpu-id/w9:p1": {**make_pane("w9:p1"), "machine_id": "gpu-id"}}
+        with patch.object(monitor_module, "machine_profiles", return_value=[]), patch.object(
+            monitor_module, "discover_targets", return_value={}
+        ):
+            selected, errors = monitor_module.discover_all_targets([], [], previous)
+        self.assertEqual(selected, {})
+        self.assertEqual(errors, {})
+
+    def test_all_servers_unavailable_raise_without_discarding_previous_targets(self) -> None:
+        previous = {"w9:p1": make_pane("w9:p1")}
+        with patch.object(monitor_module, "machine_profiles", return_value=[]), patch.object(
+            monitor_module, "discover_targets", side_effect=monitor_module.HerdrError("unreachable")
+        ):
+            with self.assertRaisesRegex(monitor_module.HerdrError, "Local: unreachable"):
+                monitor_module.discover_all_targets([], [], previous)
+        self.assertEqual(previous, {"w9:p1": make_pane("w9:p1")})
 
 
 class DisplayTests(unittest.TestCase):
@@ -1032,6 +1176,9 @@ class ExtraThoughtMenuTests(unittest.TestCase):
 
 class CliTests(unittest.TestCase):
     def setUp(self) -> None:
+        profiles = patch.object(monitor_module, "machine_profiles", return_value=[])
+        profiles.start()
+        self.addCleanup(profiles.stop)
         self.runtime_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.runtime_directory.cleanup)
         self.runtime_environment = patch.dict(
@@ -1053,7 +1200,7 @@ class CliTests(unittest.TestCase):
         inventory_calls: list[str] = []
         calls: list[tuple[str, ...]] = []
 
-        def fake_inventory(kind: str) -> list[dict[str, str]]:
+        def fake_inventory(kind: str, machine=None) -> list[dict[str, str]]:
             inventory_calls.append(kind)
             return {
                 "pane": panes,
@@ -1108,7 +1255,7 @@ class CliTests(unittest.TestCase):
         inventory_calls: list[str] = []
         calls: list[tuple[str, ...]] = []
 
-        def fake_inventory(kind: str) -> list[dict[str, str]]:
+        def fake_inventory(kind: str, machine=None) -> list[dict[str, str]]:
             inventory_calls.append(kind)
             return {"pane": panes, "agent": agents, "tab": tabs, "workspace": workspaces}[kind]
 
@@ -1211,6 +1358,9 @@ class CliTests(unittest.TestCase):
 
 class RuntimeStateTests(unittest.TestCase):
     def setUp(self) -> None:
+        profiles = patch.object(monitor_module, "machine_profiles", return_value=[])
+        profiles.start()
+        self.addCleanup(profiles.stop)
         self.runtime_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.runtime_directory.cleanup)
         self.environment = patch.dict(
@@ -1220,6 +1370,20 @@ class RuntimeStateTests(unittest.TestCase):
         )
         self.environment.start()
         self.addCleanup(self.environment.stop)
+
+    def test_list_reports_partial_machine_errors_and_watched_remote_panes(self) -> None:
+        state = monitor_module.RuntimeState()
+        state.acquire()
+        self.addCleanup(state.release)
+        state.write_status(
+            status="watching", message="Resume", dry_run=False,
+            panes=["gpu/phase1:1:p1"], error="cpu: unreachable",
+        )
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(monitor_module.list_status(), 0)
+        self.assertIn("Error: cpu: unreachable", output.getvalue())
+        self.assertIn("gpu/phase1:1:p1", output.getvalue())
 
     def test_lock_is_exclusive_and_lock_file_survives_release(self) -> None:
         first = monitor_module.RuntimeState()
@@ -1323,7 +1487,7 @@ class RuntimeStateTests(unittest.TestCase):
         tabs = [make_tab("tab-1", "first")]
         workspaces = [make_workspace()]
 
-        def fake_inventory(kind: str) -> list[dict[str, str]]:
+        def fake_inventory(kind: str, machine=None) -> list[dict[str, str]]:
             return {
                 "pane": panes,
                 "agent": agents,

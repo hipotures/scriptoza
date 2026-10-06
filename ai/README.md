@@ -10,9 +10,10 @@
   model (option `1` in the two-option menu or `2` when a faster-model retry is offered).
 
 The runtime uses Python's standard library and the `herdr` executable in
-`PATH`. It connects to the current user's Herdr server, so it can run from any
-terminal or as a systemd user service; it does not need to run inside a Herdr
-pane.
+`PATH`. It connects to the current user's Herdr server and every enabled saved
+machine through `herdr --machine`, so it can run from any terminal or as a systemd
+user service. Remote Herdr servers must already be running and accessible through
+the user's configured SSH authentication.
 
 Install the command and the optional user service from the repository root:
 
@@ -24,21 +25,29 @@ The installer copies `codex-resume` to `~/.local/bin` and the service unit to
 `~/.config/systemd/user/codex-resume.service`. It does not enable or start the
 service automatically.
 
-Run a monitor manually with the default message or with an explicitly named
-remote pane:
+Run a monitor manually with the default message or with an additional named pane:
 
 ```bash
 codex-resume resume
 codex-resume resume --panes codex-gpu --message Kontynuuj
 ```
 
-Automatic discovery includes every live pane whose current-server agent record
-has `agent == "codex"`. Use `--panes` or `--tabs` for comma-separated pane/tab
-labels or IDs. An explicit selector that is not present yet is kept pending
+Automatic discovery includes every live pane whose agent record has
+`agent == "codex"`, both locally and on every enabled saved Herdr machine.
+Machine profiles are refreshed on each poll. Use `--panes` or `--tabs` for
+additional comma-separated pane/tab labels or IDs, resolved on each server.
+An explicit selector that is not present yet is kept pending
 and retried on later polls; this also lets a selector survive a pane closing
-and reopening. Panes that are not recognized by the current server can be
+and reopening. Panes that are not recognized as agents can be
 selected explicitly. Exact IDs take precedence over labels; labels include all
-matching panes or tabs, and overlapping selections are deduplicated by pane ID.
+matching panes or tabs, and overlapping selections are deduplicated by machine
+and pane ID. Remote reads and input always use the same machine profile as
+discovery; matching pane IDs on different machines remain independent.
+
+Discovery runs concurrently across servers. An unreachable server does not stop
+monitoring the others. Its previous detection state is retained without reading
+or sending input until discovery succeeds again. Failures and recoveries are
+logged, and `list` reports current discovery errors alongside watched panes.
 
 The monitor keeps a single-process lock, so a second monitor exits instead of
 watching the same runtime concurrently. Stop a manually started monitor before
@@ -112,7 +121,9 @@ Logs use short local times and readable `WORKSPACE:TAB:PANEL` descriptions:
 ```text
 14:25:43 Watching V-GPU:kontynuuj-2:codex-gpu
 14:25:43 Watching homestack:1:p1
+14:25:43 Watching gpu/phase1:1:p1
 ```
 
 Workspace and tab labels are used when present; an unnamed tab uses its number.
 A pane uses its label or the short `pN` suffix when unnamed.
+Remote descriptions include the machine label before the workspace.
