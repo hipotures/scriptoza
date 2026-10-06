@@ -33,8 +33,9 @@ await (await import('file:///home/user/.local/share/gnome-shell/extensions/codex
 This reloads the panel module while retaining GNOME's extension registration.
 Collector/model changes and stylesheet changes require a new session.
 
-The panel shows separate colored counters for every nonempty `blocked`, `done`,
-`working`, and `unknown` state. Idle counters are hidden from the panel.
+The panel shows one colored dot per non-idle agent, with no icon or counters.
+Agents sharing a state have separate dots. Idle agents are hidden from the panel;
+if every agent is idle, the indicator is hidden until another state appears.
 Click it to see the complete list, including idle agents, with each agent's
 machine, workspace, tab, pane, and current state.
 
@@ -45,7 +46,6 @@ machine, workspace, tab, pane, and current state.
 | `working` | Gently pulsing blue | Working |
 | `unknown` | Yellow | Herdr cannot classify the agent's state |
 | `idle` | Gray | Ready for another instruction |
-| Local connection unavailable | Dim gray, crossed circle | Local Herdr could not be read |
 
 The table order is also the menu's state priority. `done` means the turn
 finished, not necessarily that the task succeeded. Reading status does not

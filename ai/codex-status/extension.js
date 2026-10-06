@@ -18,25 +18,13 @@ export default class CodexStatus extends Extension {
         this._busy = false;
         this._blinkSource = 0;
         this._pollSource = 0;
-        this._counts = {};
         this._indicator = new PanelMenu.Button(0.0, 'Codex agent status', false);
-        const box = new St.BoxLayout({style_class: 'codex-status-panel'});
-        this._panelStates = new Map();
-        for (const state of ['blocked', 'done', 'working', 'unknown']) {
-            const group = new St.BoxLayout({style: 'spacing: 4px;', visible: false});
-            const dot = new St.Label({text: '●', style: `color: ${STATES[state].color};`,
-                y_align: Clutter.ActorAlign.CENTER});
-            const count = new St.Label({text: '0', y_align: Clutter.ActorAlign.CENTER});
-            group.add_child(dot);
-            group.add_child(count);
-            box.add_child(group);
-            this._panelStates.set(state, {group, dot, count});
-        }
-        this._emptyCount = new St.Label({text: '…', y_align: Clutter.ActorAlign.CENTER});
-        box.add_child(this._emptyCount);
-        this._indicator.add_child(box);
+        this._panelBox = new St.BoxLayout({style_class: 'codex-status-panel'});
+        this._panelDots = [];
+        this._indicator.add_child(this._panelBox);
         this._indicator.menu.addMenuItem(new PopupMenu.PopupMenuItem('Checking Codex agents…', {reactive: false}));
         Main.panel.addToStatusArea(this.uuid, this._indicator);
+        this._indicator.visible = false;
         this._refresh();
         this._pollSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, POLL_SECONDS * 1000, () => {
             this._refresh();
@@ -55,8 +43,8 @@ export default class CodexStatus extends Extension {
         this._collector = null;
         this._indicator?.destroy();
         this._indicator = null;
-        this._panelStates = null;
-        this._emptyCount = null;
+        this._panelBox = null;
+        this._panelDots = [];
         this._blockedDots = [];
     }
 
@@ -82,16 +70,16 @@ export default class CodexStatus extends Extension {
 
     _render({agents, errors, metrics}) {
         const summary = summarize(agents, errors);
-        this._counts = summary.counts;
-        let visibleStates = 0;
-        for (const [state, {group, count}] of this._panelStates) {
-            group.visible = summary.counts[state] > 0;
-            count.set_text(String(summary.counts[state]));
-            if (group.visible)
-                visibleStates++;
+        this._panelBox.destroy_all_children();
+        this._panelDots = [];
+        for (const agent of sortAgents(agents).filter(agent => agent.state !== 'idle')) {
+            const dot = new St.Label({text: '●', style: `color: ${STATES[agent.state].color};`,
+                accessible_name: `${agent.location}: ${STATES[agent.state].label}`,
+                y_align: Clutter.ActorAlign.CENTER});
+            this._panelBox.add_child(dot);
+            this._panelDots.push({state: agent.state, dot});
         }
-        this._emptyCount.visible = visibleStates === 0;
-        this._emptyCount.set_text(errors.length > 0 ? '⊗' : '0');
+        this._indicator.visible = this._panelDots.length > 0;
         this._indicator.accessible_name = `Codex: ${Object.entries(summary.counts)
             .filter(([, count]) => count > 0).map(([state, count]) => `${count} ${STATES[state].label}`).join(', ') || 'No agents'}`;
         this._indicator.menu.removeAll();
@@ -148,23 +136,24 @@ export default class CodexStatus extends Extension {
         if (this._blinkSource)
             GLib.Source.remove(this._blinkSource);
         this._blinkSource = 0;
-        for (const {dot} of this._panelStates.values()) {
+        for (const {dot} of this._panelDots) {
             dot.remove_all_transitions();
             dot.opacity = 255;
         }
-        if (!this._counts.blocked && !this._counts.working)
+        if (!this._panelDots.some(({state}) => state === 'blocked' || state === 'working'))
             return;
         let dim = false;
         this._blinkSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 600, () => {
             dim = !dim;
-            if (this._counts.blocked) {
-                this._panelStates.get('blocked').dot.opacity = dim ? 70 : 255;
-                for (const dot of this._blockedDots)
+            for (const {state, dot} of this._panelDots) {
+                if (state === 'blocked')
                     dot.opacity = dim ? 70 : 255;
+                else if (state === 'working')
+                    dot.ease({opacity: dim ? 130 : 255,
+                        duration: 550, mode: Clutter.AnimationMode.EASE_IN_OUT_SINE});
             }
-            if (this._counts.working)
-                this._panelStates.get('working').dot.ease({opacity: dim ? 130 : 255,
-                    duration: 550, mode: Clutter.AnimationMode.EASE_IN_OUT_SINE});
+            for (const dot of this._blockedDots)
+                dot.opacity = dim ? 70 : 255;
             return GLib.SOURCE_CONTINUE;
         });
     }

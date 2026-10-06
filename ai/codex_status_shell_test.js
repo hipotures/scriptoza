@@ -23,7 +23,6 @@ export async function run() {
     check(extension?.state === 1, 'Extension did not enable');
     await (await import(extension.dir.get_child('reload.js').get_uri())).reload();
     const widget = extension.stateObj;
-    check(widget._indicator.get_first_child().get_n_children() === 5, 'Panel should not contain a terminal icon');
     widget._collector.close();
     const collector = {close() {}, calls: 0, async collect() {
         this.calls++;
@@ -34,19 +33,25 @@ export async function run() {
     widget._busy = false;
     const agents = ['idle', 'working', 'done', 'blocked', 'unknown']
         .map((state, index) => ({state, location: `gpu/phase${index}:run:p1`}));
+    agents.push({state: 'working', location: 'gpu/second:run:p1'});
     const data = {agents, errors: [],
         metrics: {totalMs: 300, parseMs: 0.3}};
     for (let index = 0; index < 30; index++)
         widget._render(data);
     check(widget._indicator.menu.box.get_n_children() === 5, 'Menu leaked children');
-    check(widget._panelStates.size === 4 && !widget._panelStates.has('idle'), 'Idle is hidden only on the panel');
-    for (const {group, count} of widget._panelStates.values())
-        check(group.visible && count.text === '1', 'Each non-idle state has its own counter');
+    check(widget._panelDots.length === 5 && widget._panelBox.get_n_children() === 5,
+        'One dot per non-idle agent, no terminal icon or counters');
+    check(widget._panelDots.filter(({state}) => state === 'working').length === 2,
+        'Agents sharing the same status have separate dots');
+    for (const {state, dot} of widget._panelDots)
+        check(state !== 'idle' && dot.text === '●', 'Panel contains only dots, with idle hidden');
     check(widget._indicator.accessible_name.includes('1 Idle'), 'Idle remains in the full agent list');
     widget._indicator.menu.open();
     await pause(700);
-    check(widget._panelStates.get('blocked').dot.opacity === 70, 'Blocked indicator did not blink');
-    check(widget._panelStates.get('done').dot.opacity === 255, 'Done should remain steady while blocked blinks');
+    check(widget._panelDots.find(({state}) => state === 'blocked').dot.opacity === 70,
+        'Blocked indicator did not blink');
+    check(widget._panelDots.find(({state}) => state === 'done').dot.opacity === 255,
+        'Done should remain steady while blocked blinks');
     widget._indicator.menu.close();
     check(collector.calls === 0, 'Opening the menu triggered a poll');
     await Promise.all([widget._refresh(), widget._refresh()]);
