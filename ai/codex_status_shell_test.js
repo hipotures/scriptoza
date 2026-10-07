@@ -1,7 +1,13 @@
 'use strict';
 
+import Gio from 'gi://Gio';
+import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
+const HELPER_APP_ID = 'org.scriptoza.CodexStatusWindowTest';
+const HERDR_WINDOW_MARKER = '[herdr-client:client-window-test]';
+const UNRELATED_WINDOW_TITLE = 'Other terminal window';
 
 function pause(milliseconds) {
     return new Promise(resolve => {
@@ -15,6 +21,122 @@ function pause(milliseconds) {
 function check(condition, message) {
     if (!condition)
         throw new Error(message);
+}
+
+function windowTitle(window) {
+    return window.get_title() ?? '';
+}
+
+function windowWorkspaceIndex(window) {
+    return window.get_workspace().index();
+}
+
+function focusedWindow() {
+    if (typeof global.display.get_focus_window === 'function')
+        return global.display.get_focus_window();
+    return global.display.focus_window;
+}
+
+async function waitForHelperWindows() {
+    for (let attempt = 0; attempt < 50; attempt++) {
+        const windows = global.get_window_actors().map(actor => actor.meta_window);
+        const target = windows.find(window => windowTitle(window).includes(HERDR_WINDOW_MARKER));
+        const unrelated = windows.find(window => windowTitle(window) === UNRELATED_WINDOW_TITLE);
+        if (target && unrelated)
+            return {target, unrelated};
+        await pause(100);
+    }
+    throw new Error('GTK window helper did not create both test windows');
+}
+
+function startWindowHelper() {
+    const source = `
+imports.gi.versions.Gtk = '4.0';
+const Gtk = imports.gi.Gtk;
+
+const app = new Gtk.Application({application_id: '${HELPER_APP_ID}'});
+app.connect('activate', application => {
+    const windows = [
+        ['Herdr Codex ${HERDR_WINDOW_MARKER}', 'Herdr target'],
+        ['${UNRELATED_WINDOW_TITLE}', 'Unrelated terminal'],
+    ];
+    for (const [title, label] of windows) {
+        const window = new Gtk.ApplicationWindow({application});
+        window.set_title(title);
+        window.set_default_size(320, 180);
+        window.set_child(new Gtk.Label({label}));
+        window.present();
+    }
+});
+app.run([]);
+`;
+    return Gio.Subprocess.new(['gjs', '-c', source], Gio.SubprocessFlags.NONE);
+}
+
+async function testRealWindowActivation(extension) {
+    const helper = startWindowHelper();
+    try {
+        const {target, unrelated} = await waitForHelperWindows();
+        const manager = global.workspace_manager;
+        while (manager.n_workspaces < 2)
+            manager.append_new_workspace(false, global.get_current_time());
+        const targetWorkspace = manager.get_workspace_by_index(0);
+        const unrelatedWorkspace = manager.get_workspace_by_index(1);
+        target.change_workspace(targetWorkspace);
+        unrelated.change_workspace(unrelatedWorkspace);
+        Main.activateWindow(unrelated);
+        await pause(200);
+        check(windowWorkspaceIndex(target) === targetWorkspace.index(),
+            'Target window was not placed on the first workspace');
+        check(windowWorkspaceIndex(unrelated) === unrelatedWorkspace.index(),
+            'Unrelated window was not placed on the second workspace');
+        check(manager.get_active_workspace().index() === unrelatedWorkspace.index(),
+            'Test setup did not switch to the unrelated window workspace');
+
+        const {Navigator, clientWindowToken} = await import(extension.dir.get_child('navigation.js').get_uri());
+        const calls = [];
+        const activatedWindows = [];
+        const navigator = new Navigator({
+            readJson: async args => {
+                calls.push(args);
+                const response = {
+                    client_id: 'client-window-test',
+                    window_token: clientWindowToken('client-window-test'),
+                    boot_id: 'boot-1',
+                };
+                return args.includes('--check') ? response : {...response, focused: true};
+            },
+            getWindowActors: () => global.get_window_actors(),
+            activateWindow: window => {
+                activatedWindows.push(window);
+                Main.activateWindow(window);
+            },
+            closeMenu: () => {},
+            notifyError: (message, error) => { throw new Error(`${message}: ${error.message}`); },
+        });
+        const focused = await navigator.focus({
+            serverId: 'local', paneId: 'w1:p3', bootId: 'boot-1',
+            location: 'Local/project:run:p3',
+        });
+        await pause(200);
+        check(focused, 'Navigator did not acknowledge real-window focus');
+        check(calls.length === 2 && calls[0].includes('--check'),
+            'Navigator did not perform check and focus requests');
+        check(manager.get_active_workspace().index() === targetWorkspace.index(),
+            'Main.activateWindow did not switch to the target workspace');
+        check(windowWorkspaceIndex(target) === targetWorkspace.index(),
+            'Activating the target moved it between workspaces');
+        check(windowWorkspaceIndex(unrelated) === unrelatedWorkspace.index(),
+            'Activating the target moved the unrelated window');
+        check(activatedWindows.length === 1 && activatedWindows[0] === target,
+            'Main.activateWindow was not called with the uniquely matched Herdr window');
+        const actualFocus = focusedWindow();
+        if (actualFocus)
+            check(actualFocus === target, 'Main.activateWindow focused the wrong window');
+    } finally {
+        helper.send_signal(15);
+        await pause(100);
+    }
 }
 
 export async function run() {
@@ -32,8 +154,8 @@ export async function run() {
     widget._collector = collector;
     widget._busy = false;
     const agents = ['idle', 'working', 'done', 'blocked', 'unknown']
-        .map((state, index) => ({state, location: `gpu/phase${index}:run:p1`}));
-    agents.push({state: 'working', location: 'gpu/second:run:p1'});
+        .map((state, index) => ({state, bootId: 'boot-1', location: `gpu/phase${index}:run:p1`}));
+    agents.push({state: 'working', bootId: 'boot-1', location: 'gpu/second:run:p1'});
     const data = {agents, errors: [],
         metrics: {totalMs: 300, parseMs: 0.3}};
     for (let index = 0; index < 30; index++)
@@ -69,6 +191,43 @@ export async function run() {
     check(widget._panelDots.every(({state}) => state !== 'idle'),
         'Idle dots disappear again when another agent starts working');
     check(collector.calls === 0, 'Opening the menu triggered a poll');
+    check(widget._agentRows.length === agents.length, 'One interactive row per agent');
+    check(widget._agentRows.every(({row}) => row.reactive && row.can_focus && row.track_hover),
+        'Agent rows support pointer hover and keyboard focus');
+    const navigated = [];
+    widget._navigator = {
+        busy: false,
+        focus: async agent => { navigated.push(agent.location); return false; },
+        close() {},
+    };
+    widget._indicator.menu.open();
+    widget._agentRows[0].row.hover = true;
+    check(widget._agentRows[0].row.active, 'Hover highlights the whole row');
+    check(widget._agentRows[0].row.has_style_pseudo_class('selected'),
+        'Hover applies the native whole-row selection state');
+    widget._agentRows[0].row.grab_key_focus();
+    const keyboard = global.stage.context.get_backend().get_default_seat().create_virtual_device(
+        Clutter.InputDeviceType.KEYBOARD_DEVICE);
+    const keyTime = GLib.get_monotonic_time();
+    keyboard.notify_keyval(keyTime, Clutter.KEY_Return, Clutter.KeyState.PRESSED);
+    keyboard.notify_keyval(keyTime + 1, Clutter.KEY_Return, Clutter.KeyState.RELEASED);
+    const [rowX, rowY] = widget._agentRows[0].row.get_transformed_position();
+    if (Number.isFinite(rowX) && Number.isFinite(rowY)) {
+        const pointer = global.stage.context.get_backend().get_default_seat().create_virtual_device(
+            Clutter.InputDeviceType.POINTER_DEVICE);
+        const pointerTime = keyTime + 2;
+        pointer.notify_absolute_motion(pointerTime, rowX + 10, rowY + 10);
+        pointer.notify_button(pointerTime + 1, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.PRESSED);
+        pointer.notify_button(pointerTime + 2, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.RELEASED);
+    } else {
+        // Headless Shell can map the popup before allocating its row actors.
+        widget._agentRows[0].row.activate();
+    }
+    await pause(50);
+    check(navigated.length === 2 && widget._indicator.menu.isOpen,
+        'Mouse and keyboard activation stay asynchronous and keep failures visible');
+    widget._indicator.menu.close();
+    await testRealWindowActivation(extension);
     await Promise.all([widget._refresh(), widget._refresh()]);
     check(collector.calls === 1, 'Overlapping refreshes were not suppressed');
     const pollStarted = GLib.get_monotonic_time();

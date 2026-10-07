@@ -10,18 +10,28 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 const {Collector, POLL_SECONDS} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
-import {STATES, sortAgents, summarize} from './model.js';
+const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
+const {STATES, sortAgents, summarize} = await import(`./model.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 
 export default class CodexStatus extends Extension {
     enable() {
         this._collector = new Collector();
+        this._navigationCollector = new Collector();
         this._busy = false;
         this._blinkSource = 0;
         this._pollSource = 0;
         this._indicator = new PanelMenu.Button(0.0, 'Codex agent status', false);
         this._panelBox = new St.BoxLayout({style_class: 'codex-status-panel'});
         this._panelDots = [];
+        this._agentRows = [];
         this._indicator.add_child(this._panelBox);
+        this._navigator = new Navigator({
+            collector: this._navigationCollector,
+            getWindowActors: () => global.get_window_actors(),
+            activateWindow: window => Main.activateWindow(window),
+            closeMenu: () => this._indicator?.menu.close(),
+            notifyError: (message, error) => Main.notifyError(message, error?.message ?? String(error)),
+        });
         this._indicator.menu.addMenuItem(new PopupMenu.PopupMenuItem('Checking Codex agents…', {reactive: false}));
         Main.panel.addToStatusArea(this.uuid, this._indicator);
         this._indicator.visible = false;
@@ -39,12 +49,16 @@ export default class CodexStatus extends Extension {
             GLib.Source.remove(this._blinkSource);
         this._pollSource = 0;
         this._blinkSource = 0;
+        this._navigator?.close();
+        this._navigator = null;
         this._collector?.close();
         this._collector = null;
+        this._navigationCollector = null;
         this._indicator?.destroy();
         this._indicator = null;
         this._panelBox = null;
         this._panelDots = [];
+        this._agentRows = [];
         this._blockedDots = [];
     }
 
@@ -86,6 +100,7 @@ export default class CodexStatus extends Extension {
             .filter(([, count]) => count > 0).map(([state, count]) => `${count} ${STATES[state].label}`).join(', ') || 'No agents'}`;
         this._indicator.menu.removeAll();
         this._blockedDots = [];
+        this._agentRows = [];
 
         const heading = new PopupMenu.PopupMenuItem(`${summary.total} Codex agents`, {reactive: false});
         heading.label.add_style_class_name('codex-status-heading');
@@ -99,7 +114,22 @@ export default class CodexStatus extends Extension {
         container.add_child(scroll);
         this._indicator.menu.addMenuItem(container);
         for (const agent of sortAgents(agents)) {
-            const row = new PopupMenu.PopupBaseMenuItem({reactive: false, style_class: 'codex-status-row'});
+            const row = new PopupMenu.PopupBaseMenuItem({
+                reactive: true,
+                activate: true,
+                hover: true,
+                can_focus: true,
+                style_class: 'codex-status-row',
+            });
+            row.x_expand = true;
+            row.accessible_name = agent.location;
+            // PopupBaseMenuItem closes its menu after emitting `activate`. Keep
+            // the menu open until the asynchronous client and window checks
+            // have both succeeded.
+            row.activate = () => {
+                this._navigator?.focus(agent);
+            };
+            this._agentRows.push({agent, row});
             const dot = new St.Label({
                 text: agent.state === 'offline' ? '⊗' : '●',
                 style: `color: ${STATES[agent.state].color};`,

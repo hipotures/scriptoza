@@ -5,8 +5,8 @@
 `codex-status/` is a GNOME Shell 50 extension written in JavaScript/GJS. It
 shows local Codex agents and Codex agents on every enabled saved Herdr machine.
 It reads agent status directly from Herdr and runs independently of
-`codex-resume`; it never sends input, marks completions as seen, or controls
-services.
+`codex-resume`; status polling never sends input, marks completions as seen, or
+controls services.
 It requires `herdr` and GNU coreutils `timeout` in the user's executable paths.
 
 Install and enable it for your user:
@@ -31,14 +31,25 @@ await (await import('file:///home/user/.local/share/gnome-shell/extensions/codex
 ```
 
 This reloads the panel module while retaining GNOME's extension registration.
-Collector/model changes and stylesheet changes require a new session.
+Stylesheet changes require a new session.
 
 The panel shows one colored dot per non-idle agent, with no icon or counters.
 Agents sharing a state have separate dots. Idle agents are hidden from the panel
 while any other state is present. If all agents are idle, every idle agent has
 its own gray dot so the full list remains accessible.
 Click it to see the complete list, including idle agents, with each agent's
-machine, workspace, tab, pane, and current state.
+machine, workspace, tab, pane, and current state. Agent rows are keyboard and
+pointer accessible: hovering or focusing a row highlights the complete row,
+and activating it checks the selected machine and pane with Herdr before
+focusing that pane in the existing Herdr client. The extension then activates
+the matching terminal window by its unique `[herdr-client:<ID>]` title marker.
+It switches to that window's existing GNOME workspace without moving the
+window. A missing or ambiguous client window, an unavailable client, or a
+failed focus is reported as a notification and leaves the status list
+unchanged. Navigation requires the Herdr snapshot to include its server boot
+identity, so upgrade and restart the Herdr server and client before using row
+activation. Older snapshots remain available for status polling, but their
+rows report a navigation error until a boot identity is available.
 
 | Herdr state | Appearance | Meaning |
 | --- | --- | --- |
@@ -90,9 +101,17 @@ Offline collector/model tests run with the repository's unittest suite when
 isolated headless GNOME Shell:
 
 ```bash
-gnome-extensions pack ai/codex-status --extra-source=collector.js --extra-source=model.js --extra-source=reload.js --out-dir=/tmp --force
-dbus-run-session -- gnome-shell-test-tool --headless --extension /tmp/codex-status@scriptoza.shell-extension.zip ai/codex_status_shell_test.js
+gnome-extensions pack ai/codex-status --extra-source=collector.js --extra-source=navigation.js --extra-source=model.js --extra-source=reload.js --out-dir=/tmp --force
+dbus-run-session -- gnome-shell-test-tool --extra-filter org.scriptoza.CodexStatusWindowTest --headless --extension /tmp/codex-status@scriptoza.shell-extension.zip ai/codex_status_shell_test.js
 ```
+
+The headless test launches a temporary GTK window pair to verify exact Herdr
+window selection and workspace activation. The extra filter allows that test
+application's window class; it is not needed by the installed extension. A
+headless compositor has no focused client seat, so the test verifies that
+`Main.activateWindow()` receives the uniquely matched window, switches to its
+workspace, and leaves both windows in place. Observe the final compositor
+focus in a non-headless GNOME session.
 
 ## Codex Resume
 

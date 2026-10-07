@@ -18,9 +18,11 @@ import GLib from 'gi://GLib';
 import System from 'system';
 import {{normalizeAgents, summarize, sortAgents}} from '{(EXTENSION / 'model.js').as_uri()}';
 import {{Collector, POLL_SECONDS}} from '{(EXTENSION / 'collector.js').as_uri()}';
+import {{Navigator, clientWindowToken, findClientWindow, focusTarget}} from '{(EXTENSION / 'navigation.js').as_uri()}';
 function check(condition, message) {{ if (!condition) throw new Error(message); }}
 function snapshot(states = ['working']) {{
     return {{
+        boot_id: 'boot-1',
         agents: states.map((state, index) => ({{agent: 'codex', agent_status: state,
             pane_id: `w1:p${{index}}`, tab_id: 'w1:t1', workspace_id: 'w1'}})),
         panes: states.map((state, index) => ({{pane_id: `w1:p${{index}}`}})),
@@ -62,7 +64,12 @@ const local = normalizeAgents(data, {id: 'local', label: 'Local'});
 const remote = normalizeAgents(data, {id: 'gpu-id', label: 'gpu'});
 check(local.length === 1 && remote.length === 1, 'Only live Codex agents, no duplicates');
 check(local[0].id !== remote[0].id, 'Machine-scoped identities');
+check(local[0].bootId === 'boot-1' && remote[0].bootId === 'boot-1', 'Machine boot identity');
 check(remote[0].location === 'gpu/project name:run:p0', 'Remote display name');
+const oldSnapshot = snapshot();
+delete oldSnapshot.boot_id;
+check(normalizeAgents(oldSnapshot, {id: 'local', label: 'Local'})[0].bootId === null,
+    'Older snapshots remain renderable without a boot identity');
 let rejected = false;
 try { normalizeAgents({}, {id: 'local'}); } catch { rejected = true; }
 check(rejected, 'Malformed snapshots rejected');
@@ -190,6 +197,167 @@ function childStopped() {
     collector.close(); GLib.unlink(pidFile); GLib.rmdir(directory); loop.quit();
 });
 loop.run();
+""")
+
+    def test_navigation_routes_machine_and_pane_after_client_check(self):
+        self.run_gjs("""
+const window = {get_title: () => 'Herdr — codex [herdr-client:client-1]'};
+const calls = [];
+let activated = null;
+let closed = false;
+const navigator = new Navigator({
+    readJson: async args => {
+        calls.push(args);
+        if (args.includes('--check'))
+            return {client_id: 'client-1', window_token: clientWindowToken('client-1'), boot_id: 'boot-7'};
+        return {client_id: 'client-1', window_token: clientWindowToken('client-1'), boot_id: 'boot-7', focused: true};
+    },
+    getWindowActors: () => [{meta_window: window}],
+    activateWindow: value => { activated = value; },
+    closeMenu: () => { closed = true; },
+    notifyError: () => { throw new Error('unexpected navigation error'); },
+});
+(async () => {
+    check(focusTarget({serverId: 'local', paneId: 'w1:p3'}) === 'local:w1:p3', 'Local target identity');
+    check(focusTarget({serverId: 'gpu-id', paneId: 'w2:p5'}) === 'gpu-id:w2:p5', 'Remote target identity');
+    check(findClientWindow([{meta_window: window}], '[herdr-client:client-1]') === window,
+        'Window actor mapping');
+    const result = await navigator.focus({serverId: 'gpu-id', paneId: 'w2:p5', bootId: 'boot-7', location: 'GPU/project:run:p5'});
+    check(result && activated === window && closed, 'Focus was acknowledged and activated');
+    check(calls[0].join(' ') === 'agent focus gpu-id:w2:p5 --check --expected-boot boot-7', 'Check target and boot guard');
+    check(calls[1].join(' ') === 'agent focus gpu-id:w2:p5 --client client-1 --expected-boot boot-7',
+        'Focus target and boot guard');
+})().catch(error => { printerr(error.stack); System.exit(1); });
+""")
+
+    def test_navigation_rejects_ambiguous_or_stale_windows_without_activation(self):
+        self.run_gjs("""
+const first = {get_title: () => '[herdr-client:client-2] terminal'};
+const second = {get_title: () => '[herdr-client:client-2] duplicate'};
+let actorList = [{meta_window: first}, {meta_window: second}];
+let errors = [];
+let activated = false;
+const ambiguous = new Navigator({
+    readJson: async () => ({client_id: 'client-2', window_token: clientWindowToken('client-2'), boot_id: 'boot-1'}),
+    getWindowActors: () => actorList,
+    activateWindow: () => { activated = true; },
+    closeMenu: () => { throw new Error('menu must stay open'); },
+    notifyError: (message, error) => errors.push(`${message}: ${error.message}`),
+});
+(async () => {
+    check(!await ambiguous.focus({serverId: 'local', paneId: 'w1:p3', bootId: 'boot-1', location: 'Local'}),
+        'Ambiguous windows rejected');
+    check(!activated && errors[0].includes('Multiple terminal windows'), 'Ambiguous activation refused');
+
+    errors = [];
+    const staleBoot = new Navigator({
+        readJson: async args => ({client_id: 'client-2', window_token: clientWindowToken('client-2'),
+            boot_id: args.includes('--check') ? 'boot-2' : 'boot-1'}),
+        getWindowActors: () => [{meta_window: first}],
+        activateWindow: () => { activated = true; },
+        closeMenu: () => { throw new Error('menu must stay open'); },
+        notifyError: (message, error) => errors.push(`${message}: ${error.message}`),
+    });
+    check(!await staleBoot.focus({serverId: 'local', paneId: 'w1:p3', bootId: 'boot-1', location: 'Local'}),
+        'Stale snapshot boot rejected');
+    check(!activated && errors[0].includes('different server boot'),
+        'Stale snapshot boot did not stop navigation');
+
+    errors = [];
+    const mismatch = new Navigator({
+        readJson: async args => args.includes('--check')
+            ? {client_id: 'client-2', window_token: clientWindowToken('client-2'), boot_id: 'boot-1'}
+            : {client_id: 'other-client', window_token: clientWindowToken('other-client'), boot_id: 'boot-1'},
+        getWindowActors: () => [{meta_window: first}],
+        activateWindow: () => { activated = true; },
+        closeMenu: () => { throw new Error('menu must stay open'); },
+        notifyError: (message, error) => errors.push(`${message}: ${error.message}`),
+    });
+    check(!await mismatch.focus({serverId: 'local', paneId: 'w1:p3', bootId: 'boot-1', location: 'Local'}),
+        'Mismatched focus acknowledgement rejected');
+    check(!activated && errors[0].includes('mismatched focus acknowledgement'),
+        'Mismatched acknowledgement refused');
+
+    errors = [];
+    const failed = new Navigator({
+        readJson: async args => {
+            if (args.includes('--check'))
+                return {client_id: 'client-2', window_token: clientWindowToken('client-2'), boot_id: 'boot-1'};
+            throw new Error('client disconnected');
+        },
+        getWindowActors: () => [{meta_window: first}],
+        activateWindow: () => { activated = true; },
+        closeMenu: () => { throw new Error('menu must stay open'); },
+        notifyError: (message, error) => errors.push(`${message}: ${error.message}`),
+    });
+    check(!await failed.focus({serverId: 'local', paneId: 'w1:p3', bootId: 'boot-1', location: 'Local'}),
+        'Asynchronous focus failure rejected');
+    check(!activated && errors[0].includes('client disconnected'), 'Async failure refused');
+
+    let reads = 0;
+    errors = [];
+    actorList = [{meta_window: first}];
+    const stale = new Navigator({
+        readJson: async args => {
+            if (args.includes('--check'))
+                return {client_id: 'client-2', window_token: clientWindowToken('client-2'), boot_id: 'boot-1'};
+            return {client_id: 'client-2', window_token: clientWindowToken('client-2'), boot_id: 'boot-1', focused: true};
+        },
+        getWindowActors: () => {
+            reads++;
+            return reads === 1 ? [{meta_window: first}] : [{meta_window: {get_title: () => '[herdr-client:client-2] replaced'}}];
+        },
+        activateWindow: () => { activated = true; },
+        closeMenu: () => { throw new Error('menu must stay open'); },
+        notifyError: (message, error) => errors.push(`${message}: ${error.message}`),
+    });
+    check(!await stale.focus({serverId: 'local', paneId: 'w1:p3', bootId: 'boot-1', location: 'Local'}), 'Stale window rejected');
+    check(!activated && errors[0].includes('changed during focus'), 'Stale activation refused');
+})().catch(error => { printerr(error.stack); System.exit(1); });
+""")
+
+    def test_navigation_close_after_check_does_not_issue_focus(self):
+        self.run_gjs("""
+let resolveCheck;
+const calls = [];
+    const navigator = new Navigator({
+    readJson: args => {
+        calls.push(args);
+        return new Promise(resolve => { resolveCheck = resolve; });
+    },
+    getWindowActors: () => [{meta_window: {title: '[herdr-client:client-3] terminal'}}],
+    activateWindow: () => { throw new Error('window must not activate'); },
+    closeMenu: () => { throw new Error('menu must not close'); },
+    notifyError: () => { throw new Error('close must suppress notifications'); },
+});
+(async () => {
+    const operation = navigator.focus({serverId: 'local', paneId: 'w1:p3', bootId: 'boot-1', location: 'Local'});
+    navigator.close();
+    resolveCheck({client_id: 'client-3', window_token: clientWindowToken('client-3'), boot_id: 'boot-1'});
+    check(!await operation, 'Closed navigation rejected');
+    check(calls.length === 1 && calls[0].at(-3) === '--check' &&
+        calls[0].at(-2) === '--expected-boot' && calls[0].at(-1) === 'boot-1',
+        'Closed navigation did not issue focus');
+})().catch(error => { printerr(error.stack); System.exit(1); });
+""")
+
+    def test_navigation_rejects_agents_without_boot_identity(self):
+        self.run_gjs("""
+const calls = [];
+const errors = [];
+const navigator = new Navigator({
+    readJson: async args => { calls.push(args); throw new Error('must not run'); },
+    getWindowActors: () => [],
+    activateWindow: () => { throw new Error('window must not activate'); },
+    closeMenu: () => { throw new Error('menu must not close'); },
+    notifyError: (message, error) => errors.push(error.message),
+});
+(async () => {
+    check(!await navigator.focus({serverId: 'local', paneId: 'w1:p3', location: 'Local'}),
+        'Missing boot identity rejected');
+    check(calls.length === 0 && errors[0].includes('server boot identity'),
+        'Missing boot identity did not stop the CLI request');
+})().catch(error => { printerr(error.stack); System.exit(1); });
 """)
 
 

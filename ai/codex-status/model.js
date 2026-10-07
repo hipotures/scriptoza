@@ -21,6 +21,8 @@ export function normalizeAgents(snapshot, server) {
     const tabs = new Map(snapshot.tabs.map(tab => [tab.tab_id, tab]));
     const workspaces = new Map(snapshot.workspaces.map(workspace => [workspace.workspace_id, workspace]));
     const panes = new Map(snapshot.panes.map(pane => [pane.pane_id, pane]));
+    const bootId = typeof snapshot.boot_id === 'string' && snapshot.boot_id
+        ? snapshot.boot_id : null;
     const agents = new Map();
     for (const agent of snapshot.agents) {
         if (agent.agent !== 'codex' || !panes.has(agent.pane_id))
@@ -39,7 +41,7 @@ export function normalizeAgents(snapshot, server) {
         const id = `${server.id}/${agent.pane_id}`;
         agents.set(id, {
             id, serverId: server.id, machine: server.label,
-            paneId: agent.pane_id, state,
+            paneId: agent.pane_id, bootId, state,
             location: server.id === 'local' ? location : `${cleanText(server.label)}/${location}`,
         });
     }

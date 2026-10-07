@@ -2,8 +2,17 @@
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import * as Model from './model.js';
 
-import {cleanText, normalizeAgents} from './model.js';
+const modelRevision = import.meta.url.match(/\?.*$/)?.[0] ?? '';
+let cleanText = Model.cleanText;
+let normalizeAgents = Model.normalizeAgents;
+const modelReady = modelRevision
+    ? import(`./model.js${modelRevision}`).then(module => {
+        cleanText = module.cleanText;
+        normalizeAgents = module.normalizeAgents;
+    })
+    : Promise.resolve();
 
 export const POLL_SECONDS = 5;
 const OFFLINE_RETRY_SECONDS = 60;
@@ -66,7 +75,12 @@ export class Collector {
         }
     }
 
+    async readJson(args) {
+        return this._readJson(args, {requests: 0, bytes: 0, parseMs: 0, totalMs: 0});
+    }
+
     async collect() {
+        await modelReady;
         const start = GLib.get_monotonic_time();
         const metrics = {requests: 0, bytes: 0, parseMs: 0, totalMs: 0};
         const errors = [];

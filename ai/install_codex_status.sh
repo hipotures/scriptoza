@@ -11,7 +11,7 @@ if [[ "$shell_version" != "GNOME Shell 50."* ]]; then
 fi
 
 install -d "$target_dir"
-for filename in metadata.json extension.js collector.js model.js reload.js stylesheet.css; do
+for filename in metadata.json extension.js collector.js navigation.js model.js reload.js stylesheet.css; do
     install -m 644 "$source_dir/$filename" "$target_dir/$filename"
 done
 
