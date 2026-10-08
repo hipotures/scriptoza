@@ -17,7 +17,7 @@ class CodexStatusTests(unittest.TestCase):
         imports = f"""
 import GLib from 'gi://GLib';
 import System from 'system';
-import {{normalizeAgents, summarize, sortAgents}} from '{(EXTENSION / 'model.js').as_uri()}';
+import {{normalizeAgents, summarize, sortAgents, trackActivity}} from '{(EXTENSION / 'model.js').as_uri()}';
 import {{Collector, POLL_SECONDS}} from '{(EXTENSION / 'collector.js').as_uri()}';
 import Gio from 'gi://Gio';
 import {{StatusProcess}} from '{(EXTENSION / 'status-process.js').as_uri()}';
@@ -57,6 +57,112 @@ check(sortAgents(agents)[0].state === 'blocked', 'Sort by urgency');
 check(sortAgents([...agents, {state: 'offline', location: 'offline'}]).map(agent => agent.state).join(',') ===
     'blocked,working,done,unknown,unknown,offline,idle', 'Alerts, working, remaining states, then idle');
 check(summarize([], [{machine: 'gpu'}]).state === 'offline', 'Disconnected with no agents');
+""")
+
+    def test_activity_sorting_preserves_working_order_and_seen_completion_time(self):
+        self.run_gjs("""
+const history = new Map();
+const make = (id, state, seq) => ({id, serverId: 'local', terminalId: id, bootId: 'boot-1',
+    agentType: 'codex', state, stateChangeSeq: seq, location: id});
+trackActivity([make('A', 'idle', 9), make('Z', 'working', 1)], history, 100);
+const working = trackActivity([make('Z', 'working', 1)], history, 200)[0];
+check(working.lastActivityAt === 0, 'Working observations must not invalidate cached rows');
+check(JSON.stringify(working) === JSON.stringify(trackActivity([make('Z', 'working', 2)], history, 250)[0]),
+    'Activity sequence changes must not rebuild unchanged working rows');
+const done = trackActivity([make('Z', 'done', 3)], history, 300)[0];
+check(done.lastActivityAt === 300, 'Work completion time was not recorded');
+const idle = trackActivity([make('Z', 'idle', 3)], history, 400)[0];
+check(idle.lastActivityAt === 300, 'Marking a completion seen must not update activity');
+const idleA = trackActivity([make('A', 'idle', 9)], history, 400)[0];
+check(sortAgents([idleA, idle])[0].id === 'Z', 'Recently active idle agent fell below an untouched agent');
+const quickTurn = trackActivity([make('A', 'idle', 11)], history, 500)[0];
+check(quickTurn.lastActivityAt === 500 && sortAgents([idle, quickTurn])[0].id === 'A',
+    'Work entirely between polls must count as activity');
+const entries = ['working', 'blocked', 'done', 'idle', 'unknown'].flatMap(state => [
+    {...make('A', state, 1), lastActivityAt: 100}, {...make('Z', state, 2), lastActivityAt: 200}]);
+check(sortAgents(entries).map(agent => `${agent.state}:${agent.id}`).join(',') ===
+    'blocked:A,blocked:Z,working:A,working:Z,done:Z,done:A,unknown:A,unknown:Z,idle:Z,idle:A',
+    'Only done and idle may sort by activity');
+check(sortAgents([{...idle, location: 'Z'}, {...idleA, lastActivityAt: 300}])[0].id === 'A',
+    'Equal activity times need a stable alphabetical tie break');
+""")
+
+    def test_activity_identity_resets_and_sequence_validation(self):
+        self.run_gjs("""
+const history = new Map();
+const raw = snapshot(['working']);
+raw.agents[0].terminal_id = 'terminal-1';
+raw.agents[0].state_change_seq = 10;
+const local = normalizeAgents(raw, {id: 'local', label: 'Local'})[0];
+const remote = normalizeAgents(raw, {id: 'gpu-id', label: 'GPU'})[0];
+trackActivity([local, remote], history, 100);
+check(history.size === 2, 'Same pane IDs on different machines must keep distinct activity');
+const remoteIdle = trackActivity([{...remote, state: 'idle', stateChangeSeq: 11}], history, 200)[0];
+check(remoteIdle.lastActivityAt === 200 && history.get(local.id).lastActivityAt === 100,
+    'Remote activity leaked into local history');
+for (const patch of [{bootId: 'boot-new'}, {terminalId: 'terminal-new'}, {agentType: 'claude'},
+    {stateChangeSeq: 0}]) {
+    const baseline = new Map(history);
+    check(trackActivity([{...local, state: 'idle', ...patch}], baseline, 300)[0].lastActivityAt === 0,
+        'Replaced agent inherited stale activity');
+}
+for (const value of [-1, '100', 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    raw.agents[0].state_change_seq = value;
+    check(normalizeAgents(raw, {id: 'local', label: 'Local'})[0].stateChangeSeq === 0,
+        'Invalid state sequence accepted');
+}
+""")
+
+    def test_collector_activity_across_machines_and_cleanup(self):
+        self.run_gjs("""
+const loop = new GLib.MainLoop(null, false);
+const collector = new Collector();
+let clock = 1000000;
+let localState = 'working';
+let remoteState = 'working';
+let enabled = true;
+let remoteMissing = false;
+let failRemote = false;
+GLib.get_monotonic_time = () => clock;
+collector._readJson = async args => {
+    if (args[0] === 'machine')
+        return [{id: 'gpu-id', label: 'GPU', enabled}];
+    const remote = args[0] === '--machine';
+    if (remote && failRemote)
+        throw new Error('Disconnected');
+    const state = remote ? remoteState : localState;
+    const data = snapshot(remote && remoteMissing ? [] : [state]);
+    for (const agent of data.agents) {
+        agent.terminal_id = 'same-terminal-id';
+        agent.state_change_seq = state === 'working' ? 1 : 2;
+    }
+    return {result: {snapshot: data}};
+};
+(async () => {
+    const first = await collector.collect();
+    check(first.agents.every(agent => agent.lastActivityAt === 0), 'Active rows expose ticking timestamps');
+    localState = 'idle'; clock = 2000000;
+    const second = await collector.collect();
+    check(second.agents[0].lastActivityAt === 2000 && second.agents[1].lastActivityAt === 0,
+        'Local completion confused with same remote pane');
+    remoteState = 'idle'; clock = 3000000;
+    const third = await collector.collect();
+    check(sortAgents(third.agents)[0].serverId === 'gpu-id', 'Most recent remote idle agent must be first');
+    failRemote = true; clock = 4000000;
+    await collector.collect();
+    check(collector._activity.size === 2, 'Temporary remote failure must retain activity history');
+    failRemote = false; collector._retryAfter.clear(); remoteMissing = true;
+    await collector.collect();
+    check(collector._activity.size === 1, 'Closed remote pane retained history');
+    remoteMissing = false; await collector.collect(); enabled = false;
+    await collector.collect();
+    check(collector._activity.size === 1, 'Disabled machine retained history');
+})().catch(error => { printerr(error.stack); System.exit(1); }).finally(() => {
+    collector.close();
+    check(collector._activity.size === 0, 'Disable leaked activity history');
+    loop.quit();
+});
+loop.run();
 """)
 
     def test_remote_names_and_identity_filtering(self):
@@ -254,7 +360,8 @@ if args[:2] == ['machine', 'list']:
 else:
     print(json.dumps(dict(result=dict(snapshot=dict(
         boot_id='worker-boot',
-        agents=[dict(agent='codex', agent_status='done', pane_id='w1:p3',
+        agents=[dict(agent='codex', agent_status=('idle' if os.path.exists(os.environ['STATUS_STATE_FILE']) else 'working'),
+                     state_change_seq=(2 if os.path.exists(os.environ['STATUS_STATE_FILE']) else 1), pane_id='w1:p3',
                      tab_id='w1:t1', workspace_id='w1'),
                 dict(agent='claude', agent_status='working', pane_id='w1:p4',
                      tab_id='w1:t1', workspace_id='w1')],
@@ -263,7 +370,8 @@ else:
 """, encoding="utf-8")
             fake.chmod(0o755)
             env = {**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
-                   "STATUS_REQUEST_LOG": str(Path(directory) / "requests")}
+                   "STATUS_REQUEST_LOG": str(Path(directory) / "requests"),
+                   "STATUS_STATE_FILE": str(Path(directory) / "state")}
             self.run_gjs(f"""
 const loop = new GLib.MainLoop(null, false);
 const worker = new StatusProcess('{EXTENSION / 'status-worker.js'}');
@@ -286,8 +394,15 @@ function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORI
     check(first.agents.filter(agent => agent.agentType === 'claude').length === 2 &&
         second.agents.filter(agent => agent.agentType === 'codex').length === 2,
         'Worker did not preserve both agent types across local and remote machines');
+    check(JSON.stringify(first.agents) === JSON.stringify(second.agents),
+        'Persistent worker emitted changing timestamps for unchanged working rows');
+    GLib.file_set_contents(GLib.getenv('STATUS_STATE_FILE'), 'idle');
+    const third = await worker.collect();
+    check(third.agents.filter(agent => agent.agentType === 'codex')
+        .every(agent => agent.state === 'idle' && agent.lastActivityAt > 0),
+        'Persistent worker lost activity when working agents became idle');
     const [, bytes] = GLib.file_get_contents(GLib.getenv('STATUS_REQUEST_LOG'));
-    check(new TextDecoder().decode(bytes).trim().split('\\n').length === 6, 'Extra worker polling');
+    check(new TextDecoder().decode(bytes).trim().split('\\n').length === 9, 'Extra worker polling');
     worker.close();
     await pause(150);
     check(!worker._process && !worker._killSource && !worker._deadline &&

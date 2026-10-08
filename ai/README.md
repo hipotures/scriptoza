@@ -78,6 +78,15 @@ still places unseen completions before working agents. `done` means the turn
 finished, not necessarily that the task succeeded. Reading status does not
 change `done` to `idle`.
 
+Within `done` and `idle`, agents most recently observed working or changing
+state appear first. Other groups keep alphabetical order, so working agents
+do not move as their activity continues. Equal or unknown activity times use
+alphabetical order. The helper remembers activity across its existing polls
+and uses Herdr's state-change sequence to notice work between polls; reading
+a completion does not update its activity time. History starts when the widget
+is enabled or reloaded, since Herdr supplies sequences rather than timestamps
+comparable across machines. Observed times have the polling interval's precision.
+
 Polling starts immediately and then runs every 5 seconds. A slow round never
 overlaps the next round, and opening the menu does not trigger extra requests.
 Each round reads the enabled machine list once and requests one `api snapshot`
@@ -113,7 +122,7 @@ rows took approximately 17 and 50 ms. These timings use generated snapshots;
 they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the update time, total polling latency, time spent
-parsing snapshots in the helper, and the widget version (currently `v0.0.7`).
+parsing snapshots in the helper, and the widget version (currently `v0.0.8`).
 The total latency includes waiting for local and remote replies; it is not a
 measure of time spent blocking GNOME Shell. Run the standalone
 GJS benchmark for three rounds and their mean:

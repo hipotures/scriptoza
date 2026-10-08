@@ -164,7 +164,7 @@ export async function run() {
         metrics: {totalMs: 300, parseMs: 0.3}};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.7'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.8'),
         'Menu footer did not display the loaded widget version');
     const heading = () => widget._indicator.menu._getMenuItems()[0].label.text;
     check(heading() === '2 local agents, 4 remote agents',
@@ -222,6 +222,14 @@ export async function run() {
         'All idle agents retain individual gray dots and an accessible menu');
     check(widget._panelDots.every(({state, dot}) => state === 'idle' && dot.opacity === 255),
         'Idle dots must remain steady');
+    for (const state of ['done', 'idle', 'working']) {
+        widget._render({...data, agents: [
+            {state, agentType: 'codex', serverId: 'local', location: 'A:run:p1', lastActivityAt: 100},
+            {state, agentType: 'claude', serverId: 'gpu-id', location: 'Z:run:p1', lastActivityAt: 200},
+        ]});
+        check(widget._agentRows[0].agent.location.startsWith(state === 'working' ? 'A:' : 'Z:'),
+            'Recent activity must sort done and idle rows while working rows keep stable order');
+    }
     widget._render(data);
     check(widget._panelDots.every(({state}) => state !== 'idle'),
         'Idle dots disappear again when another agent starts working');

@@ -7,10 +7,12 @@ import * as Model from './model.js';
 const modelRevision = import.meta.url.match(/\?.*$/)?.[0] ?? '';
 let cleanText = Model.cleanText;
 let normalizeAgents = Model.normalizeAgents;
+let trackActivity = Model.trackActivity;
 const modelReady = modelRevision
     ? import(`./model.js${modelRevision}`).then(module => {
         cleanText = module.cleanText;
         normalizeAgents = module.normalizeAgents;
+        trackActivity = module.trackActivity;
     })
     : Promise.resolve();
 
@@ -29,6 +31,7 @@ export class Collector {
         this._launchSource = 0;
         this._servers = [{id: 'local', label: 'Local'}];
         this._retryAfter = new Map();
+        this._activity = new Map();
         this._closed = false;
     }
 
@@ -44,6 +47,7 @@ export class Collector {
             process.send_signal(15);
         this._servers = [];
         this._retryAfter.clear();
+        this._activity.clear();
     }
 
     _launch(args) {
@@ -132,6 +136,10 @@ export class Collector {
             servers = this._servers;
         }
         const serverIds = new Set(servers.map(server => server.id));
+        for (const [id, agent] of this._activity) {
+            if (!serverIds.has(agent.serverId))
+                this._activity.delete(id);
+        }
         for (const id of this._retryAfter.keys()) {
             if (!serverIds.has(id))
                 this._retryAfter.delete(id);
@@ -148,8 +156,15 @@ export class Collector {
                 const prefix = server.id === 'local' ? [] : ['--machine', server.id];
                 const data = await this._readJson([...prefix, 'api', 'snapshot'], metrics);
                 const agents = normalizeAgents(data.result?.snapshot, server);
+                if (this._closed)
+                    throw new Error('Collector stopped');
+                const ids = new Set(agents.map(agent => agent.id));
+                for (const [id, agent] of this._activity) {
+                    if (agent.serverId === server.id && !ids.has(id))
+                        this._activity.delete(id);
+                }
                 this._retryAfter.delete(server.id);
-                return {server, agents};
+                return {server, agents: trackActivity(agents, this._activity, start / 1000)};
             } catch (error) {
                 if (server.id === 'local')
                     errors.push({serverId: server.id, machine: 'Local', message: error.message});
