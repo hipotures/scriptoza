@@ -2,6 +2,10 @@
 
 ## GNOME Herdr Agent Status
 
+For the GPU live-handoff failure and recovery of a running Codex conversation
+inside a new Herdr pane, see the
+[incident record](../docs/HERDR_GPU_HANDOFF_INCIDENT.md).
+
 `agentai-status/` is a GNOME Shell 50/51 extension written in JavaScript/GJS. It
 shows Codex and Claude Code agents locally and on every enabled saved Herdr machine.
 It reads agent status directly from Herdr and runs independently of
