@@ -9,6 +9,8 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
+const WIDGET_VERSION = '0.0.2';
+
 const {Collector, POLL_SECONDS} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {STATES, sortAgents, summarize} = await import(`./model.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -158,7 +160,7 @@ export default class CodexStatus extends Extension {
         const performance = metrics
             ? `Updated ${new Date().toLocaleTimeString()} · ${Math.round(metrics.totalMs)} ms · JSON ${metrics.parseMs.toFixed(2)} ms`
             : 'Update failed';
-        const footer = new PopupMenu.PopupMenuItem(performance, {reactive: false});
+        const footer = new PopupMenu.PopupMenuItem(`${performance} · v${WIDGET_VERSION}`, {reactive: false});
         footer.label.add_style_class_name('codex-status-footer');
         this._indicator.menu.addMenuItem(footer);
         this._updateAnimation();

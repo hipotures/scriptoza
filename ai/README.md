@@ -80,8 +80,9 @@ to ignore. A machine-list or local-server failure is still reported in the menu.
 Disabling the extension removes timers, destroys its panel/menu, and stops its
 pending commands.
 
-The menu footer shows the update time, total polling latency, and time spent
-parsing JSON. Run the standalone GJS benchmark for three rounds and their mean:
+The menu footer shows the update time, total polling latency, time spent
+parsing JSON, and the widget version (currently `v0.0.2`). Run the standalone
+GJS benchmark for three rounds and their mean:
 
 ```bash
 gjs -m ai/codex_status_benchmark.js

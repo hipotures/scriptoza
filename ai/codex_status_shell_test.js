@@ -160,6 +160,8 @@ export async function run() {
         metrics: {totalMs: 300, parseMs: 0.3}};
     for (let index = 0; index < 30; index++)
         widget._render(data);
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.2'),
+        'Menu footer did not display the loaded widget version');
     check(widget._indicator.menu.box.get_n_children() === 5, 'Menu leaked children');
     check(widget._panelDots.length === 5 && widget._panelBox.get_n_children() === 5,
         'One dot per non-idle agent, no terminal icon or counters');
