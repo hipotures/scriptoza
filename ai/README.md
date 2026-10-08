@@ -7,7 +7,7 @@ shows local Codex agents and Codex agents on every enabled saved Herdr machine.
 It reads agent status directly from Herdr and runs independently of
 `codex-resume`; status polling never sends input, marks completions as seen, or
 controls services.
-It requires `herdr` and GNU coreutils `timeout` in the user's executable paths.
+It requires `herdr`, `gjs`, and GNU coreutils `timeout` in the user's executable paths.
 
 Install and enable it for your user:
 
@@ -68,11 +68,15 @@ overlaps the next round, and opening the menu does not trigger extra requests.
 Each round reads the enabled machine list once and requests one `api snapshot`
 per server, concurrently. Snapshots contain agent and layout names in one
 response. Subprocess communication is asynchronous; an 8-second timeout stops
-unresponsive requests. Process launches are queued one per low-priority idle
-dispatch so ready Shell input and frame work can run between launches. The
-timeout has a one-second termination grace period and also covers SSH child
-processes. Disabling the widget cancels queued requests and terminates active
-process groups. Unreachable remote machines are ignored: they have no
+unresponsive requests. A single helper process performs discovery, starts Herdr
+and SSH commands, and parses the full snapshots outside GNOME Shell. The Shell
+sends it one collection request per poll and asynchronously reads only normalized
+agent data. The helper has no independent polling timer and survives between
+polls, preserving offline retry state. The timeout has a one-second termination
+grace period and also covers SSH child processes. Disabling the widget cancels
+pending requests and stops the helper and its active command groups. A failed
+helper is reported without repeatedly spawning replacements; disable and enable
+the widget to retry. Unreachable remote machines are ignored: they have no
 rows or warning indicators and their agents do not contribute to counters.
 An unavailable remote profile is not queried again for 60 seconds, while active
 agents continue updating every 5 seconds. A recovered machine returns on the
@@ -94,7 +98,9 @@ rows took approximately 17 and 50 ms. These timings use generated snapshots;
 they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the update time, total polling latency, time spent
-parsing JSON, and the widget version (currently `v0.0.3`). Run the standalone
+parsing snapshots in the helper, and the widget version (currently `v0.0.4`).
+The total latency includes waiting for local and remote replies; it is not a
+measure of time spent blocking GNOME Shell. Run the standalone
 GJS benchmark for three rounds and their mean:
 
 ```bash
@@ -115,7 +121,7 @@ Offline collector/model tests run with the repository's unittest suite when
 isolated headless GNOME Shell:
 
 ```bash
-gnome-extensions pack ai/codex-status --extra-source=collector.js --extra-source=navigation.js --extra-source=model.js --extra-source=reload.js --out-dir=/tmp --force
+gnome-extensions pack ai/codex-status --extra-source=collector.js --extra-source=navigation.js --extra-source=model.js --extra-source=reload.js --extra-source=status-process.js --extra-source=status-worker.js --out-dir=/tmp --force
 dbus-run-session -- gnome-shell-test-tool --extra-filter org.scriptoza.CodexStatusWindowTest --headless --extension /tmp/codex-status@scriptoza.shell-extension.zip ai/codex_status_shell_test.js
 ```
 

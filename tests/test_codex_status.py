@@ -1,6 +1,7 @@
 """Offline GJS tests for the GNOME Codex status indicator."""
 
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -12,12 +13,14 @@ EXTENSION = Path(__file__).resolve().parents[1] / "ai" / "codex-status"
 
 @unittest.skipUnless(shutil.which("gjs"), "GJS is required")
 class CodexStatusTests(unittest.TestCase):
-    def run_gjs(self, body):
+    def run_gjs(self, body, env=None):
         imports = f"""
 import GLib from 'gi://GLib';
 import System from 'system';
 import {{normalizeAgents, summarize, sortAgents}} from '{(EXTENSION / 'model.js').as_uri()}';
 import {{Collector, POLL_SECONDS}} from '{(EXTENSION / 'collector.js').as_uri()}';
+import Gio from 'gi://Gio';
+import {{StatusProcess}} from '{(EXTENSION / 'status-process.js').as_uri()}';
 import {{Navigator, clientWindowToken, findClientWindow, focusTarget}} from '{(EXTENSION / 'navigation.js').as_uri()}';
 function check(condition, message) {{ if (!condition) throw new Error(message); }}
 function snapshot(states = ['working']) {{
@@ -35,7 +38,8 @@ function snapshot(states = ['working']) {{
             script = Path(directory) / "test.js"
             script.write_text(imports + body, encoding="utf-8")
             result = subprocess.run(
-                ["gjs", "-m", str(script)], capture_output=True, text=True, timeout=15
+                ["gjs", "-m", str(script)], capture_output=True, text=True, timeout=15,
+                env=env,
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("CRITICAL", result.stderr)
@@ -226,6 +230,154 @@ function childStopped() {
 })().catch(error => { printerr(error.stack); System.exit(1); }).finally(() => {
     collector.close(); GLib.unlink(pidFile); GLib.rmdir(directory); loop.quit();
 });
+loop.run();
+""")
+
+    def test_status_worker_spawns_once_and_preserves_machine_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake = Path(directory) / "herdr"
+            fake.write_text("""#!/usr/bin/python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ['STATUS_REQUEST_LOG'], 'a') as log:
+    log.write(' '.join(args) + '\\n')
+if args[:2] == ['machine', 'list']:
+    print(json.dumps([dict(id='gpu-id', label='GPU', enabled=True)]))
+else:
+    print(json.dumps(dict(result=dict(snapshot=dict(
+        boot_id='worker-boot',
+        agents=[dict(agent='codex', agent_status='done', pane_id='w1:p3',
+                     tab_id='w1:t1', workspace_id='w1')],
+        panes=[dict(pane_id='w1:p3')], tabs=[dict(tab_id='w1:t1', label='run')],
+        workspaces=[dict(workspace_id='w1', label='project')])))))
+""", encoding="utf-8")
+            fake.chmod(0o755)
+            env = {**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
+                   "STATUS_REQUEST_LOG": str(Path(directory) / "requests")}
+            self.run_gjs(f"""
+const loop = new GLib.MainLoop(null, false);
+const worker = new StatusProcess('{EXTENSION / 'status-worker.js'}');
+const launches = [];
+const spawn = Gio.Subprocess.new;
+Gio.Subprocess.new = (args, flags) => {{ launches.push(args); return spawn(args, flags); }};
+function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms,
+    () => {{ resolve(); return GLib.SOURCE_REMOVE; }})); }}
+(async () => {{
+    let first = await worker.collect();
+    const pid = worker._process.get_identifier();
+    const second = await worker.collect();
+    check(worker._process.get_identifier() === pid && launches.length === 1,
+        'Polling spawned more processes inside the Shell instead of reusing its worker');
+    check(first.agents.length === 2 && second.agents.length === 2 && second.metrics.requests === 3,
+        'Worker did not preserve snapshot polling');
+    check(first.agents[0].paneId === first.agents[1].paneId &&
+        first.agents[0].id !== first.agents[1].id && first.agents[1].serverId === 'gpu-id' &&
+        first.agents.every(agent => agent.bootId === 'worker-boot'), 'Machine or boot identities lost');
+    const [, bytes] = GLib.file_get_contents(GLib.getenv('STATUS_REQUEST_LOG'));
+    check(new TextDecoder().decode(bytes).trim().split('\\n').length === 6, 'Extra worker polling');
+    worker.close();
+    await pause(150);
+    check(!worker._process && !worker._killSource && !worker._deadline &&
+        !GLib.file_test(`/proc/${{pid}}`, GLib.FileTest.EXISTS), 'Disable left a worker running');
+}})().catch(error => {{ printerr(error.stack); System.exit(1); }}).finally(() => {{ worker.close(); loop.quit(); }});
+loop.run();
+""", env=env)
+
+    def test_failed_status_worker_does_not_respawn_on_every_poll(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worker_file = Path(directory) / "worker.js"
+            worker_file.write_text('print("invalid");', encoding="utf-8")
+            self.run_gjs(f"""
+const loop = new GLib.MainLoop(null, false);
+const worker = new StatusProcess('{worker_file}');
+const launches = [];
+const spawn = Gio.Subprocess.new;
+Gio.Subprocess.new = (args, flags) => {{ launches.push(args); return spawn(args, flags); }};
+(async () => {{
+    for (let index = 0; index < 3; index++) {{
+        let failed = false;
+        try {{ await worker.collect(); }} catch {{ failed = true; }}
+        check(failed, 'Broken worker response was accepted');
+    }}
+    check(launches.length === 1 && !worker._deadline, 'Broken worker respawned on every poll');
+}})().catch(error => {{ printerr(error.stack); System.exit(1); }}).finally(() => {{ worker.close(); loop.quit(); }});
+loop.run();
+""")
+
+    def test_status_worker_shutdown_stops_active_command_descendants(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake = Path(directory) / "herdr"
+            fake.write_text("""#!/usr/bin/python3
+import json, os, pathlib, signal, subprocess, sys, time
+if sys.argv[1:3] == ['machine', 'list']:
+    print('[]')
+    sys.exit(0)
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+def stop(signum, frame):
+    child.wait()
+    sys.exit(0)
+signal.signal(signal.SIGTERM, stop)
+pathlib.Path(os.environ['STATUS_CHILD_PIDS']).write_text(json.dumps([os.getpid(), child.pid]))
+time.sleep(60)
+""", encoding="utf-8")
+            fake.chmod(0o755)
+            env = {**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
+                   "STATUS_CHILD_PIDS": str(Path(directory) / "pids")}
+            self.run_gjs(f"""
+const loop = new GLib.MainLoop(null, false);
+const worker = new StatusProcess('{EXTENSION / 'status-worker.js'}');
+function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms,
+    () => {{ resolve(); return GLib.SOURCE_REMOVE; }})); }}
+(async () => {{
+    const pending = worker.collect().catch(() => null);
+    const pid = worker._process.get_identifier();
+    const file = GLib.getenv('STATUS_CHILD_PIDS');
+    for (let index = 0; index < 100 && !GLib.file_test(file, GLib.FileTest.EXISTS); index++)
+        await pause(20);
+    check(GLib.file_test(file, GLib.FileTest.EXISTS), 'Command fixture failed to start');
+    const [, bytes] = GLib.file_get_contents(file);
+    const pids = JSON.parse(new TextDecoder().decode(bytes));
+    worker.close();
+    await pending;
+    for (let index = 0; index < 100 && worker._process; index++)
+        await pause(20);
+    check(!worker._process && !worker._killSource && !worker._deadline, 'Worker was not reaped');
+    check([pid, ...pids].every(value => !GLib.file_test(`/proc/${{value}}`, GLib.FileTest.EXISTS)),
+        'Disable left worker command descendants running');
+}})().catch(error => {{ printerr(error.stack); System.exit(1); }}).finally(() => {{ worker.close(); loop.quit(); }});
+loop.run();
+""", env=env)
+
+    def test_status_worker_force_stops_if_it_ignores_shutdown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worker_file = Path(directory) / "worker.js"
+            worker_file.write_text("""
+import GLib from 'gi://GLib';
+import GLibUnix from 'gi://GLibUnix';
+GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, 15, () => GLib.SOURCE_CONTINUE);
+new GLib.MainLoop(null, false).run();
+""", encoding="utf-8")
+            self.run_gjs(f"""
+const loop = new GLib.MainLoop(null, false);
+const worker = new StatusProcess('{worker_file}');
+function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms,
+    () => {{ resolve(); return GLib.SOURCE_REMOVE; }})); }}
+(async () => {{
+    const pending = worker.collect().catch(() => null);
+    const pid = worker._process.get_identifier();
+    await pause(200);
+    worker.close();
+    await pending;
+    await pause(2200);
+    check(!worker._process && !worker._killSource && !worker._deadline &&
+        !GLib.file_test(`/proc/${{pid}}`, GLib.FileTest.EXISTS), 'Unresponsive worker survived shutdown');
+    const immediate = new StatusProcess('{EXTENSION / 'status-worker.js'}');
+    const collecting = immediate.collect().catch(() => null);
+    immediate.close();
+    await collecting;
+    await pause(150);
+    check(!immediate._process && !immediate._killSource, 'Immediate startup cancellation leaked a worker');
+}})().catch(error => {{ printerr(error.stack); System.exit(1); }}).finally(() => {{ worker.close(); loop.quit(); }});
 loop.run();
 """)
 

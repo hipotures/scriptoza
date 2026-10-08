@@ -160,7 +160,7 @@ export async function run() {
         metrics: {totalMs: 300, parseMs: 0.3}};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.3'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.4'),
         'Menu footer did not display the loaded widget version');
     const retainedRows = widget._agentRows.map(({row}) => row);
     const retainedDots = widget._panelDots.map(({dot}) => dot);

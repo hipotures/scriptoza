@@ -9,15 +9,16 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.3';
+const WIDGET_VERSION = '0.0.4';
 
 const {Collector, POLL_SECONDS} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
+const {StatusProcess} = await import(`./status-process.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {STATES, sortAgents, summarize} = await import(`./model.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 
 export default class CodexStatus extends Extension {
     enable() {
-        this._collector = new Collector();
+        this._collector = new StatusProcess(this.dir.get_child('status-worker.js').get_path());
         this._navigationCollector = new Collector();
         this._busy = false;
         this._blinkSource = 0;
