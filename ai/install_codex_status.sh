@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/codex-status"
+source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/agentai-status"
 extension_id="codex-status@scriptoza"
 target_dir="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/$extension_id"
 shell_version="$(gnome-shell --version)"
 if [[ "$shell_version" != "GNOME Shell 50."* && "$shell_version" != "GNOME Shell 51."* ]]; then
-    echo "Codex Status requires GNOME Shell 50 or 51." >&2
+    echo "Herdr Agent Status requires GNOME Shell 50 or 51." >&2
     exit 1
 fi
 
 install -d "$target_dir"
+install -d "$target_dir/assets/icons"
+install -m 644 "$source_dir"/assets/icons/*.svg "$target_dir/assets/icons/"
 for filename in metadata.json extension.js collector.js navigation.js model.js reload.js status-process.js status-worker.js stylesheet.css; do
     install -m 644 "$source_dir/$filename" "$target_dir/$filename"
 done

@@ -56,7 +56,7 @@ async function run() {
 
 run().catch(error => {
     if (!stopped) {
-        printerr(`Codex Status worker: ${error.message}`);
+        printerr(`Agent Status worker: ${error.message}`);
         failed = true;
     }
 }).finally(() => {

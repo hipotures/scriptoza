@@ -1,0 +1,8 @@
+{
+    "uuid": "codex-status@scriptoza",
+    "name": "Herdr Agent Status",
+    "description": "Show local and remote Herdr Codex and Claude Code agent states in the top panel.",
+    "shell-version": ["50", "51"],
+    "version": 5,
+    "url": "https://github.com/hipotures/scriptoza"
+}

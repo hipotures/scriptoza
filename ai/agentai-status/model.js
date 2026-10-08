@@ -9,6 +9,11 @@ export const STATES = {
     offline: {label: 'Disconnected', color: '#777777'},
 };
 
+export const AGENT_TYPES = {
+    codex: {label: 'Codex'},
+    claude: {label: 'Claude Code'},
+};
+
 export function cleanText(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
@@ -25,7 +30,7 @@ export function normalizeAgents(snapshot, server) {
         ? snapshot.boot_id : null;
     const agents = new Map();
     for (const agent of snapshot.agents) {
-        if (agent.agent !== 'codex' || !panes.has(agent.pane_id))
+        if (!Object.hasOwn(AGENT_TYPES, agent.agent) || !panes.has(agent.pane_id))
             continue;
         const pane = panes.get(agent.pane_id);
         const tab = tabs.get(agent.tab_id);
@@ -41,7 +46,7 @@ export function normalizeAgents(snapshot, server) {
         const id = `${server.id}/${agent.pane_id}`;
         agents.set(id, {
             id, serverId: server.id, machine: server.label,
-            paneId: agent.pane_id, bootId, state,
+            paneId: agent.pane_id, bootId, state, agentType: agent.agent,
             location: server.id === 'local' ? location : `${cleanText(server.label)}/${location}`,
         });
     }

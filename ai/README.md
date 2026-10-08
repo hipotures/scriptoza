@@ -1,9 +1,9 @@
 # AI Utilities
 
-## GNOME Codex Status
+## GNOME Herdr Agent Status
 
-`codex-status/` is a GNOME Shell 50/51 extension written in JavaScript/GJS. It
-shows local Codex agents and Codex agents on every enabled saved Herdr machine.
+`agentai-status/` is a GNOME Shell 50/51 extension written in JavaScript/GJS. It
+shows Codex and Claude Code agents locally and on every enabled saved Herdr machine.
 It reads agent status directly from Herdr and runs independently of
 `codex-resume`; status polling never sends input, marks completions as seen, or
 controls services.
@@ -32,14 +32,23 @@ await (await import('file:///home/user/.local/share/gnome-shell/extensions/codex
 
 This reloads the panel module while retaining GNOME's extension registration.
 Stylesheet changes require a new session.
+The source directory is `agentai-status`; the installed extension ID remains
+`codex-status@scriptoza`, so the existing registration and enable/disable commands
+continue to identify this widget.
 
 The panel shows one colored dot per non-idle agent, with no icon or counters.
 Agents sharing a state have separate dots. Idle agents are hidden from the panel
 while any other state is present. If all agents are idle, every idle agent has
 its own gray dot so the full list remains accessible.
 Click it to see the complete list, including idle agents, with each agent's
-machine, workspace, tab, pane, and current state. Agent rows are keyboard and
-pointer accessible: hovering or focusing a row highlights the complete row,
+machine, workspace, tab, pane, and current state. The heading counts both types
+as "N agents". SVG files in `agentai-status/assets/icons/` identify Codex and
+Claude Code before their names.
+The OpenAI icon switches between the supplied light and dark variants when the
+GNOME menu's text color changes, including live theme changes. Herdr's theme
+controls its terminal interface independently of the GNOME menu.
+Agent rows support keyboard and pointer input: hovering or focusing a row
+highlights the complete row,
 and activating it checks the selected machine and pane with Herdr before
 focusing that pane in the existing Herdr client. The extension then activates
 the matching terminal window by its unique `[herdr-client:<ID>]` title marker.
@@ -98,7 +107,7 @@ rows took approximately 17 and 50 ms. These timings use generated snapshots;
 they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the update time, total polling latency, time spent
-parsing snapshots in the helper, and the widget version (currently `v0.0.4`).
+parsing snapshots in the helper, and the widget version (currently `v0.0.5`).
 The total latency includes waiting for local and remote replies; it is not a
 measure of time spent blocking GNOME Shell. Run the standalone
 GJS benchmark for three rounds and their mean:
@@ -121,7 +130,7 @@ Offline collector/model tests run with the repository's unittest suite when
 isolated headless GNOME Shell:
 
 ```bash
-gnome-extensions pack ai/codex-status --extra-source=collector.js --extra-source=navigation.js --extra-source=model.js --extra-source=reload.js --extra-source=status-process.js --extra-source=status-worker.js --out-dir=/tmp --force
+gnome-extensions pack ai/agentai-status --extra-source=collector.js --extra-source=navigation.js --extra-source=model.js --extra-source=reload.js --extra-source=status-process.js --extra-source=status-worker.js --extra-source=assets --out-dir=/tmp --force
 dbus-run-session -- gnome-shell-test-tool --extra-filter org.scriptoza.CodexStatusWindowTest --headless --extension /tmp/codex-status@scriptoza.shell-extension.zip ai/codex_status_shell_test.js
 ```
 

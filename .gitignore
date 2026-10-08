@@ -43,10 +43,13 @@ tests/data/
 !ai/*.py
 !ai/*.service
 !ai/*.js
-!ai/codex-status/
-!ai/codex-status/*.js
-!ai/codex-status/*.json
-!ai/codex-status/*.css
+!ai/agentai-status/
+!ai/agentai-status/*.js
+!ai/agentai-status/*.json
+!ai/agentai-status/*.css
+!ai/agentai-status/assets/
+!ai/agentai-status/assets/icons/
+!ai/agentai-status/assets/icons/*.svg
 
 # Allow the Firefox yt-dlp downloader
 !firefox-yt/

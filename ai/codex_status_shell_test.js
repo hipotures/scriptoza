@@ -154,14 +154,17 @@ export async function run() {
     widget._collector = collector;
     widget._busy = false;
     const agents = ['idle', 'working', 'done', 'blocked', 'unknown']
-        .map((state, index) => ({state, bootId: 'boot-1', location: `gpu/phase${index}:run:p1`}));
-    agents.push({state: 'working', bootId: 'boot-1', location: 'gpu/second:run:p1'});
+        .map((state, index) => ({state, agentType: index === 0 ? 'claude' : 'codex',
+            bootId: 'boot-1', location: `gpu/phase${index}:run:p1`}));
+    agents.push({state: 'working', agentType: 'claude', bootId: 'boot-1', location: 'gpu/second:run:p1'});
     const data = {agents, errors: [],
         metrics: {totalMs: 300, parseMs: 0.3}};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.4'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.5'),
         'Menu footer did not display the loaded widget version');
+    check(widget._indicator.menu._getMenuItems()[0].label.text === `${agents.length} agents`,
+        'Heading did not count all agent types with a neutral label');
     const retainedRows = widget._agentRows.map(({row}) => row);
     const retainedDots = widget._panelDots.map(({dot}) => dot);
     const retainedBlink = widget._blinkSource;
@@ -192,8 +195,8 @@ export async function run() {
     widget._render({...data, agents: agents.filter(agent => agent.state !== 'blocked')});
     check(!widget._blinkSource, 'Working agents must not start an animation timer');
     widget._render({...data, agents: [
-        {state: 'idle', location: 'first:run:p1'},
-        {state: 'idle', location: 'second:run:p1'},
+        {state: 'idle', agentType: 'codex', location: 'first:run:p1'},
+        {state: 'idle', agentType: 'claude', location: 'second:run:p1'},
     ]});
     check(widget._indicator.visible && widget._panelDots.length === 2,
         'All idle agents retain individual gray dots and an accessible menu');
@@ -206,12 +209,30 @@ export async function run() {
     check(widget._agentRows.length === agents.length, 'One interactive row per agent');
     check(widget._agentRows.every(({row}) => row.reactive && row.can_focus && row.track_hover),
         'Agent rows support pointer hover and keyboard focus');
+    const codexRow = widget._agentRows.find(({agent}) => agent.agentType === 'codex');
+    const claudeRow = widget._agentRows.find(({agent}) => agent.agentType === 'claude');
+    check(claudeRow.icon.gicon.get_file().get_basename() === 'anthropic.svg' &&
+        claudeRow.row.accessible_name.startsWith('Claude Code:'), 'Claude Code icon or accessibility label missing');
+    codexRow.row.set_style('color: #ffffff;');
+    await pause(50);
+    check(codexRow.icon.gicon.get_file().get_basename() === 'openai-light.svg',
+        'Dark menu did not use the light OpenAI icon');
+    codexRow.row.set_style('color: #000000;');
+    await pause(50);
+    check(codexRow.icon.gicon.get_file().get_basename() === 'openai.svg',
+        'Light menu did not switch the OpenAI icon without reloading');
+    codexRow.row.set_style(null);
     const navigated = [];
     widget._navigator = {
         busy: false,
         focus: async agent => { navigated.push(agent.location); return false; },
         close() {},
     };
+    const seat = global.stage.context.get_backend().get_default_seat();
+    const pointer = seat.create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
+    const [indicatorX, indicatorY] = widget._indicator.get_transformed_position();
+    seat.warp_pointer(indicatorX + 5, indicatorY + 5);
+    await pause(100);
     widget._indicator.menu.open();
     widget._agentRows[0].row.hover = true;
     check(widget._agentRows[0].row.active, 'Hover highlights the whole row');
@@ -222,32 +243,32 @@ export async function run() {
     widget._render(data);
     check(widget._agentRows[0].row === focusedRow && global.stage.get_key_focus() === focusedRow && focusedRow.active,
         'Unchanged polling lost the hovered or keyboard-focused row');
-    const keyboard = global.stage.context.get_backend().get_default_seat().create_virtual_device(
-        Clutter.InputDeviceType.KEYBOARD_DEVICE);
+    const keyboard = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
     const keyTime = GLib.get_monotonic_time();
     keyboard.notify_keyval(keyTime, Clutter.KEY_Return, Clutter.KeyState.PRESSED);
     keyboard.notify_keyval(keyTime + 1, Clutter.KEY_Return, Clutter.KeyState.RELEASED);
+    await pause(50);
+    check(navigated.length === 1, `Keyboard activation failed (${navigated.length} requests)`);
     const [rowX, rowY] = widget._agentRows[0].row.get_transformed_position();
-    if (Number.isFinite(rowX) && Number.isFinite(rowY)) {
-        const pointer = global.stage.context.get_backend().get_default_seat().create_virtual_device(
-            Clutter.InputDeviceType.POINTER_DEVICE);
-        const pointerTime = keyTime + 2;
-        pointer.notify_absolute_motion(pointerTime, rowX + 10, rowY + 10);
-        pointer.notify_button(pointerTime + 1, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.PRESSED);
-        pointer.notify_button(pointerTime + 2, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.RELEASED);
-    } else {
-        // Headless Shell can map the popup before allocating its row actors.
-        widget._agentRows[0].row.activate();
-    }
+    let picked = Number.isFinite(rowX) && Number.isFinite(rowY)
+        ? global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, rowX + 10, rowY + 10) : null;
+    while (picked && picked !== focusedRow)
+        picked = picked.get_parent();
+    check(picked === focusedRow, 'Popup row was not hittable by the virtual pointer');
+    pointer.notify_absolute_motion(GLib.get_monotonic_time(), rowX + 10, rowY + 10);
+    await pause(100);
+    const pointerTime = GLib.get_monotonic_time();
+    pointer.notify_button(pointerTime, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.PRESSED);
+    pointer.notify_button(pointerTime + 1, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.RELEASED);
     await pause(50);
     check(navigated.length === 2 && widget._indicator.menu.isOpen,
-        'Mouse and keyboard activation stay asynchronous and keep failures visible');
+        `Mouse activation failed (${navigated.length} requests, menu open: ${widget._indicator.menu.isOpen})`);
     widget._indicator.menu.close();
     let targetData = {...data, agents: [{id: 'local/w1:p3', serverId: 'local', paneId: 'w1:p3',
-        bootId: 'boot-1', state: 'working', location: 'project:run:p3'}]};
+        bootId: 'boot-1', state: 'working', agentType: 'codex', location: 'project:run:p3'}]};
     widget._render(targetData);
     for (const patch of [{bootId: 'boot-2'}, {serverId: 'gpu-id'}, {paneId: 'w2:p3'},
-        {location: 'other:run:p3'}, {state: 'done'}]) {
+        {location: 'other:run:p3'}, {state: 'done'}, {agentType: 'claude'}]) {
         const previousRow = widget._agentRows[0].row;
         targetData = {...targetData, agents: [{...targetData.agents[0], ...patch}]};
         widget._render(targetData);

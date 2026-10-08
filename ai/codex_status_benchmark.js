@@ -3,7 +3,7 @@
 import GLib from 'gi://GLib';
 import System from 'system';
 
-import {Collector, POLL_SECONDS} from './codex-status/collector.js';
+import {Collector, POLL_SECONDS} from './agentai-status/collector.js';
 
 const loop = new GLib.MainLoop(null, false);
 const collector = new Collector();

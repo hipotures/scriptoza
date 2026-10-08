@@ -1,4 +1,4 @@
-"""Offline GJS tests for the GNOME Codex status indicator."""
+"""Offline GJS tests for the GNOME Herdr agent status indicator."""
 
 from pathlib import Path
 import os
@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 
-EXTENSION = Path(__file__).resolve().parents[1] / "ai" / "codex-status"
+EXTENSION = Path(__file__).resolve().parents[1] / "ai" / "agentai-status"
 
 
 @unittest.skipUnless(shutil.which("gjs"), "GJS is required")
@@ -60,13 +60,19 @@ check(summarize([], [{machine: 'gpu'}]).state === 'offline', 'Disconnected with 
     def test_remote_names_and_identity_filtering(self):
         self.run_gjs("""
 const data = snapshot();
-data.agents.push({...data.agents[0], agent: 'claude'});
+data.agents.push({...data.agents[0], agent: 'claude', pane_id: 'w1:p9', agent_status: 'blocked'});
+data.panes.push({pane_id: 'w1:p9'});
+data.agents.push({...data.agents[0], agent: '__proto__'});
+data.agents.push({...data.agents[0], agent: 'unsupported'});
 data.agents.push({...data.agents[0], pane_id: 'gone'});
 data.agents.push({...data.agents[0]});
 data.workspaces[0].label = 'project\n  name';
 const local = normalizeAgents(data, {id: 'local', label: 'Local'});
 const remote = normalizeAgents(data, {id: 'gpu-id', label: 'gpu'});
-check(local.length === 1 && remote.length === 1, 'Only live Codex agents, no duplicates');
+check(local.length === 2 && remote.length === 2, 'Only live supported agents, no duplicates');
+check(local[0].agentType === 'codex' && local[1].agentType === 'claude' && local[1].state === 'blocked',
+    'Codex and Claude retain their types and statuses');
+check(summarize(local).total === 2 && summarize(local).state === 'blocked', 'Count both agent types');
 check(local[0].id !== remote[0].id, 'Machine-scoped identities');
 check(local[0].bootId === 'boot-1' && remote[0].bootId === 'boot-1', 'Machine boot identity');
 check(remote[0].location === 'gpu/project name:run:p0', 'Remote display name');
@@ -247,8 +253,10 @@ else:
     print(json.dumps(dict(result=dict(snapshot=dict(
         boot_id='worker-boot',
         agents=[dict(agent='codex', agent_status='done', pane_id='w1:p3',
+                     tab_id='w1:t1', workspace_id='w1'),
+                dict(agent='claude', agent_status='working', pane_id='w1:p4',
                      tab_id='w1:t1', workspace_id='w1')],
-        panes=[dict(pane_id='w1:p3')], tabs=[dict(tab_id='w1:t1', label='run')],
+        panes=[dict(pane_id='w1:p3'), dict(pane_id='w1:p4')], tabs=[dict(tab_id='w1:t1', label='run')],
         workspaces=[dict(workspace_id='w1', label='project')])))))
 """, encoding="utf-8")
             fake.chmod(0o755)
@@ -268,11 +276,14 @@ function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORI
     const second = await worker.collect();
     check(worker._process.get_identifier() === pid && launches.length === 1,
         'Polling spawned more processes inside the Shell instead of reusing its worker');
-    check(first.agents.length === 2 && second.agents.length === 2 && second.metrics.requests === 3,
+    check(first.agents.length === 4 && second.agents.length === 4 && second.metrics.requests === 3,
         'Worker did not preserve snapshot polling');
-    check(first.agents[0].paneId === first.agents[1].paneId &&
-        first.agents[0].id !== first.agents[1].id && first.agents[1].serverId === 'gpu-id' &&
+    check(first.agents[0].paneId === first.agents[2].paneId &&
+        first.agents[0].id !== first.agents[2].id && first.agents[2].serverId === 'gpu-id' &&
         first.agents.every(agent => agent.bootId === 'worker-boot'), 'Machine or boot identities lost');
+    check(first.agents.filter(agent => agent.agentType === 'claude').length === 2 &&
+        second.agents.filter(agent => agent.agentType === 'codex').length === 2,
+        'Worker did not preserve both agent types across local and remote machines');
     const [, bytes] = GLib.file_get_contents(GLib.getenv('STATUS_REQUEST_LOG'));
     check(new TextDecoder().decode(bytes).trim().split('\\n').length === 6, 'Extra worker polling');
     worker.close();
@@ -404,7 +415,8 @@ const navigator = new Navigator({
     check(focusTarget({serverId: 'gpu-id', paneId: 'w2:p5'}) === 'gpu-id:w2:p5', 'Remote target identity');
     check(findClientWindow([{meta_window: window}], '[herdr-client:client-1]') === window,
         'Window actor mapping');
-    const result = await navigator.focus({serverId: 'gpu-id', paneId: 'w2:p5', bootId: 'boot-7', location: 'GPU/project:run:p5'});
+    const result = await navigator.focus({serverId: 'gpu-id', paneId: 'w2:p5', bootId: 'boot-7',
+        agentType: 'claude', location: 'GPU/project:run:p5'});
     check(result && activated === window && closed, 'Focus was acknowledged and activated');
     check(calls[0].join(' ') === 'agent focus gpu-id:w2:p5 --check --expected-boot boot-7', 'Check target and boot guard');
     check(calls[1].join(' ') === 'agent focus gpu-id:w2:p5 --client client-1 --expected-boot boot-7',
