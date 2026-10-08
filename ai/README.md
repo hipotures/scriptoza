@@ -41,8 +41,11 @@ Agents sharing a state have separate dots. Idle agents are hidden from the panel
 while any other state is present. If all agents are idle, every idle agent has
 its own gray dot so the full list remains accessible.
 Click it to see the complete list, including idle agents, with each agent's
-machine, workspace, tab, and pane. Each row contains a type icon and a name
-colored by its status, without a count heading, duplicate dot, or status column.
+machine, workspace, tab, and pane. The heading displays "N local agents,
+M remote agents", with a separator above the rows as well as above the footer.
+Counts use machine identities and include idle agents and both supported types.
+Each row contains a type icon, a name colored by its status, and a matching
+text status on the right, without a duplicate dot.
 SVG files in `agentai-status/assets/icons/` identify Codex and Claude Code.
 Screen readers announce the agent type, name, and status.
 The OpenAI icon switches between the supplied light and dark variants when the
@@ -110,7 +113,7 @@ rows took approximately 17 and 50 ms. These timings use generated snapshots;
 they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the update time, total polling latency, time spent
-parsing snapshots in the helper, and the widget version (currently `v0.0.6`).
+parsing snapshots in the helper, and the widget version (currently `v0.0.7`).
 The total latency includes waiting for local and remote replies; it is not a
 measure of time spent blocking GNOME Shell. Run the standalone
 GJS benchmark for three rounds and their mean:

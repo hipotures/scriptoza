@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.6';
+const WIDGET_VERSION = '0.0.7';
 
 const {Collector, POLL_SECONDS} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -120,6 +120,15 @@ export default class CodexStatus extends Extension {
         this._blockedLabels = [];
         this._agentRows = [];
 
+        const localCount = agents.filter(agent => agent.serverId === 'local').length;
+        const remoteCount = agents.length - localCount;
+        const heading = new PopupMenu.PopupMenuItem(
+            `${localCount} local agent${localCount === 1 ? '' : 's'}, ` +
+            `${remoteCount} remote agent${remoteCount === 1 ? '' : 's'}`, {reactive: false});
+        heading.label.set_style('font-weight: bold;');
+        this._indicator.menu.addMenuItem(heading);
+        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
         const section = new PopupMenu.PopupMenuSection();
         const scroll = new St.ScrollView({style_class: 'codex-status-scroll', overlay_scrollbars: true});
         scroll.add_child(section.actor);
@@ -162,11 +171,17 @@ export default class CodexStatus extends Extension {
                 y_align: Clutter.ActorAlign.CENTER,
             });
             row.add_child(label);
-            this._agentRows.push({agent, row, icon, label});
+            const statusLabel = new St.Label({
+                text: STATES[agent.state].label,
+                style: `color: ${STATES[agent.state].color};`,
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            row.add_child(statusLabel);
+            this._agentRows.push({agent, row, icon, label, statusLabel});
             section.addMenuItem(row);
             updateIcon();
             if (agent.state === 'blocked')
-                this._blockedLabels.push(label);
+                this._blockedLabels.push(label, statusLabel);
         }
         if (!agents.length)
             section.addMenuItem(new PopupMenu.PopupMenuItem('No agents found', {reactive: false}));

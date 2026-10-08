@@ -156,21 +156,28 @@ export async function run() {
     widget._busy = false;
     const agents = ['idle', 'working', 'done', 'blocked', 'unknown']
         .map((state, index) => ({state, agentType: index === 0 ? 'claude' : 'codex',
+            serverId: index === 0 || index === 3 ? 'local' : 'gpu-id',
             bootId: 'boot-1', location: `gpu/phase${index}:run:p1`}));
-    agents.push({state: 'working', agentType: 'claude', bootId: 'boot-1', location: 'gpu/second:run:p1'});
+    agents.push({state: 'working', agentType: 'claude', serverId: 'cpu-id',
+        bootId: 'boot-1', location: 'gpu/second:run:p1'});
     const data = {agents, errors: [],
         metrics: {totalMs: 300, parseMs: 0.3}};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.6'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.7'),
         'Menu footer did not display the loaded widget version');
-    check(widget._agentRows.every(({agent, row, icon, label}) => {
+    const heading = () => widget._indicator.menu._getMenuItems()[0].label.text;
+    check(heading() === '2 local agents, 4 remote agents',
+        'Heading must count agent machine identities, including all types and idle agents');
+    check(widget._agentRows.every(({agent, row, icon, label, statusLabel}) => {
         const children = row.get_children().filter(child => child.visible);
-        return children.length === 2 && children[0] === icon && children[1] === label &&
+        return children.length === 3 && children[0] === icon && children[1] === label &&
+            children[2] === statusLabel && statusLabel.text === STATES[agent.state].label &&
+            statusLabel.get_style() === `color: ${STATES[agent.state].color};` &&
             label.text === agent.location && label.get_style() === `color: ${STATES[agent.state].color};` &&
             row.accessible_name.endsWith(STATES[agent.state].label);
     }),
-        'Rows must contain only the type icon and status-colored name, retaining accessible status');
+        'Rows must contain the icon, colored name, and text status without a duplicate dot');
     check(widget._agentRows.map(({agent}) => agent.state).join(',') ===
         'blocked,working,working,done,unknown,idle', 'Rows are not sorted by the requested priority');
     const retainedRows = widget._agentRows.map(({row}) => row);
@@ -183,7 +190,7 @@ export async function run() {
         'Unchanged polling rebuilt panel dots or interactive rows');
     check(widget._blinkSource === retainedBlink && widget._footer.label.text.includes('321 ms · JSON 0.42 ms'),
         'Unchanged polling restarted blinking or failed to update the footer');
-    check(widget._indicator.menu.box.get_n_children() === 3, 'Menu leaked children or retained a heading');
+    check(widget._indicator.menu.box.get_n_children() === 5, 'Menu leaked children or lost a separator');
     check(widget._panelDots.length === 5 && widget._panelBox.get_n_children() === 5,
         'One dot per non-idle agent, no terminal icon or counters');
     check(widget._panelDots.filter(({state}) => state === 'working').length === 2,
@@ -197,6 +204,8 @@ export async function run() {
         'Blocked indicator did not blink');
     check(widget._agentRows.find(({agent}) => agent.state === 'blocked').label.opacity === 70,
         'Blocked name did not blink');
+    check(widget._agentRows.find(({agent}) => agent.state === 'blocked').statusLabel.opacity === 70,
+        'Blocked text status did not blink');
     check(widget._panelDots.find(({state}) => state === 'done').dot.opacity === 255,
         'Done should remain steady while blocked blinks');
     for (const {dot} of widget._panelDots.filter(({state}) => state === 'working'))
@@ -205,9 +214,10 @@ export async function run() {
     widget._render({...data, agents: agents.filter(agent => agent.state !== 'blocked')});
     check(!widget._blinkSource, 'Working agents must not start an animation timer');
     widget._render({...data, agents: [
-        {state: 'idle', agentType: 'codex', location: 'first:run:p1'},
-        {state: 'idle', agentType: 'claude', location: 'second:run:p1'},
+        {state: 'idle', agentType: 'codex', serverId: 'local', location: 'first:run:p1'},
+        {state: 'idle', agentType: 'claude', serverId: 'local', location: 'second:run:p1'},
     ]});
+    check(heading() === '2 local agents, 0 remote agents', 'All-local heading is incorrect');
     check(widget._indicator.visible && widget._panelDots.length === 2,
         'All idle agents retain individual gray dots and an accessible menu');
     check(widget._panelDots.every(({state, dot}) => state === 'idle' && dot.opacity === 255),
@@ -242,8 +252,10 @@ export async function run() {
     const pointer = seat.create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
     const [indicatorX, indicatorY] = widget._indicator.get_transformed_position();
     seat.warp_pointer(indicatorX + 5, indicatorY + 5);
+    pointer.notify_absolute_motion(GLib.get_monotonic_time(), indicatorX + 5, indicatorY + 5);
     await pause(100);
     widget._indicator.menu.open();
+    await pause(250);
     widget._agentRows[0].row.hover = true;
     check(widget._agentRows[0].row.active, 'Hover highlights the whole row');
     check(widget._agentRows[0].row.has_style_pseudo_class('selected'),
@@ -277,6 +289,7 @@ export async function run() {
     let targetData = {...data, agents: [{id: 'local/w1:p3', serverId: 'local', paneId: 'w1:p3',
         bootId: 'boot-1', state: 'working', agentType: 'codex', location: 'project:run:p3'}]};
     widget._render(targetData);
+    check(heading() === '1 local agent, 0 remote agents', 'Local heading is incorrect');
     for (const patch of [{bootId: 'boot-2'}, {serverId: 'gpu-id'}, {paneId: 'w2:p3'},
         {location: 'other:run:p3'}, {state: 'done'}, {agentType: 'claude'}]) {
         const previousRow = widget._agentRows[0].row;
@@ -284,6 +297,9 @@ export async function run() {
         widget._render(targetData);
         check(widget._agentRows[0].row !== previousRow, 'Changed target or status retained a stale row');
         check(widget._agentRows[0].agent === targetData.agents[0], 'Row did not receive the current target');
+        const local = targetData.agents[0].serverId === 'local';
+        check(heading() === (local ? '1 local agent, 0 remote agents' : '0 local agents, 1 remote agent'),
+            'Changed machine identity retained stale local/remote counts');
     }
     widget._render({...targetData, errors: [{machine: 'Herdr', message: 'Unavailable'}]});
     check(widget._indicator.menu._getMenuItems().some(item => item.label?.text === 'Herdr: unavailable'),
@@ -291,6 +307,7 @@ export async function run() {
     await testRealWindowActivation(extension);
     await Promise.all([widget._refresh(), widget._refresh()]);
     check(collector.calls === 1, 'Overlapping refreshes were not suppressed');
+    check(heading() === '0 local agents, 0 remote agents', 'Empty heading is incorrect');
     const pollStarted = GLib.get_monotonic_time();
     widget._pollSource && GLib.Source.remove(widget._pollSource);
     widget._pollSource = 0;
