@@ -160,8 +160,18 @@ export async function run() {
         metrics: {totalMs: 300, parseMs: 0.3}};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.2'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.3'),
         'Menu footer did not display the loaded widget version');
+    const retainedRows = widget._agentRows.map(({row}) => row);
+    const retainedDots = widget._panelDots.map(({dot}) => dot);
+    const retainedBlink = widget._blinkSource;
+    widget._render({...data, agents: agents.map(agent => ({...agent})),
+        metrics: {totalMs: 321, parseMs: 0.42}});
+    check(widget._agentRows.every(({row}, index) => row === retainedRows[index]) &&
+        widget._panelDots.every(({dot}, index) => dot === retainedDots[index]),
+        'Unchanged polling rebuilt panel dots or interactive rows');
+    check(widget._blinkSource === retainedBlink && widget._footer.label.text.includes('321 ms · JSON 0.42 ms'),
+        'Unchanged polling restarted blinking or failed to update the footer');
     check(widget._indicator.menu.box.get_n_children() === 5, 'Menu leaked children');
     check(widget._panelDots.length === 5 && widget._panelBox.get_n_children() === 5,
         'One dot per non-idle agent, no terminal icon or counters');
@@ -208,6 +218,10 @@ export async function run() {
     check(widget._agentRows[0].row.has_style_pseudo_class('selected'),
         'Hover applies the native whole-row selection state');
     widget._agentRows[0].row.grab_key_focus();
+    const focusedRow = widget._agentRows[0].row;
+    widget._render(data);
+    check(widget._agentRows[0].row === focusedRow && global.stage.get_key_focus() === focusedRow && focusedRow.active,
+        'Unchanged polling lost the hovered or keyboard-focused row');
     const keyboard = global.stage.context.get_backend().get_default_seat().create_virtual_device(
         Clutter.InputDeviceType.KEYBOARD_DEVICE);
     const keyTime = GLib.get_monotonic_time();
@@ -229,6 +243,20 @@ export async function run() {
     check(navigated.length === 2 && widget._indicator.menu.isOpen,
         'Mouse and keyboard activation stay asynchronous and keep failures visible');
     widget._indicator.menu.close();
+    let targetData = {...data, agents: [{id: 'local/w1:p3', serverId: 'local', paneId: 'w1:p3',
+        bootId: 'boot-1', state: 'working', location: 'project:run:p3'}]};
+    widget._render(targetData);
+    for (const patch of [{bootId: 'boot-2'}, {serverId: 'gpu-id'}, {paneId: 'w2:p3'},
+        {location: 'other:run:p3'}, {state: 'done'}]) {
+        const previousRow = widget._agentRows[0].row;
+        targetData = {...targetData, agents: [{...targetData.agents[0], ...patch}]};
+        widget._render(targetData);
+        check(widget._agentRows[0].row !== previousRow, 'Changed target or status retained a stale row');
+        check(widget._agentRows[0].agent === targetData.agents[0], 'Row did not receive the current target');
+    }
+    widget._render({...targetData, errors: [{machine: 'Herdr', message: 'Unavailable'}]});
+    check(widget._indicator.menu._getMenuItems().some(item => item.label?.text === 'Herdr: unavailable'),
+        'Changed errors failed to update the menu');
     await testRealWindowActivation(extension);
     await Promise.all([widget._refresh(), widget._refresh()]);
     check(collector.calls === 1, 'Overlapping refreshes were not suppressed');
@@ -236,7 +264,8 @@ export async function run() {
     widget._pollSource && GLib.Source.remove(widget._pollSource);
     widget._pollSource = 0;
     widget.disable();
-    check(!widget._blinkSource && !widget._collector && !widget._indicator, 'Disable leaked state');
+    check(!widget._blinkSource && !widget._collector && !widget._indicator &&
+        widget._renderKey === null && widget._footer === null, 'Disable leaked state');
     widget.enable();
     widget._collector.close();
     widget._collector = collector;

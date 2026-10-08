@@ -25,6 +25,8 @@ export class Collector {
             this._herdr = userBinary;
         this._timeout = GLib.find_program_in_path('timeout');
         this._processes = new Set();
+        this._pending = [];
+        this._launchSource = 0;
         this._servers = [{id: 'local', label: 'Local'}];
         this._retryAfter = new Map();
         this._closed = false;
@@ -32,10 +34,43 @@ export class Collector {
 
     close() {
         this._closed = true;
+        if (this._launchSource)
+            GLib.Source.remove(this._launchSource);
+        this._launchSource = 0;
+        for (const {reject} of this._pending)
+            reject(new Error('Collector stopped'));
+        this._pending = [];
         for (const process of this._processes)
             process.send_signal(15);
         this._servers = [];
         this._retryAfter.clear();
+    }
+
+    _launch(args) {
+        return new Promise((resolve, reject) => {
+            this._pending.push({args, resolve, reject});
+            if (this._launchSource)
+                return;
+            // Process creation is synchronous. Launch one request per idle
+            // dispatch so ready input and frame sources can run between launches.
+            this._launchSource = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                const request = this._pending.shift();
+                try {
+                    // timeout owns a process group, including SSH subprocesses.
+                    const process = Gio.Subprocess.new([this._timeout, '--kill-after=1s', '8s',
+                        this._herdr, ...request.args],
+                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+                    this._processes.add(process);
+                    request.resolve(process);
+                } catch (error) {
+                    request.reject(error);
+                }
+                if (this._pending.length)
+                    return GLib.SOURCE_CONTINUE;
+                this._launchSource = 0;
+                return GLib.SOURCE_REMOVE;
+            });
+        });
     }
 
     async _readJson(args, metrics) {
@@ -45,10 +80,7 @@ export class Collector {
             throw new Error('herdr executable not found');
         if (!this._timeout)
             throw new Error('GNU timeout executable not found');
-        // timeout owns a process group, including Herdr's SSH subprocesses.
-        const process = Gio.Subprocess.new([this._timeout, '--kill-after=1s', '8s', this._herdr, ...args],
-            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
-        this._processes.add(process);
+        const process = await this._launch(args);
         metrics.requests++;
         try {
             const [stdout, stderr] = await new Promise((resolve, reject) => {

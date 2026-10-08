@@ -68,8 +68,10 @@ overlaps the next round, and opening the menu does not trigger extra requests.
 Each round reads the enabled machine list once and requests one `api snapshot`
 per server, concurrently. Snapshots contain agent and layout names in one
 response. Subprocess communication is asynchronous; an 8-second timeout stops
-unresponsive requests, with a one-second termination grace period. The timeout
-also covers SSH child processes, and disabling the widget terminates their
+unresponsive requests. Process launches are queued one per low-priority idle
+dispatch so ready Shell input and frame work can run between launches. The
+timeout has a one-second termination grace period and also covers SSH child
+processes. Disabling the widget cancels queued requests and terminates active
 process groups. Unreachable remote machines are ignored: they have no
 rows or warning indicators and their agents do not contribute to counters.
 An unavailable remote profile is not queried again for 60 seconds, while active
@@ -80,8 +82,19 @@ to ignore. A machine-list or local-server failure is still reported in the menu.
 Disabling the extension removes timers, destroys its panel/menu, and stops its
 pending commands.
 
+Unchanged snapshots retain the panel dots and interactive menu rows; only the
+footer is updated. This avoids rebuilding Shell actors every five seconds and
+preserves row hover, keyboard focus, and the blinking timer between polls.
+Changed agent identities, server boots, states, locations, or errors rebuild the
+display so navigation always uses the current target.
+
+In an isolated GNOME Shell 51 test, unchanged updates with 32 and 64 agent rows
+took approximately 0.05 and 0.07 ms after the initial render. Rebuilding those
+rows took approximately 17 and 50 ms. These timings use generated snapshots;
+they do not measure SSH latency or the user's desktop.
+
 The menu footer shows the update time, total polling latency, time spent
-parsing JSON, and the widget version (currently `v0.0.2`). Run the standalone
+parsing JSON, and the widget version (currently `v0.0.3`). Run the standalone
 GJS benchmark for three rounds and their mean:
 
 ```bash
@@ -163,6 +176,11 @@ monitoring the others. Its previous detection state is retained without reading
 or sending input until discovery succeeds again. Failures and recoveries are
 logged, and `list` reports current discovery errors alongside watched panes.
 
+The monitor waits five seconds after each completed scan by default. Scan time
+adds to that interval. It runs independently of the GNOME widget, so their
+Herdr requests can overlap. Each monitor scan reads four inventories per enabled
+server and then reads each watched pane; the widget reads one snapshot per server.
+
 The monitor keeps a single-process lock, so a second monitor exits instead of
 watching the same runtime concurrently. Stop a manually started monitor before
 starting the systemd service.
@@ -178,7 +196,7 @@ Useful options:
 ```text
 --once             Check the selected panes once and exit
 --dry-run          Log actions without sending input
---interval 5       Poll every five seconds (the default)
+--interval 5       Wait five seconds between completed scans and the next scan
 --message TEXT     Submit TEXT for a capacity error (default: Resume)
 ```
 

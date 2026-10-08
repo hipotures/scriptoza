@@ -9,7 +9,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.2';
+const WIDGET_VERSION = '0.0.3';
 
 const {Collector, POLL_SECONDS} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -26,6 +26,8 @@ export default class CodexStatus extends Extension {
         this._panelBox = new St.BoxLayout({style_class: 'codex-status-panel'});
         this._panelDots = [];
         this._agentRows = [];
+        this._renderKey = null;
+        this._footer = null;
         this._indicator.add_child(this._panelBox);
         this._navigator = new Navigator({
             collector: this._navigationCollector,
@@ -62,6 +64,8 @@ export default class CodexStatus extends Extension {
         this._panelDots = [];
         this._agentRows = [];
         this._blockedDots = [];
+        this._renderKey = null;
+        this._footer = null;
     }
 
     async _refresh() {
@@ -85,10 +89,17 @@ export default class CodexStatus extends Extension {
     }
 
     _render({agents, errors, metrics}) {
+        const sorted = sortAgents(agents);
+        // Include navigation identities, including the server boot, so retained
+        // rows cannot keep a target from an earlier server instance.
+        const renderKey = JSON.stringify([sorted, errors]);
+        if (renderKey === this._renderKey) {
+            this._updateFooter(metrics);
+            return;
+        }
         const summary = summarize(agents, errors);
         this._panelBox.destroy_all_children();
         this._panelDots = [];
-        const sorted = sortAgents(agents);
         const active = sorted.filter(agent => agent.state !== 'idle');
         for (const agent of active.length ? active : sorted) {
             const dot = new St.Label({text: '●', style: `color: ${STATES[agent.state].color};`,
@@ -115,7 +126,7 @@ export default class CodexStatus extends Extension {
         const container = new PopupMenu.PopupBaseMenuItem({reactive: false});
         container.add_child(scroll);
         this._indicator.menu.addMenuItem(container);
-        for (const agent of sortAgents(agents)) {
+        for (const agent of sorted) {
             const row = new PopupMenu.PopupBaseMenuItem({
                 reactive: true,
                 activate: true,
@@ -157,13 +168,19 @@ export default class CodexStatus extends Extension {
             this._indicator.menu.addMenuItem(row);
         }
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._footer = new PopupMenu.PopupMenuItem('', {reactive: false});
+        this._footer.label.add_style_class_name('codex-status-footer');
+        this._indicator.menu.addMenuItem(this._footer);
+        this._updateFooter(metrics);
+        this._updateAnimation();
+        this._renderKey = renderKey;
+    }
+
+    _updateFooter(metrics) {
         const performance = metrics
             ? `Updated ${new Date().toLocaleTimeString()} · ${Math.round(metrics.totalMs)} ms · JSON ${metrics.parseMs.toFixed(2)} ms`
             : 'Update failed';
-        const footer = new PopupMenu.PopupMenuItem(`${performance} · v${WIDGET_VERSION}`, {reactive: false});
-        footer.label.add_style_class_name('codex-status-footer');
-        this._indicator.menu.addMenuItem(footer);
-        this._updateAnimation();
+        this._footer.label.text = `${performance} · v${WIDGET_VERSION}`;
     }
 
     _updateAnimation() {

@@ -159,6 +159,36 @@ const metrics = {requests: 0, parseMs: 0, bytes: 0};
 loop.run();
 """)
 
+    def test_process_launches_yield_and_disable_cancels_queued_requests(self):
+        self.run_gjs("""
+const loop = new GLib.MainLoop(null, false);
+const collector = new Collector();
+collector._herdr = '/usr/bin/python3';
+const metrics = {requests: 0, parseMs: 0, bytes: 0};
+let previous = 0;
+let interleaved = false;
+GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+    check(metrics.requests - previous <= 1, 'Subprocess burst blocked other main-loop work');
+    previous = metrics.requests;
+    interleaved ||= previous > 0 && previous < 8;
+    return previous === 8 ? GLib.SOURCE_REMOVE : GLib.SOURCE_CONTINUE;
+});
+const requests = Array.from({length: 8}, () =>
+    collector._readJson(['-c', 'print("{}")'], metrics));
+check(collector._processes.size === 0, 'Navigation or polling launched a process synchronously');
+(async () => {
+    await Promise.all(requests);
+    check(interleaved, 'Queued launches did not yield to another idle source');
+    const queued = collector.readJson(['-c', 'print("{}")']);
+    collector.close();
+    let stopped = false;
+    try { await queued; } catch (error) { stopped = error.message === 'Collector stopped'; }
+    check(stopped && !collector._launchSource && collector._pending.length === 0 &&
+        collector._processes.size === 0, 'Disable left queued work or processes');
+})().catch(error => { printerr(error.stack); System.exit(1); }).finally(() => { collector.close(); loop.quit(); });
+loop.run();
+""")
+
     def test_request_timeout_and_disable_stop_descendant_processes(self):
         self.run_gjs("""
 const loop = new GLib.MainLoop(null, false);
