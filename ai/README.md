@@ -41,9 +41,10 @@ Agents sharing a state have separate dots. Idle agents are hidden from the panel
 while any other state is present. If all agents are idle, every idle agent has
 its own gray dot so the full list remains accessible.
 Click it to see the complete list, including idle agents, with each agent's
-machine, workspace, tab, pane, and current state. The heading counts both types
-as "N agents". SVG files in `agentai-status/assets/icons/` identify Codex and
-Claude Code before their names.
+machine, workspace, tab, and pane. Each row contains a type icon and a name
+colored by its status, without a count heading, duplicate dot, or status column.
+SVG files in `agentai-status/assets/icons/` identify Codex and Claude Code.
+Screen readers announce the agent type, name, and status.
 The OpenAI icon switches between the supplied light and dark variants when the
 GNOME menu's text color changes, including live theme changes. Herdr's theme
 controls its terminal interface independently of the GNOME menu.
@@ -63,12 +64,14 @@ rows report a navigation error until a boot identity is available.
 | Herdr state | Appearance | Meaning |
 | --- | --- | --- |
 | `blocked` | Blinking red | Waiting for an answer or approval |
-| `done` | Green | Completed; Herdr has not marked the result as seen |
 | `working` | Steady blue | Working |
+| `done` | Green | Completed; Herdr has not marked the result as seen |
 | `unknown` | Yellow | Herdr cannot classify the agent's state |
 | `idle` | Gray | Ready for another instruction |
 
-The table order is also the menu's state priority. `done` means the turn
+The table order is also the menu's state priority; disconnected entries, when
+present, precede idle entries. Status priority in the panel's accessible summary
+still places unseen completions before working agents. `done` means the turn
 finished, not necessarily that the task succeeded. Reading status does not
 change `done` to `idle`.
 
@@ -107,7 +110,7 @@ rows took approximately 17 and 50 ms. These timings use generated snapshots;
 they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the update time, total polling latency, time spent
-parsing snapshots in the helper, and the widget version (currently `v0.0.5`).
+parsing snapshots in the helper, and the widget version (currently `v0.0.6`).
 The total latency includes waiting for local and remote replies; it is not a
 measure of time spent blocking GNOME Shell. Run the standalone
 GJS benchmark for three rounds and their mean:

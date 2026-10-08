@@ -63,7 +63,7 @@ export function summarize(agents, errors = []) {
 }
 
 export function sortAgents(agents) {
-    const priorities = Object.keys(STATES);
+    const priorities = ['blocked', 'working', 'done', 'unknown', 'offline', 'idle'];
     return [...agents].sort((left, right) =>
         priorities.indexOf(left.state) - priorities.indexOf(right.state) ||
         left.location.localeCompare(right.location));

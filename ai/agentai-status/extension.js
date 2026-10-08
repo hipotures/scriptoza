@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.5';
+const WIDGET_VERSION = '0.0.6';
 
 const {Collector, POLL_SECONDS} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -67,7 +67,7 @@ export default class CodexStatus extends Extension {
         this._panelBox = null;
         this._panelDots = [];
         this._agentRows = [];
-        this._blockedDots = [];
+        this._blockedLabels = [];
         this._renderKey = null;
         this._footer = null;
         this._icons = null;
@@ -117,13 +117,8 @@ export default class CodexStatus extends Extension {
         this._indicator.accessible_name = `Agents: ${Object.entries(summary.counts)
             .filter(([, count]) => count > 0).map(([state, count]) => `${count} ${STATES[state].label}`).join(', ') || 'No agents'}`;
         this._indicator.menu.removeAll();
-        this._blockedDots = [];
+        this._blockedLabels = [];
         this._agentRows = [];
-
-        const heading = new PopupMenu.PopupMenuItem(`${summary.total} agents`, {reactive: false});
-        heading.label.add_style_class_name('codex-status-heading');
-        this._indicator.menu.addMenuItem(heading);
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         const section = new PopupMenu.PopupMenuSection();
         const scroll = new St.ScrollView({style_class: 'codex-status-scroll', overlay_scrollbars: true});
@@ -140,23 +135,16 @@ export default class CodexStatus extends Extension {
                 style_class: 'codex-status-row',
             });
             row.x_expand = true;
-            row.accessible_name = `${AGENT_TYPES[agent.agentType].label}: ${agent.location}`;
+            row.accessible_name = `${AGENT_TYPES[agent.agentType].label}: ${agent.location}: ${STATES[agent.state].label}`;
             // PopupBaseMenuItem closes its menu after emitting `activate`. Keep
             // the menu open until the asynchronous client and window checks
             // have both succeeded.
             row.activate = () => {
                 this._navigator?.focus(agent);
             };
-            const dot = new St.Label({
-                text: agent.state === 'offline' ? '⊗' : '●',
-                style: `color: ${STATES[agent.state].color};`,
-                y_align: Clutter.ActorAlign.CENTER,
-            });
-            row.add_child(dot);
             const icon = new St.Icon({icon_size: 16, y_align: Clutter.ActorAlign.CENTER,
                 accessible_name: AGENT_TYPES[agent.agentType].label});
             row.add_child(icon);
-            this._agentRows.push({agent, row, icon});
             const updateIcon = () => {
                 let name = 'anthropic.svg';
                 if (agent.agentType === 'codex') {
@@ -167,16 +155,18 @@ export default class CodexStatus extends Extension {
                 icon.gicon = this._icons[name];
             };
             row.connect('style-changed', updateIcon);
-            row.add_child(new St.Label({text: agent.location, x_expand: true, y_align: Clutter.ActorAlign.CENTER}));
-            row.add_child(new St.Label({
-                text: STATES[agent.state].label,
+            const label = new St.Label({
+                text: agent.location,
                 style: `color: ${STATES[agent.state].color};`,
+                x_expand: true,
                 y_align: Clutter.ActorAlign.CENTER,
-            }));
+            });
+            row.add_child(label);
+            this._agentRows.push({agent, row, icon, label});
             section.addMenuItem(row);
             updateIcon();
             if (agent.state === 'blocked')
-                this._blockedDots.push(dot);
+                this._blockedLabels.push(label);
         }
         if (!agents.length)
             section.addMenuItem(new PopupMenu.PopupMenuItem('No agents found', {reactive: false}));
@@ -219,8 +209,8 @@ export default class CodexStatus extends Extension {
                 if (state === 'blocked')
                     dot.opacity = dim ? 70 : 255;
             }
-            for (const dot of this._blockedDots)
-                dot.opacity = dim ? 70 : 255;
+            for (const label of this._blockedLabels)
+                label.opacity = dim ? 70 : 255;
             return GLib.SOURCE_CONTINUE;
         });
     }

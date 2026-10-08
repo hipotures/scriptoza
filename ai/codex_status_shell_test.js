@@ -144,6 +144,7 @@ export async function run() {
     const extension = Main.extensionManager.lookup('codex-status@scriptoza');
     check(extension?.state === 1, 'Extension did not enable');
     await (await import(extension.dir.get_child('reload.js').get_uri())).reload();
+    const {STATES} = await import(extension.dir.get_child('model.js').get_uri());
     const widget = extension.stateObj;
     widget._collector.close();
     const collector = {close() {}, calls: 0, async collect() {
@@ -161,10 +162,17 @@ export async function run() {
         metrics: {totalMs: 300, parseMs: 0.3}};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.5'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.6'),
         'Menu footer did not display the loaded widget version');
-    check(widget._indicator.menu._getMenuItems()[0].label.text === `${agents.length} agents`,
-        'Heading did not count all agent types with a neutral label');
+    check(widget._agentRows.every(({agent, row, icon, label}) => {
+        const children = row.get_children().filter(child => child.visible);
+        return children.length === 2 && children[0] === icon && children[1] === label &&
+            label.text === agent.location && label.get_style() === `color: ${STATES[agent.state].color};` &&
+            row.accessible_name.endsWith(STATES[agent.state].label);
+    }),
+        'Rows must contain only the type icon and status-colored name, retaining accessible status');
+    check(widget._agentRows.map(({agent}) => agent.state).join(',') ===
+        'blocked,working,working,done,unknown,idle', 'Rows are not sorted by the requested priority');
     const retainedRows = widget._agentRows.map(({row}) => row);
     const retainedDots = widget._panelDots.map(({dot}) => dot);
     const retainedBlink = widget._blinkSource;
@@ -175,7 +183,7 @@ export async function run() {
         'Unchanged polling rebuilt panel dots or interactive rows');
     check(widget._blinkSource === retainedBlink && widget._footer.label.text.includes('321 ms · JSON 0.42 ms'),
         'Unchanged polling restarted blinking or failed to update the footer');
-    check(widget._indicator.menu.box.get_n_children() === 5, 'Menu leaked children');
+    check(widget._indicator.menu.box.get_n_children() === 3, 'Menu leaked children or retained a heading');
     check(widget._panelDots.length === 5 && widget._panelBox.get_n_children() === 5,
         'One dot per non-idle agent, no terminal icon or counters');
     check(widget._panelDots.filter(({state}) => state === 'working').length === 2,
@@ -187,6 +195,8 @@ export async function run() {
     await pause(700);
     check(widget._panelDots.find(({state}) => state === 'blocked').dot.opacity === 70,
         'Blocked indicator did not blink');
+    check(widget._agentRows.find(({agent}) => agent.state === 'blocked').label.opacity === 70,
+        'Blocked name did not blink');
     check(widget._panelDots.find(({state}) => state === 'done').dot.opacity === 255,
         'Done should remain steady while blocked blinks');
     for (const {dot} of widget._panelDots.filter(({state}) => state === 'working'))

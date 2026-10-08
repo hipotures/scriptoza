@@ -54,6 +54,8 @@ check(summary.counts.done === 1 && summary.counts.idle === 1 && summary.counts.u
     'Keep done and idle distinct, normalize unknown states');
 check(summarize(agents.filter(agent => agent.state !== 'blocked')).state === 'done', 'Done priority');
 check(sortAgents(agents)[0].state === 'blocked', 'Sort by urgency');
+check(sortAgents([...agents, {state: 'offline', location: 'offline'}]).map(agent => agent.state).join(',') ===
+    'blocked,working,done,unknown,unknown,offline,idle', 'Alerts, working, remaining states, then idle');
 check(summarize([], [{machine: 'gpu'}]).state === 'offline', 'Disconnected with no agents');
 """)
 
