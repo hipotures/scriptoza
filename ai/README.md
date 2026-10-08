@@ -2,7 +2,7 @@
 
 ## GNOME Codex Status
 
-`codex-status/` is a GNOME Shell 50 extension written in JavaScript/GJS. It
+`codex-status/` is a GNOME Shell 50/51 extension written in JavaScript/GJS. It
 shows local Codex agents and Codex agents on every enabled saved Herdr machine.
 It reads agent status directly from Herdr and runs independently of
 `codex-resume`; status polling never sends input, marks completions as seen, or
@@ -15,7 +15,7 @@ Install and enable it for your user:
 bash ai/install_codex_status.sh
 ```
 
-Log out and log back in after installing or updating it. GNOME Shell 50 loads
+Log out and log back in after installing or updating it. GNOME Shell 50/51 loads
 extension code at session startup and does not support reloading it through
 the old `ReloadExtension` D-Bus method. Existing enabled extensions are preserved.
 The installer copies only this widget's files into

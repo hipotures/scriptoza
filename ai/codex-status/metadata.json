@@ -2,7 +2,7 @@
     "uuid": "codex-status@scriptoza",
     "name": "Codex Status",
     "description": "Show local and remote Herdr Codex agent states in the top panel.",
-    "shell-version": ["50"],
+    "shell-version": ["50", "51"],
     "version": 1,
     "url": "https://github.com/hipotures/scriptoza"
 }

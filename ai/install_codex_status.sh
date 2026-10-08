@@ -5,8 +5,8 @@ source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/codex-status"
 extension_id="codex-status@scriptoza"
 target_dir="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/$extension_id"
 shell_version="$(gnome-shell --version)"
-if [[ "$shell_version" != "GNOME Shell 50."* ]]; then
-    echo "Codex Status requires GNOME Shell 50." >&2
+if [[ "$shell_version" != "GNOME Shell 50."* && "$shell_version" != "GNOME Shell 51."* ]]; then
+    echo "Codex Status requires GNOME Shell 50 or 51." >&2
     exit 1
 fi
 
