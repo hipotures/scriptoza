@@ -50,7 +50,7 @@ class MainTests(unittest.TestCase):
             self.screen.resolve(): tags(1080, 2400),
             self.camera.resolve(): tags(1920, 1080, gps=True),
         }
-        patcher = mock.patch.object(sep, "read_tags", side_effect=lambda paths: {p: rows[p] for p in paths})
+        patcher = mock.patch.object(sep, "read_tags", side_effect=lambda paths, advance=None: {p: rows[p] for p in paths})
         patcher.start()
         self.addCleanup(patcher.stop)
 

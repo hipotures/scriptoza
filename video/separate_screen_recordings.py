@@ -13,7 +13,18 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
+
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 
 @dataclass(frozen=True)
@@ -52,7 +63,9 @@ def classify(tags: dict) -> str:
     return label if abs(ratio - expected) <= RATIO_TOLERANCE * expected else "unknown"
 
 
-def read_tags(paths: Sequence[Path]) -> dict[Path, dict]:
+def read_tags(
+    paths: Sequence[Path], advance: Callable[[int], None] | None = None
+) -> dict[Path, dict]:
     """Read metadata in bounded batches before any files are moved."""
     tags_by_path = {}
     for start in range(0, len(paths), 200):
@@ -78,6 +91,8 @@ def read_tags(paths: Sequence[Path]) -> dict[Path, dict]:
             tags_by_path[Path(row["SourceFile"])] = row
         if any(path not in tags_by_path for path in batch):
             raise ValueError("ExifTool omitted files from the metadata scan")
+        if advance:
+            advance(len(batch))
     return tags_by_path
 
 
@@ -91,7 +106,9 @@ def validate_destination(path: Path, output: Path) -> None:
             break
 
 
-def build_plan(folders: Sequence[Path], output: Path) -> list[Entry]:
+def build_plan(
+    folders: Sequence[Path], output: Path, progress: Progress | None = None
+) -> list[Entry]:
     roots = [folder.expanduser().resolve(strict=True) for folder in folders]
     output = output.expanduser().resolve()
     if any(not root.is_dir() for root in roots):
@@ -120,7 +137,12 @@ def build_plan(folders: Sequence[Path], output: Path) -> list[Entry]:
                 if path.suffix.lower() == ".mp4" and not path.is_symlink() and path.is_file():
                     files.append((root, path))
 
-    metadata = read_tags([path for _, path in files])
+    paths = [path for _, path in files]
+    if progress is None:
+        metadata = read_tags(paths)
+    else:
+        task = progress.add_task("Reading metadata".ljust(25), total=len(paths))
+        metadata = read_tags(paths, lambda count: progress.advance(task, count))
     plan = []
     for root, path in files:
         category = classify(metadata[path])
@@ -157,6 +179,19 @@ def move_file(source: Path, destination: Path) -> None:
     source.unlink()
 
 
+def make_progress(console: Console) -> Progress:
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=40),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        expand=False,
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folders", nargs="+", type=Path, help="Input folders to scan recursively")
@@ -164,26 +199,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="Print the plan without creating or moving anything")
     args = parser.parse_args(argv)
     output = args.output.expanduser().resolve()
+    console = Console(highlight=False)
     try:
-        plan = build_plan(args.folders, output)
+        with make_progress(console) as progress:
+            plan = build_plan(args.folders, output, progress)
         counts = Counter(entry.category for entry in plan)
         for entry in plan:
             if entry.destination is not None:
                 action = "WOULD MOVE" if args.dry_run else "MOVE"
-                print(f"{action}: {entry.source} -> {entry.destination}")
+                console.print(f"{action}: {entry.source} -> {entry.destination}", markup=False)
             else:
-                print(f"KEEP [{entry.category}]: {entry.source}")
-        print(
+                console.print(f"KEEP [{entry.category}]: {entry.source}", markup=False)
+        console.print(
             f"Summary: camera={counts['camera']}, screen={counts['screen']}, "
             f"unknown={counts['unknown']}; mode={'dry-run' if args.dry_run else 'move'}",
-            flush=True,
+            markup=False,
         )
         if not args.dry_run:
-            for entry in plan:
-                if entry.destination is not None:
+            moves = [entry for entry in plan if entry.destination is not None]
+            with make_progress(console) as progress:
+                task = progress.add_task("Moving screen recordings".ljust(25), total=len(moves))
+                for entry in moves:
                     validate_destination(entry.destination, output)
                     move_file(entry.source, entry.destination)
-                    print(f"MOVED: {entry.source} -> {entry.destination}", flush=True)
+                    progress.advance(task)
     except (OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
