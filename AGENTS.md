@@ -23,11 +23,13 @@ The installer copies selected utilities to `~/.local/bin` and configuration to `
 
 Keep scripts self-contained and avoid cross-category dependencies. Use four-space indentation in Python, `snake_case` for functions and variables, `UPPER_CASE` for constants, and `Path` for filesystem work. Prefer `argparse`, type hints, and standard-library features already used in the repository. JavaScript follows `camelCase`, semicolons, and strict mode. Keep code, help text, logs, and comments in English. Do not add comments unless they clarify genuinely non-obvious behavior.
 
+Scripts that modify, move, rename, or delete files must be safe by default: run as a dry run unless the user passes `--run`. Print a clearly visible notice at startup and in the summary when in dry-run mode, including how to apply changes (`--run`). Do not add a `--dry-run` flag to new scripts. Older scripts that still use `--dry-run` should be converted when they are next changed.
+
 For multi-file operations, use `rich.progress` with the repository's compact, non-expanding layout and consistently padded task descriptions.
 
 ## Testing Guidelines
 
-Tests use the standard-library `unittest` framework. Add focused `TestCase` classes and `test_*` methods under `tests/`. Run the full suite before committing. There is no configured coverage threshold, formatter, or linter; manually exercise changed CLIs with representative inputs and safe options such as `--dry-run` where available.
+Tests use the standard-library `unittest` framework. Add focused `TestCase` classes and `test_*` methods under `tests/`. Run the full suite before committing. There is no configured coverage threshold, formatter, or linter; manually exercise changed CLIs with representative inputs and the default dry-run mode of scripts that change files.
 
 ## Commit & Pull Request Guidelines
 

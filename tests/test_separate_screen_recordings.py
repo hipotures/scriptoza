@@ -54,13 +54,13 @@ class MainTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_dry_run_moves_nothing(self):
-        self.assertEqual(sep.main([str(self.src), "--output", str(self.out), "--dry-run"]), 0)
+    def test_default_is_dry_run(self):
+        self.assertEqual(sep.main([str(self.src), "--output", str(self.out)]), 0)
         self.assertTrue(self.screen.exists())
         self.assertFalse(self.out.exists())
 
-    def test_moves_only_screen_recordings(self):
-        self.assertEqual(sep.main([str(self.src), "--output", str(self.out)]), 0)
+    def test_run_moves_only_screen_recordings(self):
+        self.assertEqual(sep.main([str(self.src), "--output", str(self.out), "--run"]), 0)
         self.assertFalse(self.screen.exists())
         self.assertTrue(self.camera.exists())
         self.assertTrue((self.out / "src" / "sub" / "screen.mp4").exists())
@@ -69,7 +69,7 @@ class MainTests(unittest.TestCase):
         target = self.out / "src" / "sub" / "screen.mp4"
         target.parent.mkdir(parents=True)
         target.write_bytes(b"x")
-        self.assertEqual(sep.main([str(self.src), "--output", str(self.out)]), 1)
+        self.assertEqual(sep.main([str(self.src), "--output", str(self.out), "--run"]), 1)
         self.assertTrue(self.screen.exists())
 
     def test_overlapping_output_is_rejected(self):

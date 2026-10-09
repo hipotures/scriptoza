@@ -45,6 +45,7 @@ Move Android screen recordings out of folders containing renamed camera videos.
 - Treats files without Android metadata, with ExifTool warnings, or with other aspect ratios as `unknown` and leaves them in place
 - Moves only `screen` files to `OUTPUT/<input folder name>/<relative path>`, never overwriting existing files
 - Refuses overlapping input/output folders and input folders with the same name
+- Runs as a dry run by default, with a visible notice; pass `--run` to move files
 - Works across filesystems with an exclusive copy followed by removal of the source
 
 ### Requirements
@@ -55,11 +56,11 @@ Move Android screen recordings out of folders containing renamed camera videos.
 ### Usage
 
 ```bash
-# Preview the plan
-separate-screen-recordings /path/to/videos --output /path/to/screen --dry-run
+# Preview the plan (default)
+separate-screen-recordings /path/to/videos --output /path/to/screen
 
 # Move screen recordings
-separate-screen-recordings /path/to/a /path/to/b --output /path/to/screen
+separate-screen-recordings /path/to/a /path/to/b --output /path/to/screen --run
 ```
 
 ---

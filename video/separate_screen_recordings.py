@@ -196,26 +196,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folders", nargs="+", type=Path, help="Input folders to scan recursively")
     parser.add_argument("--output", required=True, type=Path, help="Destination for screen recordings")
-    parser.add_argument("--dry-run", action="store_true", help="Print the plan without creating or moving anything")
+    parser.add_argument("--run", action="store_true", help="Actually move files; without it only the plan is printed")
     args = parser.parse_args(argv)
     output = args.output.expanduser().resolve()
+    dry_run = not args.run
     console = Console(highlight=False)
+    if dry_run:
+        console.print("[bold yellow]DRY RUN: no files will be moved. Use --run to apply the plan.[/bold yellow]")
     try:
         with make_progress(console) as progress:
             plan = build_plan(args.folders, output, progress)
         counts = Counter(entry.category for entry in plan)
         for entry in plan:
             if entry.destination is not None:
-                action = "WOULD MOVE" if args.dry_run else "MOVE"
+                action = "WOULD MOVE" if dry_run else "MOVE"
                 console.print(f"{action}: {entry.source} -> {entry.destination}", markup=False)
             else:
                 console.print(f"KEEP [{entry.category}]: {entry.source}", markup=False)
         console.print(
             f"Summary: camera={counts['camera']}, screen={counts['screen']}, "
-            f"unknown={counts['unknown']}; mode={'dry-run' if args.dry_run else 'move'}",
+            f"unknown={counts['unknown']}; mode={'dry-run' if dry_run else 'move'}",
             markup=False,
         )
-        if not args.dry_run:
+        if dry_run:
+            console.print("[bold yellow]DRY RUN: nothing was moved. Use --run to apply the plan.[/bold yellow]")
+        else:
             moves = [entry for entry in plan if entry.destination is not None]
             with make_progress(console) as progress:
                 task = progress.add_task("Moving screen recordings".ljust(25), total=len(moves))
