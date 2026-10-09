@@ -25,6 +25,7 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
+from rich.text import Text
 
 
 @dataclass(frozen=True)
@@ -207,12 +208,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         with make_progress(console) as progress:
             plan = build_plan(args.folders, output, progress)
         counts = Counter(entry.category for entry in plan)
-        for entry in plan:
-            if entry.destination is not None:
-                action = "WOULD MOVE" if dry_run else "MOVE"
-                console.print(f"{action}: {entry.source} -> {entry.destination}", markup=False)
-            else:
-                console.print(f"KEEP [{entry.category}]: {entry.source}", markup=False)
+        moves = [entry for entry in plan if entry.destination is not None]
+        unknown = [entry for entry in plan if entry.category == "unknown"]
+        if moves:
+            title = "Screen recordings to move" if not dry_run else "Screen recordings that would be moved"
+            console.print(f"\n[bold green]{title} ({len(moves)}):[/bold green]")
+            for entry in moves:
+                console.print(Text(f"  {entry.source}"))
+                console.print(Text(f"    -> {entry.destination}", style="green"))
+        if unknown:
+            console.print(f"\n[bold yellow]Unrecognized, left in place ({len(unknown)}):[/bold yellow]")
+            for entry in unknown:
+                console.print(Text(f"  {entry.source}"))
+        console.print()
         console.print(
             f"Summary: camera={counts['camera']}, screen={counts['screen']}, "
             f"unknown={counts['unknown']}; mode={'dry-run' if dry_run else 'move'}",
@@ -221,7 +229,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         if dry_run:
             console.print("[bold yellow]DRY RUN: nothing was moved. Use --run to apply the plan.[/bold yellow]")
         else:
-            moves = [entry for entry in plan if entry.destination is not None]
             with make_progress(console) as progress:
                 task = progress.add_task("Moving screen recordings".ljust(25), total=len(moves))
                 for entry in moves:
