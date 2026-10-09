@@ -32,6 +32,7 @@ def main():
         ("video/sort_dji.py", "sort-dji"),
         ("video/sort_video_dated.py", "sort-video-dated"),
         ("video/video_rotation_detector.py", "video-rotation-detector"),
+        ("video/separate_screen_recordings.py", "separate-screen-recordings"),
         ("photo/rename_photo.py", "rename-photo"),
         ("photo/convert_hif_to_jpg.py", "convert-hif-to-jpg"),
         ("ai/codex_resume.py", "codex-resume"),

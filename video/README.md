@@ -33,6 +33,37 @@ video-rotation-detector
 
 ---
 
+## separate_screen_recordings.py
+
+Move Android screen recordings out of folders containing renamed camera videos.
+
+### Features
+
+- Recursively scans `.mp4` files in one or more input folders, skipping symlinks
+- Reads metadata with `exiftool` in bounded batches before anything is moved
+- Classifies a file as `camera` (GPS present, 16:9) or `screen` (no GPS, 20:9); orientation is ignored
+- Treats files without Android metadata, with ExifTool warnings, or with other aspect ratios as `unknown` and leaves them in place
+- Moves only `screen` files to `OUTPUT/<input folder name>/<relative path>`, never overwriting existing files
+- Refuses overlapping input/output folders and input folders with the same name
+- Works across filesystems with an exclusive copy followed by removal of the source
+
+### Requirements
+
+- Python 3.10+
+- `exiftool` installed in system `PATH`
+
+### Usage
+
+```bash
+# Preview the plan
+separate-screen-recordings /path/to/videos --output /path/to/screen --dry-run
+
+# Move screen recordings
+separate-screen-recordings /path/to/a /path/to/b --output /path/to/screen
+```
+
+---
+
 ## rename_video_univ.py
 
 Universal and robust video file renaming tool with deep EXIF tag fallback. Designed to handle various camera models and edge cases (like missing FPS or zeroed dates).
