@@ -70,7 +70,7 @@ video_rotation_benchmark.py run /path/to/videos --label qwen-q4 --base-url http:
 video_rotation_benchmark.py report /path/to/videos/results/*.jsonl --details
 ```
 
-Use `--workers` equal to the server's `--parallel` slots. `--prompt-file` tests another prompt, and `--width` changes the image size sent to the model.
+Use `--workers` equal to the server's `--parallel` slots. `--prompt top` (default) asks where the top of the scene is and `--prompt clockwise` asks for the rotation that makes it upright; `--prompt-file` tests another prompt, and `--width` changes the image size sent to the model.
 
 ---
 

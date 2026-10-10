@@ -45,7 +45,24 @@ DEFAULT_BASE_URL = "http://192.168.100.107:8080"
 DEFAULT_MIN_AGREEMENT = 0.6
 META_KEYS = ("model", "width", "max_tokens", "prompt_sha256")
 
-PROMPT = """
+PROMPTS = {
+    "top": """
+Look at this video frame. Find where the TOP of the scene is in the image
+(sky, ceiling, heads of people, tops of buildings).
+
+Answer with exactly one number:
+
+0   = the top of the scene is at the top edge of the image (upright)
+90  = the top of the scene is at the LEFT edge of the image
+180 = the top of the scene is at the bottom edge of the image (upside down)
+270 = the top of the scene is at the RIGHT edge of the image
+-1  = impossible to tell
+
+Even if there are no people, infer the top from the whole scene.
+
+Output only the number.
+""",
+    "clockwise": """
 Look at this video frame and determine its visual orientation.
 
 Your task is to determine what CLOCKWISE rotation must be applied to the
@@ -80,7 +97,9 @@ Even if there are no people, infer orientation from the whole scene.
 Do NOT explain your answer.
 Do NOT output words.
 Output exactly one number.
-"""
+""",
+}
+DEFAULT_PROMPT = "top"
 
 CONSOLE = Console()
 ERROR_CONSOLE = Console(stderr=True)
@@ -517,7 +536,7 @@ def command_run(args: argparse.Namespace) -> int:
         ERROR_CONSOLE.print(f"No video files in {directory}", markup=False)
         return 2
 
-    prompt = args.prompt_file.read_text(encoding="utf-8") if args.prompt_file else PROMPT
+    prompt = args.prompt_file.read_text(encoding="utf-8") if args.prompt_file else PROMPTS[args.prompt]
     output = (args.output or directory / "results").resolve()
     cache_dir = output / "frames" / f"w{args.width}"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -554,6 +573,7 @@ def command_run(args: argparse.Namespace) -> int:
             "label": args.label,
             "base_url": settings.url,
             "created": datetime.now().isoformat(timespec="seconds"),
+            "prompt_style": "file" if args.prompt_file else args.prompt,
             **expected_meta,
         }])
 
@@ -688,7 +708,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--max-tokens", type=int, default=32)
     run.add_argument("--timeout", type=float, default=180)
     run.add_argument("--workers", type=int, default=1, help="parallel requests (match llama-server --parallel)")
-    run.add_argument("--prompt-file", type=Path, help="use this prompt instead of the built-in one")
+    run.add_argument(
+        "--prompt", choices=sorted(PROMPTS), default=DEFAULT_PROMPT,
+        help="built-in prompt: top = where the top of the scene is, clockwise = which rotation fixes it (default: top)",
+    )
+    run.add_argument("--prompt-file", type=Path, help="use this prompt file instead of a built-in one")
     run.add_argument("--output", type=Path, help="results folder (default: DIRECTORY/results)")
     run.add_argument("--overwrite", action="store_true", help="discard an existing results file for this label")
     run.set_defaults(handler=command_run)

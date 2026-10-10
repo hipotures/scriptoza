@@ -23,6 +23,16 @@ class FractionTests(unittest.TestCase):
             bench.frame_fractions(0)
 
 
+class PromptTests(unittest.TestCase):
+    def test_every_prompt_offers_all_answers(self):
+        for name, prompt in bench.PROMPTS.items():
+            for answer in ("-1", "0", "90", "180", "270"):
+                self.assertIn(answer, prompt, f"{name} is missing {answer}")
+
+    def test_default_prompt_exists(self):
+        self.assertIn(bench.DEFAULT_PROMPT, bench.PROMPTS)
+
+
 class ParseAnswerTests(unittest.TestCase):
     def test_plain_numbers(self):
         self.assertEqual(bench.parse_answer("90"), 90)
