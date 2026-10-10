@@ -35,7 +35,6 @@ class Entry:
     destination: Path | None
 
 
-MOVED_CATEGORIES = {"screen", "other"}
 CAMERA_RATIO = 16 / 9
 SCREEN_RATIO = 20 / 9
 RATIO_TOLERANCE = 0.02
@@ -59,14 +58,7 @@ def classify(tags: dict) -> str:
     if ratio is None:
         return "unknown"
     if tags.get("GPSCoordinates"):
-        # Phone camera clips are stored rotated; an unrotated GPS clip is another source.
-        rotation = tags.get("Rotation")
-        if rotation in (90, 270):
-            expected, label = CAMERA_RATIO, "camera"
-        elif rotation == 0:
-            expected, label = CAMERA_RATIO, "other"
-        else:
-            return "unknown"
+        expected, label = CAMERA_RATIO, "camera"
     else:
         expected, label = SCREEN_RATIO, "screen"
     return label if abs(ratio - expected) <= RATIO_TOLERANCE * expected else "unknown"
@@ -157,7 +149,7 @@ def build_plan(
         category = classify(metadata[path])
         destination = (
             output / root.name / path.relative_to(root)
-            if category in MOVED_CATEGORIES else None
+            if category == "screen" else None
         )
         if destination is not None:
             validate_destination(destination, output)
@@ -230,7 +222,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 console.print(Text(f"  {entry.source}"))
         console.print()
         console.print(
-            f"Summary: camera={counts['camera']}, screen={counts['screen']}, other={counts['other']}, "
+            f"Summary: camera={counts['camera']}, screen={counts['screen']}, "
             f"unknown={counts['unknown']}; mode={'dry-run' if dry_run else 'move'}",
             markup=False,
         )
