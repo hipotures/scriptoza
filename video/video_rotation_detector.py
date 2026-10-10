@@ -2,19 +2,20 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "opencv-python>=4.8",
 #     "requests>=2.31",
 #     "rich>=13",
 # ]
 # ///
 
 import base64
+import json
 import os
 import re
+import shutil
+import subprocess
 from collections import Counter
 from datetime import datetime
 
-import cv2
 import requests
 from rich.console import Console
 from rich.progress import (
@@ -97,26 +98,7 @@ def log_rule(title, style="cyan"):
         LOG_HANDLE.flush()
 
 
-def frame_to_base64(frame):
-    height, width = frame.shape[:2]
-    resized_height = max(1, int(height * IMAGE_WIDTH / width))
-    frame = cv2.resize(
-        frame,
-        (IMAGE_WIDTH, resized_height),
-        interpolation=cv2.INTER_AREA,
-    )
-    log(f"  sending to AI: {frame.shape[1]}x{frame.shape[0]}")
-    encoded, buffer = cv2.imencode(
-        ".jpg",
-        frame,
-        [cv2.IMWRITE_JPEG_QUALITY, 90],
-    )
-    if not encoded:
-        raise RuntimeError("JPEG encoding failed")
-    return base64.b64encode(buffer).decode("ascii")
-
-
-def ask_rotation(frame, session, label):
+def ask_rotation(jpeg, session, label):
     payload = {
         "model": MODEL,
         "temperature": 0,
@@ -132,7 +114,7 @@ def ask_rotation(frame, session, label):
                         "image_url": {
                             "url": (
                                 "data:image/jpeg;base64,"
-                                + frame_to_base64(frame)
+                                + base64.b64encode(jpeg).decode("ascii")
                             )
                         },
                     },
@@ -141,6 +123,7 @@ def ask_rotation(frame, session, label):
         ],
     }
 
+    log(f"  sending to AI: {IMAGE_WIDTH}px wide, {len(jpeg)} bytes")
     try:
         response = session.post(
             BASE_URL,
@@ -187,58 +170,85 @@ def ask_rotation(frame, session, label):
     return -1
 
 
-def sample_frames(path):
-    capture = cv2.VideoCapture(path)
-    if not capture.isOpened():
-        return None
-
-    capture.set(cv2.CAP_PROP_ORIENTATION_AUTO, 0)
-    orientation_meta = capture.get(cv2.CAP_PROP_ORIENTATION_META)
-    orientation_auto = capture.get(cv2.CAP_PROP_ORIENTATION_AUTO)
-    frame_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    log(
-        f"  orientation_meta={orientation_meta} "
-        f"orientation_auto={orientation_auto} "
-        f"size={frame_width}x{frame_height} "
-        f"frames={frame_count}"
+def probe_video(path):
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries",
+            "stream_side_data=rotation:format=duration",
+            "-of", "json", path,
+        ],
+        capture_output=True,
+        text=True,
     )
-
-    if frame_count <= 0:
-        capture.release()
+    try:
+        data = json.loads(result.stdout)
+        duration = float(data["format"]["duration"])
+    except (ValueError, KeyError, TypeError):
         return None
+    if duration <= 0:
+        return None
+
+    rotation = 0
+    for stream in data.get("streams", []):
+        for side_data in stream.get("side_data_list", []):
+            if "rotation" in side_data:
+                rotation = (-round(float(side_data["rotation"]))) % 360
+    return duration, rotation
+
+
+def extract_frame(path, seconds):
+    result = subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+            "-noautorotate", "-ss", f"{seconds:.3f}", "-i", path,
+            "-frames:v", "1", "-vf", f"scale={IMAGE_WIDTH}:-2",
+            "-q:v", "2", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1",
+        ],
+        capture_output=True,
+    )
+    if result.returncode != 0 or not result.stdout:
+        return None
+    return result.stdout
+
+
+def sample_frames(path):
+    probed = probe_video(path)
+    if probed is None:
+        return None
+    duration, container_rotation = probed
+    log(
+        f"  duration={duration:.1f}s "
+        f"container_rotation={container_rotation}"
+    )
 
     frames = []
     for fraction in (0.15, 0.325, 0.50, 0.675, 0.85):
-        frame_number = int((frame_count - 1) * fraction)
-        capture.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-        succeeded, frame = capture.read()
-        if succeeded and frame is not None:
-            log(
-                f"  frame {fraction:.1%}: "
-                f"{frame.shape[1]}x{frame.shape[0]} "
-                f"frame_no={frame_number}"
-            )
-            frames.append((fraction, frame))
+        seconds = duration * fraction
+        jpeg = extract_frame(path, seconds)
+        if jpeg is not None:
+            log(f"  frame {fraction:.1%}: at {seconds:.1f}s")
+            frames.append((fraction, jpeg))
         else:
             log(f"  frame {fraction:.1%}: READ FAILED")
 
-    capture.release()
-    return frames or None
+    if not frames:
+        return None
+    return container_rotation, frames
 
 
 def analyze(path, session):
-    frames = sample_frames(path)
-    if not frames:
+    sampled = sample_frames(path)
+    if not sampled:
         log("  ! could not read frames")
         return None
+    container_rotation, frames = sampled
 
     votes = []
-    for index, (fraction, frame) in enumerate(frames, 1):
+    for index, (fraction, jpeg) in enumerate(frames, 1):
         label = f"{index}/{len(frames)} {fraction:.1%}"
         try:
-            rotation = ask_rotation(frame, session, label)
+            rotation = ask_rotation(jpeg, session, label)
         except OllamaConnectionError:
             raise
         except requests.RequestException as error:
@@ -273,7 +283,13 @@ def analyze(path, session):
         log(f"  ambiguous tie: {tied}")
         return None
 
-    return rotation
+    result = (rotation - container_rotation) % 360
+    log(
+        f"  raw rotation={rotation} "
+        f"container rotation={container_rotation} "
+        f"sidecar value={result}"
+    )
+    return result
 
 
 def rotation_path(video_path):
@@ -290,6 +306,11 @@ def write_rotation_file(video_path, rotation):
 
 def main():
     global LOG_HANDLE
+
+    for tool in ("ffmpeg", "ffprobe"):
+        if shutil.which(tool) is None:
+            print(f"ERROR: {tool} not found in PATH")
+            return 2
 
     LOG_HANDLE = open(
         LOG_FILE,

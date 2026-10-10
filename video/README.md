@@ -8,9 +8,9 @@ sampled frames to a configured Ollama vision model.
 ### Features
 
 - Scans supported video files in the current directory
-- Samples five frames from each video with OpenCV orientation correction disabled
+- Samples five frames from each video with `ffmpeg -noautorotate`, so the model sees the raw image and ignores the rotation tag stored in the file
 - Requires at least two matching valid model responses
-- Writes the result to a matching `.rot` sidecar as `--video-rotate=VALUE`
+- Writes the result to a matching `.rot` sidecar as `--video-rotate=VALUE`, where VALUE is the model's rotation of the raw image minus the file's own rotation tag, because mpv adds `--video-rotate` to the tag
 - Skips videos that already have a `.rot` sidecar
 - Writes execution details to `/tmp/video_rotation_detector.log`
 - Exits with a clear error without creating a sidecar when the Ollama server is unavailable
@@ -18,9 +18,10 @@ sampled frames to a configured Ollama vision model.
 ### Requirements
 
 - `uv`
+- `ffmpeg` and `ffprobe` in `PATH`
 - An Ollama vision server exposing the configured OpenAI-compatible chat completions endpoint
 
-The script declares `opencv-python`, `requests`, and `rich` as inline
+The script declares `requests` and `rich` as inline
 dependencies. `uv` creates an isolated environment automatically and may
 download missing packages on the first run.
 
