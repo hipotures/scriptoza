@@ -14,7 +14,7 @@ import sys
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence
@@ -43,7 +43,8 @@ LAST_FRACTION = 0.85
 DEFAULT_FRAME_COUNTS = (5, 7, 9)
 DEFAULT_BASE_URL = "http://192.168.100.107:8080"
 DEFAULT_MIN_AGREEMENT = 0.6
-META_KEYS = ("model", "width", "max_tokens", "prompt_sha256")
+META_KEYS = ("model", "width", "max_tokens", "prompt_sha256", "apply_tag")
+META_DEFAULTS = {"apply_tag": False}
 
 PROMPTS = {
     "top": """
@@ -122,6 +123,7 @@ class Settings:
     width: int
     max_tokens: int
     timeout: float
+    apply_tag: bool
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,7 @@ class Run:
     meta: dict
     frames: dict[tuple[str, float], dict]
     wall_seconds: float
+    videos: dict[str, dict] = field(default_factory=dict)
 
     @property
     def label(self) -> str:
@@ -226,25 +229,36 @@ def judge(label: frozenset[int], predicted: int | None) -> str:
     return "correct" if predicted in label else "wrong"
 
 
-def probe_duration(path: Path) -> float:
+def probe_video(path: Path) -> tuple[float, int]:
     result = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)],
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream_side_data=rotation:format=duration",
+            "-of", "json", str(path),
+        ],
         capture_output=True,
         text=True,
     )
     try:
-        duration = float(json.loads(result.stdout)["format"]["duration"])
+        data = json.loads(result.stdout)
+        duration = float(data["format"]["duration"])
     except (ValueError, KeyError, TypeError):
         raise FrameError("cannot read video duration") from None
     if duration <= 0:
         raise FrameError("video has no duration")
-    return duration
+
+    rotation = 0
+    for stream in data.get("streams", []):
+        for side_data in stream.get("side_data_list", []):
+            if "rotation" in side_data:
+                rotation = (-round(float(side_data["rotation"]))) % 360
+    return duration, rotation
 
 
-def extract_frame(path: Path, seconds: float, width: int) -> bytes:
+def extract_frame(path: Path, seconds: float, width: int, apply_tag: bool = False) -> bytes:
     command = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-        "-noautorotate", "-noaccurate_seek",
+        *([] if apply_tag else ["-noautorotate"]), "-noaccurate_seek",
         "-ss", f"{seconds:.3f}", "-i", str(path),
         "-frames:v", "1", "-vf", f"scale={width}:-2", "-q:v", "2",
         "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1",
@@ -260,7 +274,7 @@ def cached_frame(settings: Settings, path: Path, fraction: float, seconds: float
     cached = settings.cache_dir / f"{path.stem}_{fraction:.4f}.jpg"
     if cached.is_file():
         return cached.read_bytes()
-    jpeg = extract_frame(path, seconds, settings.width)
+    jpeg = extract_frame(path, seconds, settings.width, settings.apply_tag)
     partial = cached.with_name(cached.name + ".part")
     partial.write_bytes(jpeg)
     partial.replace(cached)
@@ -333,6 +347,7 @@ def query_frame(
 def load_run(path: Path) -> Run:
     meta: dict = {}
     frames: dict[tuple[str, float], dict] = {}
+    videos: dict[str, dict] = {}
     wall_seconds = 0.0
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -342,9 +357,11 @@ def load_run(path: Path) -> Run:
             meta = record
         elif record["type"] == "frame":
             frames[(record["file"], record["fraction"])] = record
+        elif record["type"] == "video":
+            videos[record["file"]] = record
         elif record["type"] == "run":
             wall_seconds += record["wall_seconds"]
-    return Run(path=path, meta=meta, frames=frames, wall_seconds=wall_seconds)
+    return Run(path=path, meta=meta, frames=frames, wall_seconds=wall_seconds, videos=videos)
 
 
 def append_records(path: Path, records: Sequence[dict]) -> None:
@@ -369,6 +386,15 @@ def format_number(value: float | None, template: str) -> str:
     return "-" if value is None else template.format(value)
 
 
+def effective_label(run: Run, name: str, label: frozenset[int] | None) -> frozenset[int] | None:
+    if label is None or label == EXCLUDED or not run.meta.get("apply_tag"):
+        return label
+    rotation = run.videos.get(name, {}).get("container_rotation")
+    if rotation is None:
+        return None
+    return frozenset((angle - rotation) % 360 for angle in label)
+
+
 def summarize(
     run: Run,
     labels: dict[str, frozenset[int]],
@@ -381,7 +407,7 @@ def summarize(
     cells: dict[str, tuple[str, Verdict, int | None]] = {}
     names = sorted({name for name, _ in run.frames})
     for name in names:
-        label = labels.get(name)
+        label = effective_label(run, name, labels.get(name))
         if label is None:
             stats["unlabeled"] += 1
             continue
@@ -436,7 +462,7 @@ def render_summary(
             accuracy = stats["correct"] / stats["angle"] if stats["angle"] else None
             latency = result["latency"]
             table.add_row(
-                run.label,
+                run_title(run),
                 str(count),
                 str(stats["correct"]),
                 str(stats["wrong"]),
@@ -449,7 +475,7 @@ def render_summary(
                 format_number(latency, "{:.2f}"),
                 format_number(latency * count if latency is not None else None, "{:.1f}"),
             )
-            detail_columns.append((f"{run.label} {count}", result["cells"]))
+            detail_columns.append((f"{run_title(run)} {count}", result["cells"]))
     CONSOLE.print(table)
 
     for run in runs:
@@ -457,27 +483,46 @@ def render_summary(
         excluded = sum(1 for name in names if labels.get(name) == EXCLUDED)
         CONSOLE.print(
             f"{run.label}: model={run.meta.get('model')} width={run.meta.get('width')} "
+            f"frames={'tag applied' if run.meta.get('apply_tag') else 'raw'} "
             f"videos={len(names)} (label -1, not scored: {excluded}) wall={run.wall_seconds:.0f}s",
             markup=False,
         )
 
     if details:
-        render_details(labels, detail_columns)
+        tags = {name: record["container_rotation"] for run in runs for name, record in run.videos.items()}
+        render_details(labels, detail_columns, tags)
+
+
+def run_title(run: Run) -> str:
+    return f"{run.label} [tag]" if run.meta.get("apply_tag") else run.label
+
+
+def need_text(label: frozenset[int], tag: int) -> str:
+    if label == EXCLUDED:
+        return "-"
+    return "/".join(str(angle) for angle in sorted((angle - tag) % 360 for angle in label))
 
 
 def render_details(
     labels: dict[str, frozenset[int]],
     columns: Sequence[tuple[str, dict]],
+    tags: dict[str, int],
 ) -> None:
     table = Table(title="Per-video verdicts (winner votes/frames)")
     table.add_column("Video")
     table.add_column("Label", justify="right")
+    if tags:
+        table.add_column("Tag", justify="right")
+        table.add_column("Need", justify="right")
     for title, _ in columns:
         table.add_column(title, justify="right")
     styles = {"correct": "green", "wrong": "red", "unsure": "yellow", "excluded": "dim"}
     names = sorted({name for _, cells in columns for name in cells})
     for name in names:
         row = [name, label_text(labels[name])]
+        if tags:
+            tag = tags.get(name)
+            row.extend(["-", "-"] if tag is None else [str(tag), need_text(labels[name], tag)])
         for _, cells in columns:
             if name not in cells:
                 row.append("-")
@@ -508,9 +553,9 @@ def find_videos(directory: Path) -> list[Path]:
 
 def check_resume(existing: Run, expected: dict) -> None:
     mismatched = [
-        f"{key}: {existing.meta.get(key)!r} != {expected[key]!r}"
+        f"{key}: {existing.meta.get(key, META_DEFAULTS.get(key))!r} != {expected[key]!r}"
         for key in META_KEYS
-        if existing.meta.get(key) != expected[key]
+        if existing.meta.get(key, META_DEFAULTS.get(key)) != expected[key]
     ]
     if mismatched:
         raise ValueError(
@@ -538,7 +583,7 @@ def command_run(args: argparse.Namespace) -> int:
 
     prompt = args.prompt_file.read_text(encoding="utf-8") if args.prompt_file else PROMPTS[args.prompt]
     output = (args.output or directory / "results").resolve()
-    cache_dir = output / "frames" / f"w{args.width}"
+    cache_dir = output / "frames" / f"w{args.width}{'-tag' if args.apply_tag else ''}"
     cache_dir.mkdir(parents=True, exist_ok=True)
     settings = Settings(
         cache_dir=cache_dir,
@@ -548,12 +593,14 @@ def command_run(args: argparse.Namespace) -> int:
         width=args.width,
         max_tokens=args.max_tokens,
         timeout=args.timeout,
+        apply_tag=args.apply_tag,
     )
     expected_meta = {
         "model": settings.model,
         "width": settings.width,
         "max_tokens": settings.max_tokens,
         "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "apply_tag": settings.apply_tag,
     }
 
     results_path = output / f"{args.label}.jsonl"
@@ -586,23 +633,27 @@ def command_run(args: argparse.Namespace) -> int:
 
     done = {key for key, record in (existing.frames if existing else {}).items() if record["error"] is None}
     fractions = all_fractions(args.frames)
+    known = existing.videos if existing else {}
     pending: list[tuple[Path, float, float]] = []
-    failed: list[dict] = []
+    new_records: list[dict] = []
     for path in videos:
         missing = [fraction for fraction in fractions if (path.name, fraction) not in done]
-        if not missing:
-            continue
         try:
-            duration = probe_duration(path)
+            duration, rotation = probe_video(path)
         except FrameError as error:
-            failed.extend(
+            new_records.extend(
                 {"type": "frame", "file": path.name, "fraction": fraction, "answer": None,
                  "raw": None, "seconds": None, "error": f"frame: {error}"}
                 for fraction in missing
             )
             continue
+        if known.get(path.name, {}).get("container_rotation") != rotation:
+            new_records.append({
+                "type": "video", "file": path.name,
+                "container_rotation": rotation, "duration": round(duration, 3),
+            })
         pending.extend((path, fraction, duration * fraction) for fraction in missing)
-    append_records(results_path, failed)
+    append_records(results_path, new_records)
 
     ERROR_CONSOLE.print(
         f"{args.label}: {len(videos)} videos, {len(fractions)} frames each, "
@@ -714,6 +765,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--prompt-file", type=Path, help="use this prompt file instead of a built-in one")
     run.add_argument("--output", type=Path, help="results folder (default: DIRECTORY/results)")
+    run.add_argument(
+        "--apply-tag", action="store_true",
+        help="send frames with the file's rotation tag applied, as mpv shows them; labels are then judged as label minus tag",
+    )
     run.add_argument("--overwrite", action="store_true", help="discard an existing results file for this label")
     run.set_defaults(handler=command_run)
 

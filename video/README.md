@@ -47,6 +47,7 @@ Compare vision models, quantizations and frame counts on a small set of labeled 
 - Caches extracted frames in `DIRECTORY/results/frames/`, so the second model on the same videos skips the slow decoding (delete the folder if the videos change)
 - Reports correct, wrong and unsure counts, accuracy, mean agreement of correct versus wrong verdicts, undetermined (`-1`) and invalid answers, and latency per frame and per video
 - A verdict is confident only when one angle has at least two votes, is the unique top angle and reaches `--min-agreement` of all frames; videos labeled `-1` are not scored
+- With `--apply-tag` the frames are sent with the file's rotation tag applied, as mpv shows them, and each label is judged as `label - tag` (the correction still needed on top of the tag); the tag of every video is stored in the results, and `--details` shows it with the needed correction
 - Only reads the videos; it writes results under the results folder and never touches the video files
 
 ### Labels

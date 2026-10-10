@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from video import video_rotation_benchmark as bench
 
@@ -117,6 +118,66 @@ class SummarizeTests(unittest.TestCase):
         self.assertEqual(bench.summarize(run, labels, 5, 0.6)["stats"]["undetermined"], 0)
 
 
+class TagModeTests(unittest.TestCase):
+    def tagged_run(self, rotation, answer):
+        frames = {
+            ("a.mp4", fraction): {"file": "a.mp4", "fraction": fraction, "answer": answer, "seconds": 1.0, "error": None}
+            for fraction in bench.frame_fractions(5)
+        }
+        return bench.Run(
+            Path("x.jsonl"),
+            {"apply_tag": True},
+            frames,
+            0.0,
+            {"a.mp4": {"container_rotation": rotation}},
+        )
+
+    def test_label_is_shifted_by_the_container_rotation(self):
+        run = self.tagged_run(90, 180)
+        self.assertEqual(bench.effective_label(run, "a.mp4", frozenset({270})), frozenset({180}))
+        self.assertEqual(bench.effective_label(run, "a.mp4", frozenset({90})), frozenset({0}))
+        self.assertEqual(bench.effective_label(run, "a.mp4", bench.SIDEWAYS), frozenset({0, 180}))
+
+    def test_excluded_label_stays_excluded(self):
+        run = self.tagged_run(90, 0)
+        self.assertEqual(bench.effective_label(run, "a.mp4", bench.EXCLUDED), bench.EXCLUDED)
+
+    def test_raw_run_keeps_the_label(self):
+        run = bench.Run(Path("x.jsonl"), {}, {}, 0.0)
+        self.assertEqual(bench.effective_label(run, "a.mp4", frozenset({270})), frozenset({270}))
+
+    def test_missing_rotation_makes_the_video_unlabeled(self):
+        run = bench.Run(Path("x.jsonl"), {"apply_tag": True}, {}, 0.0)
+        self.assertIsNone(bench.effective_label(run, "a.mp4", frozenset({90})))
+
+    def test_summary_judges_against_the_shifted_label(self):
+        run = self.tagged_run(90, 180)
+        stats = bench.summarize(run, {"a.mp4": frozenset({270})}, 5, 0.6)["stats"]
+        self.assertEqual(stats["correct"], 1)
+
+    def test_need_text(self):
+        self.assertEqual(bench.need_text(frozenset({270}), 90), "180")
+        self.assertEqual(bench.need_text(bench.SIDEWAYS, 90), "0/180")
+        self.assertEqual(bench.need_text(bench.EXCLUDED, 90), "-")
+
+    def test_old_results_resume_as_raw_runs(self):
+        old = bench.Run(Path("x.jsonl"), {"model": "m", "width": 512, "max_tokens": 32, "prompt_sha256": "h"}, {}, 0.0)
+        expected = {"model": "m", "width": 512, "max_tokens": 32, "prompt_sha256": "h", "apply_tag": False}
+        bench.check_resume(old, expected)
+        with self.assertRaises(ValueError):
+            bench.check_resume(old, {**expected, "apply_tag": True})
+
+    def test_frames_are_extracted_raw_unless_the_tag_is_applied(self):
+        done = mock.Mock(returncode=0, stdout=b"jpeg", stderr=b"")
+        with mock.patch.object(bench.subprocess, "run", return_value=done) as run:
+            bench.extract_frame(Path("a.mp4"), 1.0, 512)
+            raw_command = run.call_args.args[0]
+            bench.extract_frame(Path("a.mp4"), 1.0, 512, apply_tag=True)
+            tag_command = run.call_args.args[0]
+        self.assertIn("-noautorotate", raw_command)
+        self.assertNotIn("-noautorotate", tag_command)
+
+
 class LabelFileTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -161,10 +222,11 @@ class RunFileTests(unittest.TestCase):
         self.assertEqual(run.label, "x")
 
     def test_resume_refuses_different_settings(self):
-        run = bench.Run(Path("x.jsonl"), {"model": "a", "width": 512, "max_tokens": 32, "prompt_sha256": "h"}, {}, 0.0)
-        bench.check_resume(run, {"model": "a", "width": 512, "max_tokens": 32, "prompt_sha256": "h"})
+        settings = {"model": "a", "width": 512, "max_tokens": 32, "prompt_sha256": "h", "apply_tag": False}
+        run = bench.Run(Path("x.jsonl"), dict(settings), {}, 0.0)
+        bench.check_resume(run, settings)
         with self.assertRaises(ValueError):
-            bench.check_resume(run, {"model": "b", "width": 512, "max_tokens": 32, "prompt_sha256": "h"})
+            bench.check_resume(run, {**settings, "model": "b"})
 
 
 if __name__ == "__main__":
