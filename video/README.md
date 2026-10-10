@@ -46,13 +46,13 @@ Compare vision models, quantizations and frame counts on a small set of labeled 
 - Stores every answer with its latency in `DIRECTORY/results/LABEL.jsonl`; an interrupted or repeated run resumes and only retries failed queries
 - Caches extracted frames in `DIRECTORY/results/frames/`, so the second model on the same videos skips the slow decoding (delete the folder if the videos change)
 - Reports correct, wrong and unsure counts, accuracy, mean agreement of correct versus wrong verdicts, undetermined (`-1`) and invalid answers, and latency per frame and per video
-- A verdict is confident only when one angle has at least two votes, is the unique top angle and reaches `--min-agreement` of all frames; labels `-1` expect no confident verdict
+- A verdict is confident only when one angle has at least two votes, is the unique top angle and reaches `--min-agreement` of all frames; videos labeled `-1` are not scored
 - Only reads the videos; it writes results under the results folder and never touches the video files
 
 ### Labels
 
 `DIRECTORY/labels.txt` has one `name label` pair per line; `#` lines and lines without a label are skipped.
-The label is the clockwise rotation that makes the raw image upright: `0`, `90`, `180`, `270`, `s` (sideways, either 90 or 270) or `-1` (mixed orientation or impossible to tell).
+The label is the clockwise rotation that makes the raw image upright: `0`, `90`, `180`, `270`, `s` (sideways, either 90 or 270) or `-1` (direction unknown or mixed orientation); videos labeled `-1` are listed but excluded from the score.
 
 ### Requirements
 

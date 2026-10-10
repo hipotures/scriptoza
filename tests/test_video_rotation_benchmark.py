@@ -89,9 +89,32 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(bench.judge(bench.SIDEWAYS, 90), "correct")
         self.assertEqual(bench.judge(bench.SIDEWAYS, 0), "wrong")
 
-    def test_mixed_label_expects_no_confident_answer(self):
-        self.assertEqual(bench.judge(bench.MIXED, None), "correct")
-        self.assertEqual(bench.judge(bench.MIXED, 0), "wrong")
+
+
+class SummarizeTests(unittest.TestCase):
+    def run_with(self, answers):
+        frames = {
+            (name, fraction): {"file": name, "fraction": fraction, "answer": answer, "seconds": 1.0, "error": None}
+            for name, answer in answers.items()
+            for fraction in bench.frame_fractions(5)
+        }
+        return bench.Run(Path("x.jsonl"), {}, frames, 0.0)
+
+    def test_unknown_direction_label_is_not_scored(self):
+        run = self.run_with({"a.mp4": 90, "b.mp4": 0, "c.mp4": 180})
+        labels = {"a.mp4": frozenset({90}), "b.mp4": bench.EXCLUDED, "c.mp4": frozenset({0})}
+        result = bench.summarize(run, labels, 5, 0.6)
+        stats = result["stats"]
+        self.assertEqual(stats["angle"], 2)
+        self.assertEqual(stats["correct"], 1)
+        self.assertEqual(stats["wrong"], 1)
+        self.assertEqual(stats["excluded"], 1)
+        self.assertEqual(result["cells"]["b.mp4"][0], "excluded")
+
+    def test_excluded_videos_do_not_count_undetermined_frames(self):
+        run = self.run_with({"a.mp4": 90, "b.mp4": -1})
+        labels = {"a.mp4": frozenset({90}), "b.mp4": bench.EXCLUDED}
+        self.assertEqual(bench.summarize(run, labels, 5, 0.6)["stats"]["undetermined"], 0)
 
 
 class LabelFileTests(unittest.TestCase):
@@ -111,7 +134,7 @@ class LabelFileTests(unittest.TestCase):
                 "01.mp4": frozenset({0}),
                 "03.mp4": frozenset({270}),
                 "04.mp4": bench.SIDEWAYS,
-                "05.mp4": bench.MIXED,
+                "05.mp4": bench.EXCLUDED,
             },
         )
 

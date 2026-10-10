@@ -35,7 +35,7 @@ from rich.table import Table
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm"}
 ANGLES = (0, 90, 180, 270)
 UNDETERMINED = -1
-MIXED = frozenset({UNDETERMINED})
+EXCLUDED = frozenset({UNDETERMINED})
 SIDEWAYS = frozenset({90, 270})
 MIN_VOTES = 2
 FIRST_FRACTION = 0.15
@@ -221,8 +221,6 @@ def load_labels(path: Path) -> dict[str, frozenset[int]]:
 
 
 def judge(label: frozenset[int], predicted: int | None) -> str:
-    if label == MIXED:
-        return "correct" if predicted is None else "wrong"
     if predicted is None:
         return "unsure"
     return "correct" if predicted in label else "wrong"
@@ -389,12 +387,12 @@ def summarize(
             continue
         verdict = video_verdict(run, name, count)
         predicted = decide(verdict, min_agreement)
+        if label == EXCLUDED:
+            stats["excluded"] += 1
+            cells[name] = ("excluded", verdict, predicted)
+            continue
         outcome = judge(label, predicted)
         cells[name] = (outcome, verdict, predicted)
-        if label == MIXED:
-            stats["mixed"] += 1
-            stats["mixed_ok"] += outcome == "correct"
-            continue
         stats["angle"] += 1
         stats[outcome] += 1
         if outcome == "correct":
@@ -405,8 +403,10 @@ def summarize(
     wanted = set(frame_fractions(count))
     used = [r for r in run.frames.values() if r["fraction"] in wanted]
     latencies = [r["seconds"] for r in used if r["seconds"] is not None]
-    stats["undetermined"] = sum(1 for r in used if r["answer"] == UNDETERMINED)
-    stats["invalid"] = sum(1 for r in used if r["answer"] is None)
+    scored = {name for name, cell in cells.items() if cell[0] != "excluded"}
+    counted = [r for r in used if r["file"] in scored]
+    stats["undetermined"] = sum(1 for r in counted if r["answer"] == UNDETERMINED)
+    stats["invalid"] = sum(1 for r in counted if r["answer"] is None)
     return {
         "stats": stats,
         "agreement_correct": mean(agreement_correct),
@@ -424,7 +424,7 @@ def render_summary(
     details: bool,
 ) -> None:
     table = Table(title=f"Rotation benchmark (min agreement {min_agreement:.0%})")
-    for column in ("Run", "Frames", "OK", "Wrong", "Unsure", "Mixed", "Acc",
+    for column in ("Run", "Frames", "OK", "Wrong", "Unsure", "Acc",
                    "Agr ok", "Agr bad", "Undet", "Invalid", "s/frame", "s/video"):
         table.add_column(column, justify="left" if column == "Run" else "right")
 
@@ -441,7 +441,6 @@ def render_summary(
                 str(stats["correct"]),
                 str(stats["wrong"]),
                 str(stats["unsure"]),
-                f"{stats['mixed_ok']}/{stats['mixed']}",
                 format_number(accuracy, "{:.0%}"),
                 format_number(result["agreement_correct"], "{:.2f}"),
                 format_number(result["agreement_wrong"], "{:.2f}"),
@@ -454,10 +453,11 @@ def render_summary(
     CONSOLE.print(table)
 
     for run in runs:
-        videos = len({name for name, _ in run.frames})
+        names = {name for name, _ in run.frames}
+        excluded = sum(1 for name in names if labels.get(name) == EXCLUDED)
         CONSOLE.print(
             f"{run.label}: model={run.meta.get('model')} width={run.meta.get('width')} "
-            f"videos={videos} wall={run.wall_seconds:.0f}s",
+            f"videos={len(names)} (label -1, not scored: {excluded}) wall={run.wall_seconds:.0f}s",
             markup=False,
         )
 
@@ -474,7 +474,7 @@ def render_details(
     table.add_column("Label", justify="right")
     for title, _ in columns:
         table.add_column(title, justify="right")
-    styles = {"correct": "green", "wrong": "red", "unsure": "yellow"}
+    styles = {"correct": "green", "wrong": "red", "unsure": "yellow", "excluded": "dim"}
     names = sorted({name for _, cells in columns for name in cells})
     for name in names:
         row = [name, label_text(labels[name])]
