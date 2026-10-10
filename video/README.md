@@ -33,6 +33,46 @@ video-rotation-detector
 
 ---
 
+## video_rotation_benchmark.py
+
+Compare vision models, quantizations and frame counts on a small set of labeled videos before trusting them with `video_rotation_detector.py`.
+
+### Features
+
+- Samples frames at equal spacing between 15% and 85% of each video and asks an OpenAI-compatible server (for example `llama-server`) for the clockwise rotation of each frame
+- Extracts frames with `ffmpeg -noautorotate`, so the model sees the raw frame and the rotation tag stored in the file is ignored (the same view as `mpv --video-rotate=no`)
+- Queries the union of the frames needed for 5, 7 and 9 votes once and votes offline for every frame count, so one run answers all three
+- Stores every answer with its latency in `DIRECTORY/results/LABEL.jsonl`; an interrupted or repeated run resumes and only retries failed queries
+- Caches extracted frames in `DIRECTORY/results/frames/`, so the second model on the same videos skips the slow decoding (delete the folder if the videos change)
+- Reports correct, wrong and unsure counts, accuracy, mean agreement of correct versus wrong verdicts, undetermined (`-1`) and invalid answers, and latency per frame and per video
+- A verdict is confident only when one angle has at least two votes, is the unique top angle and reaches `--min-agreement` of all frames; labels `-1` expect no confident verdict
+- Only reads the videos; it writes results under the results folder and never touches the video files
+
+### Labels
+
+`DIRECTORY/labels.txt` has one `name label` pair per line; `#` lines and lines without a label are skipped.
+The label is the clockwise rotation that makes the raw image upright: `0`, `90`, `180`, `270`, `s` (sideways, either 90 or 270) or `-1` (mixed orientation or impossible to tell).
+
+### Requirements
+
+- Python 3.10+ with `requests` and `rich`
+- `ffmpeg` and `ffprobe` in `PATH`
+- A running OpenAI-compatible vision server (one model per server, so start it once per model)
+
+### Usage
+
+```bash
+# Query the server and print the summary
+video_rotation_benchmark.py run /path/to/videos --label qwen-q4 --base-url http://host:8080 --workers 4
+
+# Compare several runs side by side, with a verdict per video
+video_rotation_benchmark.py report /path/to/videos/results/*.jsonl --details
+```
+
+Use `--workers` equal to the server's `--parallel` slots. `--prompt-file` tests another prompt, and `--width` changes the image size sent to the model.
+
+---
+
 ## separate_screen_recordings.py
 
 Move Android screen recordings out of folders containing renamed camera videos.

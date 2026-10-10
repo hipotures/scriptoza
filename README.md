@@ -17,6 +17,7 @@ Collection of small utility scripts organized by category. Each category has its
 - `review_large_mp4.py` - Interactively reviews and cleans up N largest MP4 files
 - `follow_crop_to_audio.py` - Renders a dynamic crop from identity-path points and fits video speed to an external audio file
 - `video_rotation_detector.py` - Detects the rotation needed to display videos upright using an Ollama vision model
+- `video_rotation_benchmark.py` - Compares vision models and frame counts for rotation voting on labeled test videos
 - `separate_screen_recordings.py` - Moves Android screen recordings out of folders of renamed camera videos using EXIF metadata
 
 ### Photo (photo/)
