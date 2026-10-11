@@ -53,6 +53,18 @@ class ThinkingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             bench.check_resume(old, {**settings, "thinking": True, "thinking_tokens": 2048})
 
+    def test_reasoning_budget_is_sent_only_when_thinking(self):
+        response = mock.Mock()
+        response.json.return_value = {"choices": [{"message": {"content": "0"}, "finish_reason": "stop"}]}
+        session = mock.Mock()
+        session.post.return_value = response
+        base = dict(cache_dir=Path("."), url="http://x", model="m", prompt="p", width=512,
+                    max_tokens=32, timeout=1, apply_tag=False, thinking_tokens=2048, reasoning_budget=256)
+        bench.ask(session, bench.Settings(thinking=True, **base), b"jpeg")
+        self.assertEqual(session.post.call_args.kwargs["json"]["reasoning_budget_tokens"], 256)
+        bench.ask(session, bench.Settings(thinking=False, **base), b"jpeg")
+        self.assertNotIn("reasoning_budget_tokens", session.post.call_args.kwargs["json"])
+
     def test_request_gets_extra_tokens_only_when_thinking(self):
         response = mock.Mock()
         response.json.return_value = {

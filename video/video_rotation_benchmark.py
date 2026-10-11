@@ -45,8 +45,8 @@ LAST_FRACTION = 0.85
 DEFAULT_FRAME_COUNTS = (5, 7, 9)
 DEFAULT_BASE_URL = "http://192.168.100.107:8080"
 DEFAULT_MIN_AGREEMENT = 0.6
-META_KEYS = ("model", "width", "max_tokens", "prompt_sha256", "apply_tag", "thinking", "thinking_tokens", "angle")
-META_DEFAULTS = {"apply_tag": False, "thinking": False, "thinking_tokens": 0, "angle": False}
+META_KEYS = ("model", "width", "max_tokens", "prompt_sha256", "apply_tag", "thinking", "thinking_tokens", "angle", "reasoning_budget")
+META_DEFAULTS = {"apply_tag": False, "thinking": False, "thinking_tokens": 0, "angle": False, "reasoning_budget": 0}
 ANGLE_WINDOW = 30
 DEFAULT_TOLERANCE = 45
 DEFAULT_THINKING_TOKENS = 2048
@@ -154,6 +154,7 @@ class Settings:
     thinking: bool
     thinking_tokens: int
     angle: bool = False
+    reasoning_budget: int = 0
 
 
 @dataclass(frozen=True)
@@ -402,6 +403,8 @@ def ask(session: requests.Session, settings: Settings, jpeg: bytes) -> tuple[str
             }
         ],
     }
+    if settings.thinking and settings.reasoning_budget > 0:
+        payload["reasoning_budget_tokens"] = settings.reasoning_budget
     response = session.post(f"{settings.url}/v1/chat/completions", json=payload, timeout=settings.timeout)
     response.raise_for_status()
     data = response.json()
@@ -787,6 +790,7 @@ def command_run(args: argparse.Namespace) -> int:
         thinking=args.thinking,
         thinking_tokens=args.thinking_tokens,
         angle=args.angle,
+        reasoning_budget=args.reasoning_budget,
     )
     expected_meta = {
         "model": settings.model,
@@ -797,6 +801,7 @@ def command_run(args: argparse.Namespace) -> int:
         "thinking": settings.thinking,
         "thinking_tokens": settings.thinking_tokens if settings.thinking else 0,
         "angle": settings.angle,
+        "reasoning_budget": settings.reasoning_budget if settings.thinking else 0,
     }
 
     results_path = output / f"{args.label}.jsonl"
@@ -973,6 +978,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--max-tokens", type=int, default=32)
     run.add_argument("--timeout", type=float, help=f"seconds per request (default: {TIMEOUT}, or {THINKING_TIMEOUT} with --thinking)")
     run.add_argument("--thinking", action="store_true", help="let the model think before answering")
+    run.add_argument(
+        "--reasoning-budget", type=int, default=0,
+        help="with --thinking, send reasoning_budget_tokens=N so a server that supports it (Strata) stops "
+             "thinking after N tokens and still answers; 0 = no limit",
+    )
     run.add_argument(
         "--thinking-tokens", type=int, default=DEFAULT_THINKING_TOKENS,
         help=f"extra tokens allowed for thinking (default: {DEFAULT_THINKING_TOKENS}); answers cut off by this limit count as invalid",
