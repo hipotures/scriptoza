@@ -34,6 +34,45 @@ class PromptTests(unittest.TestCase):
         self.assertIn(bench.DEFAULT_PROMPT, bench.PROMPTS)
 
 
+class ThinkingTests(unittest.TestCase):
+    def test_answer_is_taken_after_the_thinking_block(self):
+        self.assertEqual(bench.strip_thinking("<think>90 or 180?</think>\n180"), "\n180")
+        self.assertEqual(bench.parse_answer(bench.strip_thinking("<think>maybe 90</think>0")), 0)
+
+    def test_unfinished_thinking_has_no_answer(self):
+        self.assertIsNone(bench.strip_thinking("<think>it could be 90 because"))
+
+    def test_plain_content_is_unchanged(self):
+        self.assertEqual(bench.strip_thinking("270"), "270")
+
+    def test_old_results_resume_without_thinking(self):
+        settings = {"model": "m", "width": 512, "max_tokens": 32, "prompt_sha256": "h", "apply_tag": False,
+                    "thinking": False, "thinking_tokens": 0}
+        old = bench.Run(Path("x.jsonl"), {"model": "m", "width": 512, "max_tokens": 32, "prompt_sha256": "h"}, {}, 0.0)
+        bench.check_resume(old, settings)
+        with self.assertRaises(ValueError):
+            bench.check_resume(old, {**settings, "thinking": True, "thinking_tokens": 2048})
+
+    def test_request_gets_extra_tokens_only_when_thinking(self):
+        response = mock.Mock()
+        response.json.return_value = {
+            "choices": [{"message": {"content": "0"}, "finish_reason": "stop"}],
+            "usage": {"completion_tokens": 3},
+        }
+        session = mock.Mock()
+        session.post.return_value = response
+        base = dict(cache_dir=Path("."), url="http://x", model="m", prompt="p", width=512,
+                    max_tokens=32, timeout=1, apply_tag=False, thinking_tokens=2048)
+        bench.ask(session, bench.Settings(thinking=False, **base), b"jpeg")
+        plain = session.post.call_args.kwargs["json"]
+        bench.ask(session, bench.Settings(thinking=True, **base), b"jpeg")
+        thinking = session.post.call_args.kwargs["json"]
+        self.assertEqual(plain["max_tokens"], 32)
+        self.assertFalse(plain["chat_template_kwargs"]["enable_thinking"])
+        self.assertEqual(thinking["max_tokens"], 32 + 2048)
+        self.assertTrue(thinking["chat_template_kwargs"]["enable_thinking"])
+
+
 class ParseAnswerTests(unittest.TestCase):
     def test_plain_numbers(self):
         self.assertEqual(bench.parse_answer("90"), 90)
@@ -162,7 +201,8 @@ class TagModeTests(unittest.TestCase):
 
     def test_old_results_resume_as_raw_runs(self):
         old = bench.Run(Path("x.jsonl"), {"model": "m", "width": 512, "max_tokens": 32, "prompt_sha256": "h"}, {}, 0.0)
-        expected = {"model": "m", "width": 512, "max_tokens": 32, "prompt_sha256": "h", "apply_tag": False}
+        expected = {"model": "m", "width": 512, "max_tokens": 32, "prompt_sha256": "h", "apply_tag": False,
+                    "thinking": False, "thinking_tokens": 0}
         bench.check_resume(old, expected)
         with self.assertRaises(ValueError):
             bench.check_resume(old, {**expected, "apply_tag": True})
@@ -222,7 +262,8 @@ class RunFileTests(unittest.TestCase):
         self.assertEqual(run.label, "x")
 
     def test_resume_refuses_different_settings(self):
-        settings = {"model": "a", "width": 512, "max_tokens": 32, "prompt_sha256": "h", "apply_tag": False}
+        settings = {"model": "a", "width": 512, "max_tokens": 32, "prompt_sha256": "h", "apply_tag": False,
+                    "thinking": False, "thinking_tokens": 0}
         run = bench.Run(Path("x.jsonl"), dict(settings), {}, 0.0)
         bench.check_resume(run, settings)
         with self.assertRaises(ValueError):

@@ -48,6 +48,7 @@ Compare vision models, quantizations and frame counts on a small set of labeled 
 - Reports correct, wrong and unsure counts, accuracy, mean agreement of correct versus wrong verdicts, undetermined (`-1`) and invalid answers, and latency per frame and per video
 - A verdict is confident only when one angle has at least two votes, is the unique top angle and reaches `--min-agreement` of all frames; videos labeled `-1` are not scored
 - With `--apply-tag` the frames are sent with the file's rotation tag applied, as mpv shows them, and each label is judged as `label - tag` (the correction still needed on top of the tag); the tag of every video is stored in the results, and `--details` shows it with the needed correction
+- With `--thinking` the model may think before answering. `--thinking-tokens` (default 2048) is the extra output budget on top of `--max-tokens`; answers cut off by it are counted as invalid, and the summary line shows the mean output tokens and how many frames were cut off. The server's context per slot (`-c` divided by `--parallel`) must fit the prompt, the image tokens and this budget
 - Only reads the videos; it writes results under the results folder and never touches the video files
 
 ### Labels

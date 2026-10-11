@@ -43,8 +43,11 @@ LAST_FRACTION = 0.85
 DEFAULT_FRAME_COUNTS = (5, 7, 9)
 DEFAULT_BASE_URL = "http://192.168.100.107:8080"
 DEFAULT_MIN_AGREEMENT = 0.6
-META_KEYS = ("model", "width", "max_tokens", "prompt_sha256", "apply_tag")
-META_DEFAULTS = {"apply_tag": False}
+META_KEYS = ("model", "width", "max_tokens", "prompt_sha256", "apply_tag", "thinking", "thinking_tokens")
+META_DEFAULTS = {"apply_tag": False, "thinking": False, "thinking_tokens": 0}
+DEFAULT_THINKING_TOKENS = 2048
+TIMEOUT = 180
+THINKING_TIMEOUT = 600
 
 PROMPTS = {
     "top": """
@@ -124,6 +127,8 @@ class Settings:
     max_tokens: int
     timeout: float
     apply_tag: bool
+    thinking: bool
+    thinking_tokens: int
 
 
 @dataclass(frozen=True)
@@ -160,6 +165,14 @@ def frame_fractions(count: int) -> list[float]:
 
 def all_fractions(counts: Sequence[int]) -> list[float]:
     return sorted({fraction for count in counts for fraction in frame_fractions(count)})
+
+
+def strip_thinking(content: str) -> str | None:
+    if "</think>" in content:
+        return content.rsplit("</think>", 1)[1]
+    if "<think>" in content:
+        return None
+    return content
 
 
 def parse_answer(content: str) -> int | None:
@@ -281,13 +294,14 @@ def cached_frame(settings: Settings, path: Path, fraction: float, seconds: float
     return jpeg
 
 
-def ask(session: requests.Session, settings: Settings, jpeg: bytes) -> str:
+def ask(session: requests.Session, settings: Settings, jpeg: bytes) -> tuple[str, str | None, int | None]:
     image = base64.b64encode(jpeg).decode("ascii")
+    budget = settings.max_tokens + (settings.thinking_tokens if settings.thinking else 0)
     payload = {
         "model": settings.model,
         "temperature": 0,
-        "max_tokens": settings.max_tokens,
-        "chat_template_kwargs": {"enable_thinking": False},
+        "max_tokens": budget,
+        "chat_template_kwargs": {"enable_thinking": settings.thinking},
         "messages": [
             {
                 "role": "user",
@@ -300,8 +314,10 @@ def ask(session: requests.Session, settings: Settings, jpeg: bytes) -> str:
     }
     response = session.post(f"{settings.url}/v1/chat/completions", json=payload, timeout=settings.timeout)
     response.raise_for_status()
-    message = response.json()["choices"][0]["message"]
-    return str(message.get("content") or "")
+    data = response.json()
+    choice = data["choices"][0]
+    tokens = (data.get("usage") or {}).get("completion_tokens")
+    return str(choice["message"].get("content") or ""), choice.get("finish_reason"), tokens
 
 
 def query_frame(
@@ -319,6 +335,8 @@ def query_frame(
         "raw": None,
         "seconds": None,
         "error": None,
+        "finish_reason": None,
+        "completion_tokens": None,
     }
     started = time.monotonic()
     try:
@@ -330,7 +348,7 @@ def query_frame(
 
     started = time.monotonic()
     try:
-        content = ask(session, settings, jpeg)
+        content, finish_reason, tokens = ask(session, settings, jpeg)
     except requests.Timeout:
         record["error"] = "timeout"
     except requests.ConnectionError as error:
@@ -339,7 +357,13 @@ def query_frame(
         record["error"] = f"{type(error).__name__}: {error}"
     else:
         record["raw"] = content
-        record["answer"] = parse_answer(content)
+        record["finish_reason"] = finish_reason
+        record["completion_tokens"] = tokens
+        final = strip_thinking(content) if settings.thinking else content
+        if final is None or (settings.thinking and finish_reason == "length"):
+            record["truncated"] = True
+        else:
+            record["answer"] = parse_answer(final)
     record["seconds"] = round(time.monotonic() - started, 3)
     return record
 
@@ -484,7 +508,8 @@ def render_summary(
         CONSOLE.print(
             f"{run.label}: model={run.meta.get('model')} width={run.meta.get('width')} "
             f"frames={'tag applied' if run.meta.get('apply_tag') else 'raw'} "
-            f"videos={len(names)} (label -1, not scored: {excluded}) wall={run.wall_seconds:.0f}s",
+            f"videos={len(names)} (label -1, not scored: {excluded}) wall={run.wall_seconds:.0f}s"
+            f"{thinking_info(run)}",
             markup=False,
         )
 
@@ -493,8 +518,20 @@ def render_summary(
         render_details(labels, detail_columns, tags)
 
 
+def thinking_info(run: Run) -> str:
+    if not run.meta.get("thinking"):
+        return ""
+    frames = list(run.frames.values())
+    cut = sum(1 for record in frames if record.get("truncated"))
+    tokens = [record["completion_tokens"] for record in frames if record.get("completion_tokens") is not None]
+    average = f"{sum(tokens) / len(tokens):.0f}" if tokens else "-"
+    limit = run.meta.get("thinking_tokens")
+    return f" thinking: limit={limit} mean output tokens={average} cut off={cut}/{len(frames)}"
+
+
 def run_title(run: Run) -> str:
-    return f"{run.label} [tag]" if run.meta.get("apply_tag") else run.label
+    suffixes = [name for name, key in (("tag", "apply_tag"), ("think", "thinking")) if run.meta.get(key)]
+    return f"{run.label} [{','.join(suffixes)}]" if suffixes else run.label
 
 
 def need_text(label: frozenset[int], tag: int) -> str:
@@ -592,8 +629,10 @@ def command_run(args: argparse.Namespace) -> int:
         prompt=prompt,
         width=args.width,
         max_tokens=args.max_tokens,
-        timeout=args.timeout,
+        timeout=args.timeout if args.timeout is not None else (THINKING_TIMEOUT if args.thinking else TIMEOUT),
         apply_tag=args.apply_tag,
+        thinking=args.thinking,
+        thinking_tokens=args.thinking_tokens,
     )
     expected_meta = {
         "model": settings.model,
@@ -601,6 +640,8 @@ def command_run(args: argparse.Namespace) -> int:
         "max_tokens": settings.max_tokens,
         "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
         "apply_tag": settings.apply_tag,
+        "thinking": settings.thinking,
+        "thinking_tokens": settings.thinking_tokens if settings.thinking else 0,
     }
 
     results_path = output / f"{args.label}.jsonl"
@@ -757,7 +798,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--model", help="model name sent to the server (default: the label)")
     run.add_argument("--width", type=int, default=512, help="frame width sent to the model (default: 512)")
     run.add_argument("--max-tokens", type=int, default=32)
-    run.add_argument("--timeout", type=float, default=180)
+    run.add_argument("--timeout", type=float, help=f"seconds per request (default: {TIMEOUT}, or {THINKING_TIMEOUT} with --thinking)")
+    run.add_argument("--thinking", action="store_true", help="let the model think before answering")
+    run.add_argument(
+        "--thinking-tokens", type=int, default=DEFAULT_THINKING_TOKENS,
+        help=f"extra tokens allowed for thinking (default: {DEFAULT_THINKING_TOKENS}); answers cut off by this limit count as invalid",
+    )
     run.add_argument("--workers", type=int, default=1, help="parallel requests (match llama-server --parallel)")
     run.add_argument(
         "--prompt", choices=sorted(PROMPTS), default=DEFAULT_PROMPT,
