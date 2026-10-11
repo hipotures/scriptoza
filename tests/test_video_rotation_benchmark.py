@@ -73,6 +73,77 @@ class ThinkingTests(unittest.TestCase):
         self.assertTrue(thinking["chat_template_kwargs"]["enable_thinking"])
 
 
+class AngleTests(unittest.TestCase):
+    def test_parse_angle(self):
+        self.assertEqual(bench.parse_angle("135"), 135)
+        self.assertEqual(bench.parse_angle(" 345\n"), 345)
+        self.assertEqual(bench.parse_angle("-1"), -1)
+        self.assertEqual(bench.parse_angle("360"), 0)
+        self.assertEqual(bench.parse_angle("about 45 degrees"), 45)
+        self.assertIsNone(bench.parse_angle("up"))
+        self.assertIsNone(bench.parse_angle("720"))
+
+    def test_bearing_becomes_the_clockwise_correction(self):
+        self.assertEqual(bench.bearing_to_correction(0), 0)
+        self.assertEqual(bench.bearing_to_correction(90), 270)
+        self.assertEqual(bench.bearing_to_correction(270), 90)
+        self.assertEqual(bench.bearing_to_correction(180), 180)
+        self.assertEqual(bench.bearing_to_correction(-1), -1)
+        self.assertIsNone(bench.bearing_to_correction(None))
+
+    def test_circular_distance_wraps(self):
+        self.assertEqual(bench.circular_distance(350, 10), 20)
+        self.assertEqual(bench.circular_distance(0, 180), 180)
+
+    def test_circular_mean_wraps(self):
+        self.assertEqual(bench.circular_mean([350, 10]), 0)
+        self.assertEqual(bench.circular_mean([80, 100]), 90)
+
+    def test_cluster_across_zero_wins(self):
+        verdict = bench.angle_tally([345, 0, 15, 180, 90])
+        self.assertEqual(verdict.winner, 0)
+        self.assertAlmostEqual(verdict.agreement, 3 / 5)
+
+    def test_scattered_answers_have_no_winner(self):
+        self.assertIsNone(bench.angle_tally([0, 90, 180, 270, -1]).winner)
+
+    def test_opposite_clusters_of_equal_size_are_ambiguous(self):
+        self.assertIsNone(bench.angle_tally([0, 10, 180, 190]).winner)
+
+    def test_undetermined_and_invalid_are_counted(self):
+        verdict = bench.angle_tally([130, 140, -1, None, 135])
+        self.assertEqual(verdict.winner, 135)
+        self.assertEqual((verdict.undetermined, verdict.invalid, verdict.total), (1, 1, 5))
+
+    def test_judge_angle_uses_the_tolerance(self):
+        label = frozenset({180})
+        self.assertEqual(bench.judge_angle(label, 140, 45), "correct")
+        self.assertEqual(bench.judge_angle(label, 120, 45), "wrong")
+        self.assertEqual(bench.judge_angle(label, None, 45), "unsure")
+        self.assertEqual(bench.judge_angle(bench.SIDEWAYS, 265, 45), "correct")
+
+    def test_angle_run_summary_reports_the_error(self):
+        frames = {
+            ("a.mp4", fraction): {"file": "a.mp4", "fraction": fraction, "answer": 150, "seconds": 1.0, "error": None}
+            for fraction in bench.frame_fractions(5)
+        }
+        run = bench.Run(Path("x.jsonl"), {"angle": True}, frames, 0.0)
+        result = bench.summarize(run, {"a.mp4": frozenset({180})}, 5, 0.6, 45)
+        self.assertEqual(result["stats"]["correct"], 1)
+        self.assertEqual(result["mean_error"], 30)
+
+    def test_live_line_shows_label_need_and_verdicts(self):
+        frames = {
+            ("a.mp4", fraction): {"file": "a.mp4", "fraction": fraction, "answer": 180, "seconds": 1.0, "error": None}
+            for fraction in bench.all_fractions((5, 7, 9))
+        }
+        run = bench.Run(Path("x.jsonl"), {"apply_tag": True}, frames, 0.0, {"a.mp4": {"container_rotation": 90}})
+        line = bench.live_line(run, "a.mp4", {"a.mp4": frozenset({270})}, (5, 9), 0.6, 45)
+        self.assertIn("label 270 tag 90 need 180", line)
+        self.assertIn("5: 180 5/5", line)
+        self.assertIn("9: 180 9/9", line)
+
+
 class ParseAnswerTests(unittest.TestCase):
     def test_plain_numbers(self):
         self.assertEqual(bench.parse_answer("90"), 90)
@@ -105,16 +176,22 @@ class TallyTests(unittest.TestCase):
         self.assertEqual(verdict.undetermined, 2)
         self.assertEqual(verdict.invalid, 2)
 
-    def test_agreement_counts_all_frames(self):
+    def test_agreement_ignores_unreadable_frames(self):
         verdict = bench.tally([0, 0, 90, -1, None])
         self.assertEqual(verdict.winner, 0)
-        self.assertAlmostEqual(verdict.agreement, 0.4)
+        self.assertEqual(verdict.readable, 3)
+        self.assertAlmostEqual(verdict.agreement, 2 / 3)
+
+    def test_unreadable_frames_do_not_lower_agreement(self):
+        many_unreadable = bench.tally([180, 180, 180, -1, -1, -1, -1, -1, -1])
+        self.assertEqual(many_unreadable.agreement, 1.0)
+        self.assertEqual(many_unreadable.readable, 3)
 
     def test_decide_applies_the_agreement_threshold(self):
-        verdict = bench.tally([0, 0, 90, -1, None])
+        verdict = bench.tally([0, 0, 90, 90, 180])
         self.assertIsNone(bench.decide(verdict, 0.6))
-        self.assertEqual(bench.decide(verdict, 0.4), 0)
         self.assertEqual(bench.decide(bench.tally([0, 0, 0, 90, 180]), 0.6), 0)
+        self.assertEqual(bench.decide(bench.tally([0, 0, 90, -1, None]), 0.6), 0)
 
 
 class JudgeTests(unittest.TestCase):

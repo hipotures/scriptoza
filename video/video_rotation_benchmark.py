@@ -7,6 +7,7 @@ import argparse
 import base64
 import hashlib
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -43,8 +44,10 @@ LAST_FRACTION = 0.85
 DEFAULT_FRAME_COUNTS = (5, 7, 9)
 DEFAULT_BASE_URL = "http://192.168.100.107:8080"
 DEFAULT_MIN_AGREEMENT = 0.6
-META_KEYS = ("model", "width", "max_tokens", "prompt_sha256", "apply_tag", "thinking", "thinking_tokens")
-META_DEFAULTS = {"apply_tag": False, "thinking": False, "thinking_tokens": 0}
+META_KEYS = ("model", "width", "max_tokens", "prompt_sha256", "apply_tag", "thinking", "thinking_tokens", "angle")
+META_DEFAULTS = {"apply_tag": False, "thinking": False, "thinking_tokens": 0, "angle": False}
+ANGLE_WINDOW = 30
+DEFAULT_TOLERANCE = 45
 DEFAULT_THINKING_TOKENS = 2048
 TIMEOUT = 180
 THINKING_TIMEOUT = 600
@@ -103,6 +106,26 @@ Do NOT output words.
 Output exactly one number.
 """,
 }
+PROMPTS["bearing"] = """
+Look at this video frame. Find where the TOP of the scene is in the image
+(sky, ceiling, heads of people, tops of buildings, tops of signs).
+
+Give the direction of the top of the scene as a compass bearing inside the
+image, in degrees clockwise from straight up:
+
+0   = the top of the scene points straight up (the image is upright)
+90  = the top of the scene points to the right
+180 = the top of the scene points straight down (the image is upside down)
+270 = the top of the scene points to the left
+
+Use values in between when the scene is tilted, for example 45 for up-right
+or 315 for up-left.
+
+Answer with one integer from 0 to 345, rounded to the nearest multiple of 15.
+If it is impossible to tell, answer -1.
+
+Output only the number.
+"""
 DEFAULT_PROMPT = "top"
 
 CONSOLE = Console()
@@ -129,6 +152,7 @@ class Settings:
     apply_tag: bool
     thinking: bool
     thinking_tokens: int
+    angle: bool = False
 
 
 @dataclass(frozen=True)
@@ -139,6 +163,7 @@ class Verdict:
     total: int
     winner: int | None
     agreement: float
+    readable: int = 0
 
 
 @dataclass
@@ -183,6 +208,62 @@ def parse_answer(content: str) -> int | None:
     return int(matches[-1]) if matches else None
 
 
+def parse_angle(content: str) -> int | None:
+    text = str(content).strip()
+    matches = re.findall(r"(?<![\d.])-?\d{1,3}(?![\d.])", text)
+    if not matches:
+        return None
+    value = int(text) if re.fullmatch(r"-?\d{1,3}", text) else int(matches[-1])
+    if value == UNDETERMINED:
+        return value
+    if 0 <= value <= 360:
+        return value % 360
+    return None
+
+
+def bearing_to_correction(bearing: int | None) -> int | None:
+    if bearing is None or bearing == UNDETERMINED:
+        return bearing
+    return (360 - bearing) % 360
+
+
+def circular_distance(first: int, second: int) -> int:
+    difference = abs(first - second) % 360
+    return min(difference, 360 - difference)
+
+
+def circular_mean(angles: Sequence[int]) -> int:
+    x = sum(math.cos(math.radians(angle)) for angle in angles)
+    y = sum(math.sin(math.radians(angle)) for angle in angles)
+    return round(math.degrees(math.atan2(y, x))) % 360
+
+
+def angle_tally(answers: Sequence[int | None], window: int = ANGLE_WINDOW) -> Verdict:
+    valid = [answer for answer in answers if answer is not None and 0 <= answer < 360]
+    clusters: list[list[int]] = []
+    for center in sorted(set(valid)):
+        members = [answer for answer in valid if circular_distance(answer, center) <= window]
+        if not clusters or len(members) > len(clusters[0]):
+            clusters = [members]
+        elif len(members) == len(clusters[0]):
+            clusters.append(members)
+    winner, agreement, counts = None, 0.0, {}
+    if clusters and len(clusters[0]) >= MIN_VOTES:
+        first = circular_mean(clusters[0])
+        if all(circular_distance(circular_mean(cluster), first) <= window for cluster in clusters):
+            winner, agreement = first, len(clusters[0]) / len(valid)
+            counts = {first: len(clusters[0])}
+    return Verdict(
+        counts=counts,
+        undetermined=sum(1 for answer in answers if answer == UNDETERMINED),
+        invalid=sum(1 for answer in answers if answer is None),
+        total=len(answers),
+        winner=winner,
+        agreement=agreement,
+        readable=len(valid),
+    )
+
+
 def tally(answers: Sequence[int | None]) -> Verdict:
     counts = Counter(answer for answer in answers if answer in ANGLES)
     winner, agreement = None, 0.0
@@ -190,7 +271,7 @@ def tally(answers: Sequence[int | None]) -> Verdict:
     if ranked:
         angle, votes = ranked[0]
         if votes >= MIN_VOTES and (len(ranked) == 1 or ranked[1][1] < votes):
-            winner, agreement = angle, votes / len(answers)
+            winner, agreement = angle, votes / sum(counts.values())
     return Verdict(
         counts=dict(counts),
         undetermined=sum(1 for answer in answers if answer == UNDETERMINED),
@@ -198,6 +279,7 @@ def tally(answers: Sequence[int | None]) -> Verdict:
         total=len(answers),
         winner=winner,
         agreement=agreement,
+        readable=sum(counts.values()),
     )
 
 
@@ -240,6 +322,13 @@ def judge(label: frozenset[int], predicted: int | None) -> str:
     if predicted is None:
         return "unsure"
     return "correct" if predicted in label else "wrong"
+
+
+def judge_angle(label: frozenset[int], predicted: int | None, tolerance: int) -> str:
+    if predicted is None:
+        return "unsure"
+    close = any(circular_distance(predicted, angle) <= tolerance for angle in label)
+    return "correct" if close else "wrong"
 
 
 def probe_video(path: Path) -> tuple[float, int]:
@@ -362,6 +451,9 @@ def query_frame(
         final = strip_thinking(content) if settings.thinking else content
         if final is None or (settings.thinking and finish_reason == "length"):
             record["truncated"] = True
+        elif settings.angle:
+            record["bearing"] = parse_angle(final)
+            record["answer"] = bearing_to_correction(record["bearing"])
         else:
             record["answer"] = parse_answer(final)
     record["seconds"] = round(time.monotonic() - started, 3)
@@ -399,7 +491,7 @@ def video_verdict(run: Run, name: str, count: int) -> Verdict:
     for fraction in frame_fractions(count):
         record = run.frames.get((name, fraction))
         answers.append(record["answer"] if record else None)
-    return tally(answers)
+    return angle_tally(answers) if run.meta.get("angle") else tally(answers)
 
 
 def mean(values: Sequence[float]) -> float | None:
@@ -419,15 +511,35 @@ def effective_label(run: Run, name: str, label: frozenset[int] | None) -> frozen
     return frozenset((angle - rotation) % 360 for angle in label)
 
 
+def video_cell(
+    run: Run,
+    name: str,
+    label: frozenset[int],
+    count: int,
+    min_agreement: float,
+    tolerance: int,
+) -> tuple[str, Verdict, int | None]:
+    verdict = video_verdict(run, name, count)
+    predicted = decide(verdict, min_agreement)
+    if label == EXCLUDED:
+        return "excluded", verdict, predicted
+    if run.meta.get("angle"):
+        return judge_angle(label, predicted, tolerance), verdict, predicted
+    return judge(label, predicted), verdict, predicted
+
+
 def summarize(
     run: Run,
     labels: dict[str, frozenset[int]],
     count: int,
     min_agreement: float,
+    tolerance: int = DEFAULT_TOLERANCE,
 ) -> dict:
     stats = Counter()
     agreement_correct: list[float] = []
     agreement_wrong: list[float] = []
+    errors: list[int] = []
+    readable: list[int] = []
     cells: dict[str, tuple[str, Verdict, int | None]] = {}
     names = sorted({name for name, _ in run.frames})
     for name in names:
@@ -435,20 +547,20 @@ def summarize(
         if label is None:
             stats["unlabeled"] += 1
             continue
-        verdict = video_verdict(run, name, count)
-        predicted = decide(verdict, min_agreement)
-        if label == EXCLUDED:
-            stats["excluded"] += 1
-            cells[name] = ("excluded", verdict, predicted)
-            continue
-        outcome = judge(label, predicted)
+        outcome, verdict, predicted = video_cell(run, name, label, count, min_agreement, tolerance)
         cells[name] = (outcome, verdict, predicted)
+        if outcome == "excluded":
+            stats["excluded"] += 1
+            continue
         stats["angle"] += 1
         stats[outcome] += 1
+        readable.append(verdict.readable)
         if outcome == "correct":
             agreement_correct.append(verdict.agreement)
         elif outcome == "wrong":
             agreement_wrong.append(verdict.agreement)
+        if run.meta.get("angle") and predicted is not None:
+            errors.append(min(circular_distance(predicted, angle) for angle in label))
 
     wanted = set(frame_fractions(count))
     used = [r for r in run.frames.values() if r["fraction"] in wanted]
@@ -462,6 +574,8 @@ def summarize(
         "agreement_correct": mean(agreement_correct),
         "agreement_wrong": mean(agreement_wrong),
         "latency": mean(latencies),
+        "mean_error": mean(errors),
+        "readable": mean(readable),
         "cells": cells,
     }
 
@@ -472,16 +586,19 @@ def render_summary(
     counts: Sequence[int],
     min_agreement: float,
     details: bool,
+    tolerance: int = DEFAULT_TOLERANCE,
 ) -> None:
-    table = Table(title=f"Rotation benchmark (min agreement {min_agreement:.0%})")
-    for column in ("Run", "Frames", "OK", "Wrong", "Unsure", "Acc",
+    title = f"Rotation benchmark (min agreement {min_agreement:.0%}"
+    title += f", angle runs: correct within {tolerance} degrees)" if any(r.meta.get("angle") for r in runs) else ")"
+    table = Table(title=title)
+    for column in ("Run", "Frames", "OK", "Wrong", "Unsure", "Acc", "Err deg", "Readable",
                    "Agr ok", "Agr bad", "Undet", "Invalid", "s/frame", "s/video"):
         table.add_column(column, justify="left" if column == "Run" else "right")
 
     detail_columns: list[tuple[str, dict]] = []
     for run in runs:
         for count in counts:
-            result = summarize(run, labels, count, min_agreement)
+            result = summarize(run, labels, count, min_agreement, tolerance)
             stats = result["stats"]
             accuracy = stats["correct"] / stats["angle"] if stats["angle"] else None
             latency = result["latency"]
@@ -492,6 +609,8 @@ def render_summary(
                 str(stats["wrong"]),
                 str(stats["unsure"]),
                 format_number(accuracy, "{:.0%}"),
+                format_number(result["mean_error"], "{:.0f}"),
+                format_number(result["readable"], "{:.1f}"),
                 format_number(result["agreement_correct"], "{:.2f}"),
                 format_number(result["agreement_wrong"], "{:.2f}"),
                 str(stats["undetermined"]),
@@ -518,6 +637,37 @@ def render_summary(
         render_details(labels, detail_columns, tags)
 
 
+def live_line(
+    run: Run,
+    name: str,
+    labels: dict[str, frozenset[int]] | None,
+    counts: Sequence[int],
+    min_agreement: float,
+    tolerance: int,
+) -> str:
+    raw = labels.get(name) if labels else None
+    label = effective_label(run, name, raw)
+    head = name
+    if raw is not None:
+        head += f"  label {label_text(raw)}"
+        tag = run.videos.get(name, {}).get("container_rotation")
+        if run.meta.get("apply_tag") and tag is not None:
+            head += f" tag {tag} need {need_text(raw, tag)}"
+    styles = {"correct": "green", "wrong": "red", "unsure": "yellow", "excluded": "dim"}
+    parts = []
+    for count in counts:
+        if label is None:
+            verdict = video_verdict(run, name, count)
+            predicted, style = decide(verdict, min_agreement), "white"
+        else:
+            outcome, verdict, predicted = video_cell(run, name, label, count, min_agreement, tolerance)
+            style = styles[outcome]
+        shown = "?" if predicted is None else str(predicted)
+        top_votes = max(verdict.counts.values(), default=0)
+        parts.append(f"[{style}]{count}: {shown} {top_votes}/{verdict.readable}[/]")
+    return head + "   " + "   ".join(parts)
+
+
 def thinking_info(run: Run) -> str:
     if not run.meta.get("thinking"):
         return ""
@@ -530,7 +680,7 @@ def thinking_info(run: Run) -> str:
 
 
 def run_title(run: Run) -> str:
-    suffixes = [name for name, key in (("tag", "apply_tag"), ("think", "thinking")) if run.meta.get(key)]
+    suffixes = [name for name, key in (("tag", "apply_tag"), ("angle", "angle"), ("think", "thinking")) if run.meta.get(key)]
     return f"{run.label} [{','.join(suffixes)}]" if suffixes else run.label
 
 
@@ -545,7 +695,7 @@ def render_details(
     columns: Sequence[tuple[str, dict]],
     tags: dict[str, int],
 ) -> None:
-    table = Table(title="Per-video verdicts (winner votes/frames)")
+    table = Table(title="Per-video verdicts (winner votes / readable frames; agreement ignores unreadable frames)")
     table.add_column("Video")
     table.add_column("Label", justify="right")
     if tags:
@@ -567,7 +717,7 @@ def render_details(
             outcome, verdict, predicted = cells[name]
             shown = "?" if predicted is None else str(predicted)
             top_votes = max(verdict.counts.values(), default=0)
-            row.append(f"[{styles[outcome]}]{shown} {top_votes}/{verdict.total}[/]")
+            row.append(f"[{styles[outcome]}]{shown} {top_votes}/{verdict.readable}[/]")
         table.add_row(*row)
     CONSOLE.print(table)
 
@@ -590,9 +740,9 @@ def find_videos(directory: Path) -> list[Path]:
 
 def check_resume(existing: Run, expected: dict) -> None:
     mismatched = [
-        f"{key}: {existing.meta.get(key, META_DEFAULTS.get(key))!r} != {expected[key]!r}"
+        f"{key}: {existing.meta.get(key, META_DEFAULTS.get(key))!r} != {expected.get(key, META_DEFAULTS.get(key))!r}"
         for key in META_KEYS
-        if existing.meta.get(key, META_DEFAULTS.get(key)) != expected[key]
+        if existing.meta.get(key, META_DEFAULTS.get(key)) != expected.get(key, META_DEFAULTS.get(key))
     ]
     if mismatched:
         raise ValueError(
@@ -618,7 +768,9 @@ def command_run(args: argparse.Namespace) -> int:
         ERROR_CONSOLE.print(f"No video files in {directory}", markup=False)
         return 2
 
-    prompt = args.prompt_file.read_text(encoding="utf-8") if args.prompt_file else PROMPTS[args.prompt]
+    prompt_name = args.prompt or ("bearing" if args.angle else DEFAULT_PROMPT)
+    prompt = args.prompt_file.read_text(encoding="utf-8") if args.prompt_file else PROMPTS[prompt_name]
+    labels = resolve_labels(args.labels, directory / "labels.txt")
     output = (args.output or directory / "results").resolve()
     cache_dir = output / "frames" / f"w{args.width}{'-tag' if args.apply_tag else ''}"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -633,6 +785,7 @@ def command_run(args: argparse.Namespace) -> int:
         apply_tag=args.apply_tag,
         thinking=args.thinking,
         thinking_tokens=args.thinking_tokens,
+        angle=args.angle,
     )
     expected_meta = {
         "model": settings.model,
@@ -642,6 +795,7 @@ def command_run(args: argparse.Namespace) -> int:
         "apply_tag": settings.apply_tag,
         "thinking": settings.thinking,
         "thinking_tokens": settings.thinking_tokens if settings.thinking else 0,
+        "angle": settings.angle,
     }
 
     results_path = output / f"{args.label}.jsonl"
@@ -661,7 +815,7 @@ def command_run(args: argparse.Namespace) -> int:
             "label": args.label,
             "base_url": settings.url,
             "created": datetime.now().isoformat(timespec="seconds"),
-            "prompt_style": "file" if args.prompt_file else args.prompt,
+            "prompt_style": "file" if args.prompt_file else prompt_name,
             **expected_meta,
         }])
 
@@ -695,6 +849,14 @@ def command_run(args: argparse.Namespace) -> int:
             })
         pending.extend((path, fraction, duration * fraction) for fraction in missing)
     append_records(results_path, new_records)
+    live = Run(
+        results_path,
+        {"apply_tag": settings.apply_tag, "angle": settings.angle},
+        dict(existing.frames) if existing else {},
+        0.0,
+        {**known, **{record["file"]: record for record in new_records if record["type"] == "video"}},
+    )
+    remaining = Counter(path.name for path, _, _ in pending)
 
     ERROR_CONSOLE.print(
         f"{args.label}: {len(videos)} videos, {len(fractions)} frames each, "
@@ -729,6 +891,12 @@ def command_run(args: argparse.Namespace) -> int:
                     break
                 append_records(results_path, [record])
                 progress.advance(task)
+                live.frames[(record["file"], record["fraction"])] = record
+                remaining[record["file"]] -= 1
+                if remaining[record["file"]] == 0:
+                    progress.console.print(
+                        live_line(live, record["file"], labels, args.frames, args.min_agreement, args.tolerance)
+                    )
     finally:
         executor.shutdown(wait=True, cancel_futures=True)
         session.close()
@@ -748,11 +916,10 @@ def command_run(args: argparse.Namespace) -> int:
         return 2
 
     ERROR_CONSOLE.print(f"Results: {results_path}", markup=False)
-    labels = resolve_labels(args.labels, directory / "labels.txt")
     if labels is None:
         ERROR_CONSOLE.print("No labels file found; skipping the summary.", markup=False)
         return 0
-    render_summary([load_run(results_path)], labels, args.frames, args.min_agreement, args.details)
+    render_summary([load_run(results_path)], labels, args.frames, args.min_agreement, args.details, args.tolerance)
     return 0
 
 
@@ -771,7 +938,7 @@ def command_report(args: argparse.Namespace) -> int:
         ERROR_CONSOLE.print("Labels file not found; pass --labels.", markup=False)
         return 2
     runs = [load_run(path) for path in paths]
-    render_summary(runs, labels, args.frames, args.min_agreement, args.details)
+    render_summary(runs, labels, args.frames, args.min_agreement, args.details, args.tolerance)
     return 0
 
 
@@ -790,6 +957,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="share of frames that must agree for a confident verdict (default: 0.6)",
     )
     common.add_argument("--details", action="store_true", help="also print per-video verdicts")
+    common.add_argument(
+        "--tolerance", type=int, default=DEFAULT_TOLERANCE,
+        help=f"degrees an angle run may be off and still count as correct (default: {DEFAULT_TOLERANCE})",
+    )
 
     run = subparsers.add_parser("run", parents=[common], help="query a model server and store the answers")
     run.add_argument("directory", type=Path, help="folder with the test videos")
@@ -806,8 +977,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--workers", type=int, default=1, help="parallel requests (match llama-server --parallel)")
     run.add_argument(
-        "--prompt", choices=sorted(PROMPTS), default=DEFAULT_PROMPT,
-        help="built-in prompt: top = where the top of the scene is, clockwise = which rotation fixes it (default: top)",
+        "--prompt", choices=sorted(PROMPTS),
+        help="built-in prompt: top = where the top of the scene is, clockwise = which rotation fixes it, "
+             "bearing = compass direction of the top for --angle (default: top, or bearing with --angle)",
+    )
+    run.add_argument(
+        "--angle", action="store_true",
+        help="ask for a continuous angle in 15 degree steps instead of one of 0/90/180/270; "
+             "answers within --tolerance degrees of the label count as correct",
     )
     run.add_argument("--prompt-file", type=Path, help="use this prompt file instead of a built-in one")
     run.add_argument("--output", type=Path, help="results folder (default: DIRECTORY/results)")

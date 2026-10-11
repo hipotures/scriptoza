@@ -49,6 +49,9 @@ Compare vision models, quantizations and frame counts on a small set of labeled 
 - A verdict is confident only when one angle has at least two votes, is the unique top angle and reaches `--min-agreement` of all frames; videos labeled `-1` are not scored
 - With `--apply-tag` the frames are sent with the file's rotation tag applied, as mpv shows them, and each label is judged as `label - tag` (the correction still needed on top of the tag); the tag of every video is stored in the results, and `--details` shows it with the needed correction
 - With `--thinking` the model may think before answering. `--thinking-tokens` (default 2048) is the extra output budget on top of `--max-tokens`; answers cut off by it are counted as invalid, and the summary line shows the mean output tokens and how many frames were cut off. The server's context per slot (`-c` divided by `--parallel`) must fit the prompt, the image tokens and this budget
+- With `--angle` the model gives the direction of the top of the scene as a compass bearing in 15 degree steps (default prompt `bearing`); the bearing is converted to the clockwise correction, the votes of a video are clustered within 30 degrees (circular mean), and an answer counts as correct when it is within `--tolerance` degrees (default 45) of the label; the report adds the mean error in degrees
+- Agreement is the share of readable frames that agree: frames answered `-1` or unreadable are left out of the denominator, and the `Readable` column shows how many frames were usable per video
+- While running, one line per finished video is printed with its label, tag, needed correction and the verdicts for each frame count
 - Only reads the videos; it writes results under the results folder and never touches the video files
 
 ### Labels
