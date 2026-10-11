@@ -30,6 +30,7 @@ from rich.progress import (
     TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
 )
 from rich.table import Table
 
@@ -875,6 +876,7 @@ def command_run(args: argparse.Namespace) -> int:
             MofNCompleteColumn(),
             TaskProgressColumn(),
             TimeElapsedColumn(),
+            TimeRemainingColumn(),
             console=ERROR_CONSOLE,
             expand=False,
         ) as progress:
