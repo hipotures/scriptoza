@@ -16,7 +16,7 @@ const modelReady = modelRevision
     })
     : Promise.resolve();
 
-export const POLL_SECONDS = 5;
+export const POLL_SECONDS = 60;
 const OFFLINE_RETRY_SECONDS = 60;
 
 export class Collector {
@@ -121,6 +121,15 @@ export class Collector {
         const metrics = {requests: 0, bytes: 0, parseMs: 0, totalMs: 0};
         const errors = [];
         const ignoredMachines = [];
+        let localData;
+        try {
+            localData = await this._readJson(['api', 'snapshot'], metrics);
+            normalizeAgents(localData.result?.snapshot, {id: 'local', label: 'Local'});
+        } catch (error) {
+            errors.push({serverId: 'local', machine: 'Local', message: error.message});
+            metrics.totalMs = (GLib.get_monotonic_time() - start) / 1000;
+            return {agents: [], errors, ignoredMachines, metrics};
+        }
         let servers;
         try {
             const profiles = await this._readJson(['machine', 'list', '--json'], metrics);
@@ -154,7 +163,8 @@ export class Collector {
         const results = await Promise.all(reachable.map(async server => {
             try {
                 const prefix = server.id === 'local' ? [] : ['--machine', server.id];
-                const data = await this._readJson([...prefix, 'api', 'snapshot'], metrics);
+                const data = server.id === 'local' ? localData
+                    : await this._readJson([...prefix, 'api', 'snapshot'], metrics);
                 const agents = normalizeAgents(data.result?.snapshot, server);
                 if (this._closed)
                     throw new Error('Collector stopped');

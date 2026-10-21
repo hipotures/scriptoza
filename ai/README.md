@@ -91,10 +91,12 @@ a completion does not update its activity time. History starts when the widget
 is enabled or reloaded, since Herdr supplies sequences rather than timestamps
 comparable across machines. Observed times have the polling interval's precision.
 
-Polling starts immediately and then runs every 5 seconds. A slow round never
+Polling starts immediately and then runs every 60 seconds. A slow round never
 overlaps the next round, and opening the menu does not trigger extra requests.
-Each round reads the enabled machine list once and requests one `api snapshot`
-per server, concurrently. Snapshots contain agent and layout names in one
+Each round first requests the local `api snapshot`. If the local server is
+unavailable, it skips machine discovery and all remote requests for that round.
+Otherwise it reads the enabled machine list once and requests one snapshot per
+remote server concurrently. Snapshots contain agent and layout names in one
 response. Subprocess communication is asynchronous; an 8-second timeout stops
 unresponsive requests. A single helper process performs discovery, starts Herdr
 and SSH commands, and parses the full snapshots outside GNOME Shell. The Shell
@@ -107,7 +109,7 @@ helper is reported without repeatedly spawning replacements; disable and enable
 the widget to retry. Unreachable remote machines are ignored: they have no
 rows or warning indicators and their agents do not contribute to counters.
 An unavailable remote profile is not queried again for 60 seconds, while active
-agents continue updating every 5 seconds. A recovered machine returns on the
+agents continue updating every 60 seconds. A recovered machine returns on the
 next retry. The Herdr CLI does not expose the client's sidebar connection
 state in its machine list; failed remote snapshot requests identify machines
 to ignore. A machine-list or local-server failure is still reported in the menu.
@@ -126,7 +128,7 @@ rows took approximately 17 and 50 ms. These timings use generated snapshots;
 they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the update time, total polling latency, time spent
-parsing snapshots in the helper, and the widget version (currently `v0.0.8`).
+parsing snapshots in the helper, and the widget version (currently `v0.0.9`).
 The total latency includes waiting for local and remote replies; it is not a
 measure of time spent blocking GNOME Shell. Run the standalone
 GJS benchmark for three rounds and their mean:

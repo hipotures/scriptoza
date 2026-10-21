@@ -212,7 +212,7 @@ collector._readJson = async args => {
     return {result: {snapshot: snapshot(['done'])}};
 };
 (async () => {
-    check(POLL_SECONDS === 5, 'Polling interval');
+    check(POLL_SECONDS === 60, 'Polling interval');
     let result = await collector.collect();
     check(result.agents.length === 2 && result.errors.length === 0, 'Local and remote Codexes');
     check(calls.some(args => args.join(' ') === '--machine gpu-id api snapshot'), 'Remote routing');
@@ -235,6 +235,21 @@ collector._readJson = async args => {
     check(result.agents.length === 1, 'Removed profile removed from display');
 })().catch(error => { printerr(error.stack); System.exit(1); }).finally(() => { collector.close(); loop.quit(); });
 loop.run();
+""")
+
+    def test_local_server_unavailable_skips_all_remote_requests(self):
+        self.run_gjs("""
+const collector = new Collector();
+const calls = [];
+collector._servers.push({id: 'gpu-id', label: 'gpu'});
+collector._readJson = async args => {
+    calls.push(args.join(' '));
+    throw new Error('Local server is not running');
+};
+const result = await collector.collect();
+check(calls.length === 1 && calls[0] === 'api snapshot', 'Only local server checked');
+check(result.agents.length === 0 && result.errors[0].serverId === 'local', 'Local failure reported');
+collector.close();
 """)
 
     def test_machine_list_failure_ignores_unreachable_remote_agents(self):
