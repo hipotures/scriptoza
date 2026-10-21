@@ -95,6 +95,9 @@ Polling starts immediately and then runs every 60 seconds. A slow round never
 overlaps the next round, and opening the menu does not trigger extra requests.
 Each round first requests the local `api snapshot`. If the local server is
 unavailable, it skips machine discovery and all remote requests for that round.
+The panel shows a slowly pulsing yellow hollow circle; its menu says
+“Waiting for the Herdr server to start”. Normal agent indicators return after
+a successful local check.
 Otherwise it reads the enabled machine list once and requests one snapshot per
 remote server concurrently. Snapshots contain agent and layout names in one
 response. Subprocess communication is asynchronous; an 8-second timeout stops
@@ -128,7 +131,7 @@ rows took approximately 17 and 50 ms. These timings use generated snapshots;
 they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the update time, total polling latency, time spent
-parsing snapshots in the helper, and the widget version (currently `v0.0.9`).
+parsing snapshots in the helper, and the widget version (currently `v0.0.10`).
 The total latency includes waiting for local and remote replies; it is not a
 measure of time spent blocking GNOME Shell. Run the standalone
 GJS benchmark for three rounds and their mean:

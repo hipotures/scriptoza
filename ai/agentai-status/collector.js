@@ -128,7 +128,7 @@ export class Collector {
         } catch (error) {
             errors.push({serverId: 'local', machine: 'Local', message: error.message});
             metrics.totalMs = (GLib.get_monotonic_time() - start) / 1000;
-            return {agents: [], errors, ignoredMachines, metrics};
+            return {agents: [], errors, ignoredMachines, metrics, waitingForServer: true};
         }
         let servers;
         try {

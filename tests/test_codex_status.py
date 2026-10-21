@@ -215,6 +215,7 @@ collector._readJson = async args => {
     check(POLL_SECONDS === 60, 'Polling interval');
     let result = await collector.collect();
     check(result.agents.length === 2 && result.errors.length === 0, 'Local and remote Codexes');
+    check(!result.waitingForServer, 'Working server leaves waiting state');
     check(calls.some(args => args.join(' ') === '--machine gpu-id api snapshot'), 'Remote routing');
     check(!calls.some(args => args.includes('disabled-id')), 'Disabled profiles skipped');
     failGpu = true;
@@ -249,6 +250,7 @@ collector._readJson = async args => {
 const result = await collector.collect();
 check(calls.length === 1 && calls[0] === 'api snapshot', 'Only local server checked');
 check(result.agents.length === 0 && result.errors[0].serverId === 'local', 'Local failure reported');
+check(result.waitingForServer === true, 'Waiting state reaches the panel');
 collector.close();
 """)
 

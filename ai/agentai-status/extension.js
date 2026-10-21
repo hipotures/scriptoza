@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.9';
+const WIDGET_VERSION = '0.0.10';
 
 const {Collector, POLL_SECONDS} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -93,11 +93,11 @@ export default class CodexStatus extends Extension {
         }
     }
 
-    _render({agents, errors, metrics}) {
+    _render({agents, errors, metrics, waitingForServer = false}) {
         const sorted = sortAgents(agents);
         // Include navigation identities, including the server boot, so retained
         // rows cannot keep a target from an earlier server instance.
-        const renderKey = JSON.stringify([sorted, errors]);
+        const renderKey = JSON.stringify([sorted, errors, waitingForServer]);
         if (renderKey === this._renderKey) {
             this._updateFooter(metrics);
             return;
@@ -105,6 +105,23 @@ export default class CodexStatus extends Extension {
         const summary = summarize(agents, errors);
         this._panelBox.destroy_all_children();
         this._panelDots = [];
+        if (waitingForServer) {
+            const message = 'Waiting for the Herdr server to start';
+            const dot = new St.Label({text: '○', style: 'color: #f8e45c;',
+                accessible_name: message, y_align: Clutter.ActorAlign.CENTER});
+            this._panelBox.add_child(dot);
+            this._panelDots.push({state: 'waiting', dot});
+            this._indicator.visible = true;
+            this._indicator.accessible_name = message;
+            this._indicator.menu.removeAll();
+            this._indicator.menu.addMenuItem(new PopupMenu.PopupMenuItem(message, {reactive: false}));
+            this._blockedLabels = [];
+            this._agentRows = [];
+            this._footer = null;
+            this._updateAnimation();
+            this._renderKey = renderKey;
+            return;
+        }
         const active = sorted.filter(agent => agent.state !== 'idle');
         for (const agent of active.length ? active : sorted) {
             const dot = new St.Label({text: '●', style: `color: ${STATES[agent.state].color};`,
@@ -201,6 +218,8 @@ export default class CodexStatus extends Extension {
     }
 
     _updateFooter(metrics) {
+        if (!this._footer)
+            return;
         const performance = metrics
             ? `Updated ${new Date().toLocaleTimeString()} · ${Math.round(metrics.totalMs)} ms · JSON ${metrics.parseMs.toFixed(2)} ms`
             : 'Update failed';
@@ -215,13 +234,16 @@ export default class CodexStatus extends Extension {
             dot.remove_all_transitions();
             dot.opacity = 255;
         }
-        if (!this._panelDots.some(({state}) => state === 'blocked'))
+        const waiting = this._panelDots.some(({state}) => state === 'waiting');
+        if (!waiting && !this._panelDots.some(({state}) => state === 'blocked'))
             return;
         let dim = false;
-        this._blinkSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 600, () => {
+        this._blinkSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, waiting ? 1500 : 600, () => {
             dim = !dim;
             for (const {state, dot} of this._panelDots) {
-                if (state === 'blocked')
+                if (state === 'waiting')
+                    dot.ease({opacity: dim ? 70 : 255, duration: 1200, mode: Clutter.AnimationMode.EASE_IN_OUT_SINE});
+                else if (state === 'blocked')
                     dot.opacity = dim ? 70 : 255;
             }
             for (const label of this._blockedLabels)
