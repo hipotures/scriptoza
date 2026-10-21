@@ -205,12 +205,15 @@ matching panes or tabs, and overlapping selections are deduplicated by machine
 and pane ID. Remote reads and input always use the same machine profile as
 discovery; matching pane IDs on different machines remain independent.
 
-Discovery runs concurrently across servers. An unreachable server does not stop
-monitoring the others. Its previous detection state is retained without reading
+Each scan first queries the local Herdr server. If it is unavailable, the monitor
+skips all discovery, remote SSH connections, pane reads, and input until the next
+scan, including on startup. With a working local server, remote discovery runs
+concurrently. An unreachable remote server does not stop monitoring the others.
+Its previous detection state is retained without reading
 or sending input until discovery succeeds again. Failures and recoveries are
 logged, and `list` reports current discovery errors alongside watched panes.
 
-The monitor waits five seconds after each completed scan by default. Scan time
+The monitor waits sixty seconds after each completed scan by default. Scan time
 adds to that interval. It runs independently of the GNOME widget, so their
 Herdr requests can overlap. Each monitor scan reads four inventories per enabled
 server and then reads each watched pane; the widget reads one snapshot per server.

@@ -7,7 +7,7 @@ Type=simple
 ExecStart=%h/.local/bin/codex-resume resume
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
-RestartSec=5
+RestartSec=60
 RestartPreventExitStatus=2
 
 [Install]

@@ -378,20 +378,15 @@ class MachineDiscoveryTests(unittest.TestCase):
             monitor.poll(selected)
         herdr.assert_called_once_with("--machine", "gpu-id", *read_call("w9:p1"))
 
-    def test_remote_discovery_continues_when_local_server_is_down(self) -> None:
-        profiles = [{"id": "gpu-id", "label": "gpu", "enabled": True}]
-
-        def fake_discovery(panes, tabs, machine):
-            if not machine:
-                raise monitor_module.HerdrError("local unavailable")
-            return {"w9:p1": make_pane("w9:p1")}
-
-        with patch.object(monitor_module, "machine_profiles", return_value=profiles), patch.object(
-            monitor_module, "discover_targets", side_effect=fake_discovery
-        ):
-            selected, errors = monitor_module.discover_all_targets([], [], {})
-        self.assertEqual(set(selected), {"gpu-id/w9:p1"})
-        self.assertEqual(errors, {"Local": "local unavailable"})
+    def test_local_server_down_skips_machine_profiles_and_remote_discovery(self) -> None:
+        with patch.object(monitor_module, "machine_profiles") as profiles, patch.object(
+            monitor_module, "discover_targets",
+            side_effect=monitor_module.HerdrError("local unavailable"),
+        ) as discovery:
+            with self.assertRaisesRegex(monitor_module.LocalServerUnavailable, "local unavailable"):
+                monitor_module.discover_all_targets([], [], {})
+        profiles.assert_not_called()
+        discovery.assert_called_once_with([], [], None)
 
     def test_removed_profile_drops_its_previous_panes(self) -> None:
         previous = {"gpu-id/w9:p1": {**make_pane("w9:p1"), "machine_id": "gpu-id"}}
@@ -1188,6 +1183,18 @@ class CliTests(unittest.TestCase):
         )
         self.runtime_environment.start()
         self.addCleanup(self.runtime_environment.stop)
+
+    def test_unavailable_local_server_waits_one_minute_without_restart_or_remote_calls(self) -> None:
+        with patch.object(monitor_module, "inventory", side_effect=monitor_module.HerdrError("offline")), patch.object(
+            monitor_module, "machine_profiles"
+        ) as profiles, patch.object(monitor_module.Monitor, "poll") as poll, patch.object(
+            monitor_module.threading.Event, "wait", return_value=True
+        ) as wait, redirect_stdout(StringIO()):
+            result = monitor_module.main(["resume"])
+        self.assertEqual(result, 0)
+        wait.assert_called_once_with(60.0)
+        profiles.assert_not_called()
+        poll.assert_not_called()
 
     def test_once_discovers_codex_agents_and_uses_english_default_message(self) -> None:
         panes = [make_pane("pane-1"), make_pane("pane-2")]

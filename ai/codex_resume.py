@@ -54,6 +54,10 @@ class HerdrError(RuntimeError):
     pass
 
 
+class LocalServerUnavailable(HerdrError):
+    pass
+
+
 class UncertainSendError(HerdrError):
     """Input delivery may have succeeded even though Herdr reported an error."""
 
@@ -163,11 +167,18 @@ def machine_profiles():
 
 
 def discover_all_targets(pane_targets, tab_targets, previous):
-    servers = [(None, "Local")] + [
-        (profile["id"], profile["label"]) for profile in machine_profiles()
-    ]
-    selected = {}
+    try:
+        local = discover_targets(pane_targets, tab_targets, None)
+    except HerdrError as exc:
+        raise LocalServerUnavailable(f"Local: {exc}") from exc
+    selected = {
+        pane_id: {**pane, "machine_id": None, "machine_name": "Local"}
+        for pane_id, pane in local.items()
+    }
+    servers = [(profile["id"], profile["label"]) for profile in machine_profiles()]
     errors = {}
+    if not servers:
+        return selected, errors
     with ThreadPoolExecutor(max_workers=len(servers)) as executor:
         futures = [
             (machine, label, executor.submit(discover_targets, pane_targets, tab_targets, machine))
@@ -185,8 +196,6 @@ def discover_all_targets(pane_targets, tab_targets, previous):
             for pane_id, pane in panes.items():
                 key = f"{machine}/{pane_id}" if machine else pane_id
                 selected[key] = {**pane, "machine_id": machine, "machine_name": label}
-    if len(errors) == len(servers):
-        raise HerdrError("; ".join(f"{label}: {error}" for label, error in errors.items()))
     return selected, errors
 
 
@@ -568,7 +577,7 @@ def main(argv=None):
         "--tabs", type=selector_list, metavar="NAME,NAME,...",
         default=[], help="Additional comma-separated exact tab labels or IDs; include all their panes",
     )
-    resume.add_argument("--interval", type=positive_seconds, default=5.0, help="Poll seconds (default: 5)")
+    resume.add_argument("--interval", type=positive_seconds, default=60.0, help="Poll seconds (default: 60)")
     resume.add_argument("--message", default="Resume", help="Text to submit (default: Resume)")
     resume.add_argument("--once", action="store_true", help="Check all selected panes once, then exit")
     resume.add_argument("--dry-run", action="store_true", help="Log detections without sending input")
@@ -641,6 +650,14 @@ def main(argv=None):
                 return 0
             try:
                 selected, errors = discover_all_targets(args.panes, args.tabs, selected)
+            except LocalServerUnavailable as exc:
+                detail = f"Local Herdr unavailable; skipping all monitoring: {exc}"
+                log(detail)
+                _safe_status_update(
+                    state, status="stale", message=args.message, dry_run=args.dry_run,
+                    panes=(), last_panes=tuple(sorted(monitor.pane_descriptions.values())),
+                    error=detail, last_check=_utc_now(),
+                )
             except HerdrError as exc:
                 if first or args.once:
                     raise
