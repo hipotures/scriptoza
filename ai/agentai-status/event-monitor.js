@@ -13,6 +13,7 @@ export class EventMonitor {
         this._entries = new Map();
         this._history = new Map();
         this._closed = false;
+        this._updatedAt = null;
         this._discovering = false;
         this._discoveryError = null;
         this._discoverySource = 0;
@@ -123,6 +124,7 @@ export class EventMonitor {
                         });
                 }
                 metrics.totalMs = (GLib.get_monotonic_time() - start) / 1000;
+                this._updatedAt = Date.now();
                 this._publish(metrics);
             } while (entry.dirty && !this._closed && !entry.removed);
             if (entry.server.id === 'local' && !wasOnline)
@@ -172,7 +174,7 @@ export class EventMonitor {
         if (this._discoveryError)
             errors.push(this._discoveryError);
         this._onUpdate({agents: [...this._entries.values()].flatMap(entry => entry.agents), errors,
-            metrics, waitingForServer: !local?.online,
+            metrics, updatedAt: this._updatedAt, waitingForServer: !local?.online,
             ignoredMachines: [...this._entries.values()].filter(entry => !entry.online &&
                 entry.server.id !== 'local').map(entry => entry.server.label)});
     }

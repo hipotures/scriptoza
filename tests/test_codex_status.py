@@ -432,6 +432,10 @@ function pause(ms) { return new Promise(resolve => GLib.timeout_add(GLib.PRIORIT
     check(updates.at(-1).agents.find(a => a.serverId === 'local').state === 'working', 'Push state');
     const stable = calls.length; await pause(150);
     check(calls.length === stable, 'Idle subscription polled snapshots');
+    const updatedAt = updates.at(-1).updatedAt;
+    check(Number.isSafeInteger(updatedAt) && updatedAt > 0, 'Successful snapshot needs an update time');
+    await monitor._discover();
+    check(updates.at(-1).updatedAt === updatedAt, 'Machine discovery must preserve the last update time');
     hold = true; streams.get('local').event({}); await pause(150);
     localState = 'blocked'; streams.get('local').event({});
     release(); await pause(30);

@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.12';
+const WIDGET_VERSION = '0.0.13';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -48,7 +48,7 @@ export default class CodexStatus extends Extension {
         }, error => {
             if (this._collector === collector) {
                 console.error(`Agent Status: ${error.message}`);
-                this._render({agents: [], errors: [{machine: 'Herdr', message: error.message}], metrics: null});
+                this._render({agents: [], errors: [{machine: 'Herdr', message: error.message}], updatedAt: null});
             }
         });
     }
@@ -73,13 +73,13 @@ export default class CodexStatus extends Extension {
         this._icons = null;
     }
 
-    _render({agents, errors, metrics, waitingForServer = false}) {
+    _render({agents, errors, updatedAt, waitingForServer = false}) {
         const sorted = sortAgents(agents);
         // Include navigation identities, including the server boot, so retained
         // rows cannot keep a target from an earlier server instance.
         const renderKey = JSON.stringify([sorted, errors, waitingForServer]);
         if (renderKey === this._renderKey) {
-            this._updateFooter(metrics);
+            this._updateFooter(updatedAt);
             return;
         }
         const summary = summarize(agents, errors);
@@ -212,18 +212,19 @@ export default class CodexStatus extends Extension {
         this._footer = new PopupMenu.PopupMenuItem('', {reactive: false});
         this._footer.label.add_style_class_name('codex-status-footer');
         this._indicator.menu.addMenuItem(this._footer);
-        this._updateFooter(metrics);
+        this._updateFooter(updatedAt);
         this._updateAnimation();
         this._renderKey = renderKey;
     }
 
-    _updateFooter(metrics) {
+    _updateFooter(updatedAt) {
         if (!this._footer)
             return;
-        const performance = metrics
-            ? `Updated ${new Date().toLocaleTimeString()} · ${Math.round(metrics.totalMs)} ms · JSON ${metrics.parseMs.toFixed(2)} ms`
-            : 'Update failed';
-        this._footer.label.text = `${performance} · v${WIDGET_VERSION}`;
+        const time = updatedAt
+            ? new Date(updatedAt).toLocaleTimeString('en-GB', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+            }) : '—';
+        this._footer.label.text = `Last update: ${time} · v${WIDGET_VERSION}`;
     }
 
     _updateAnimation() {

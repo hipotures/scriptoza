@@ -146,10 +146,11 @@ took approximately 0.05 and 0.07 ms after the initial render. Rebuilding those
 rows took approximately 17 and 50 ms. These timings use generated snapshots;
 they do not measure SSH latency or the user's desktop.
 
-The menu footer shows the update time, total snapshot refresh latency, time spent
-parsing snapshots in the helper, and the widget version (currently `v0.0.12`).
-The total latency includes waiting for the refreshed server's reply; it is not a
-measure of time spent blocking GNOME Shell. Run the standalone
+The menu footer shows the last successful snapshot update time in local time,
+using a 24-hour clock without a date, and the widget version:
+`Last update: 00:43:55 · v0.0.13`. Machine discovery and connection-error
+notifications preserve the last successful update time. Refresh latency and JSON
+parsing metrics are not displayed in the menu. Run the standalone
 GJS snapshot-collection benchmark for three rounds and their mean:
 
 ```bash

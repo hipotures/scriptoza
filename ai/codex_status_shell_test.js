@@ -157,11 +157,13 @@ export async function run() {
     agents.push({state: 'working', agentType: 'claude', serverId: 'cpu-id',
         bootId: 'boot-1', displayName: 'gpu/second · Claude Code', sessionTitle: 'Second task', location: 'gpu/second:run:p1'});
     const data = {agents, errors: [],
-        metrics: {totalMs: 300, parseMs: 0.3}};
+        updatedAt: new Date(2026, 9, 23, 0, 43, 55).getTime()};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.12'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.13'),
         'Menu footer did not display the loaded widget version');
+    check(widget._footer.label.text === 'Last update: 00:43:55 · v0.0.13',
+        'Footer must use a 24-hour clock without a date or performance metrics');
     const heading = () => widget._indicator.menu._getMenuItems()[0].label.text;
     check(heading() === '2 local agents, 4 remote agents',
         'Heading must count agent machine identities, including all types and idle agents');
@@ -182,11 +184,11 @@ export async function run() {
     const retainedDots = widget._panelDots.map(({dot}) => dot);
     const retainedBlink = widget._blinkSource;
     widget._render({...data, agents: agents.map(agent => ({...agent})),
-        metrics: {totalMs: 321, parseMs: 0.42}});
+        updatedAt: new Date(2026, 9, 23, 13, 44, 56).getTime()});
     check(widget._agentRows.every(({row}, index) => row === retainedRows[index]) &&
         widget._panelDots.every(({dot}, index) => dot === retainedDots[index]),
         'Unchanged polling rebuilt panel dots or interactive rows');
-    check(widget._blinkSource === retainedBlink && widget._footer.label.text.includes('321 ms · JSON 0.42 ms'),
+    check(widget._blinkSource === retainedBlink && widget._footer.label.text === 'Last update: 13:44:56 · v0.0.13',
         'Unchanged polling restarted blinking or failed to update the footer');
     check(widget._indicator.menu.box.get_n_children() === 5, 'Menu leaked children or lost a separator');
     check(widget._panelDots.length === 5 && widget._panelBox.get_n_children() === 5,
