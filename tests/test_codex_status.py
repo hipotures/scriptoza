@@ -59,6 +59,29 @@ check(sortAgents([...agents, {state: 'offline', location: 'offline'}]).map(agent
 check(summarize([], [{machine: 'gpu'}]).state === 'offline', 'Disconnected with no agents');
 """)
 
+    def test_automatic_names_and_session_titles(self):
+        self.run_gjs("""
+const raw = snapshot(['working', 'idle', 'working']);
+raw.workspaces[0].label = 'homestack';
+raw.agents[0].terminal_title_stripped = 'Define API services | homestack';
+raw.agents[1].terminal_title_stripped = ' HomeStack ';
+raw.agents[2].agent = 'claude';
+raw.agents[2].terminal_title_stripped = 'Random character string';
+const local = normalizeAgents(raw, {id: 'local', label: 'Local'});
+check(local[0].displayName === 'homestack · Codex', 'Readable workspace and type');
+check(local[0].sessionTitle === 'Define API services', 'Remove redundant workspace suffix');
+check(local[1].sessionTitle === '', 'Hide a title that repeats the workspace');
+check(local[2].displayName === 'homestack · Claude Code' &&
+    local[2].sessionTitle === 'Random character string', 'Preserve automatic Claude title');
+check(local[0].location === 'homestack:run:p0' && local[0].paneId === 'w1:p0',
+    'Keep technical location and navigation identity');
+const remote = normalizeAgents(raw, {id: 'gpu-id', label: 'gpu'});
+check(remote[0].displayName === 'gpu/homestack · Codex', 'Remote names include the machine');
+delete raw.agents[0].terminal_title_stripped;
+check(normalizeAgents(raw, {id: 'local', label: 'Local'})[0].sessionTitle === '',
+    'Missing title needs no second line');
+""")
+
     def test_activity_sorting_preserves_working_order_and_seen_completion_time(self):
         self.run_gjs("""
 const history = new Map();

@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.10';
+const WIDGET_VERSION = '0.0.11';
 
 const {Collector, POLL_SECONDS} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -161,7 +161,7 @@ export default class CodexStatus extends Extension {
                 style_class: 'codex-status-row',
             });
             row.x_expand = true;
-            row.accessible_name = `${AGENT_TYPES[agent.agentType].label}: ${agent.location}: ${STATES[agent.state].label}`;
+            row.accessible_name = `${agent.displayName}: ${agent.sessionTitle ? `${agent.sessionTitle}: ` : ''}${STATES[agent.state].label}`;
             // PopupBaseMenuItem closes its menu after emitting `activate`. Keep
             // the menu open until the asynchronous client and window checks
             // have both succeeded.
@@ -181,20 +181,40 @@ export default class CodexStatus extends Extension {
                 icon.gicon = this._icons[name];
             };
             row.connect('style-changed', updateIcon);
+            const textBox = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true,
+                y_align: Clutter.ActorAlign.CENTER});
             const label = new St.Label({
-                text: agent.location,
-                style: `color: ${STATES[agent.state].color};`,
+                text: agent.displayName,
+                style: `color: ${STATES[agent.state].color}; font-weight: bold;`,
                 x_expand: true,
                 y_align: Clutter.ActorAlign.CENTER,
             });
-            row.add_child(label);
+            textBox.add_child(label);
+            const titleLabel = new St.Label({text: agent.sessionTitle || '',
+                style: 'font-size: 0.85em; opacity: 0.75; max-width: 360px;',
+                visible: Boolean(agent.sessionTitle)});
+            textBox.add_child(titleLabel);
+            row.add_child(textBox);
+            const tooltip = new St.Label({text: agent.location, style_class: 'dash-label', visible: false});
+            Main.uiGroup.add_child(tooltip);
+            row.connect('notify::hover', () => {
+                tooltip.visible = row.hover && this._indicator.menu.isOpen;
+                if (tooltip.visible) {
+                    const [x, y] = row.get_transformed_position();
+                    const monitor = Main.layoutManager.findMonitorForActor(row);
+                    tooltip.set_position(Math.max(monitor.x, Math.min(x,
+                        monitor.x + monitor.width - tooltip.width)), y + row.height);
+                }
+            });
+            row.connect('notify::mapped', () => { tooltip.hide(); });
+            row.connect('destroy', () => tooltip.destroy());
             const statusLabel = new St.Label({
                 text: STATES[agent.state].label,
                 style: `color: ${STATES[agent.state].color};`,
                 y_align: Clutter.ActorAlign.CENTER,
             });
             row.add_child(statusLabel);
-            this._agentRows.push({agent, row, icon, label, statusLabel});
+            this._agentRows.push({agent, row, icon, textBox, label, titleLabel, tooltip, statusLabel});
             section.addMenuItem(row);
             updateIcon();
             if (agent.state === 'blocked')

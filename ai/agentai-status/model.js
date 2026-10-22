@@ -35,18 +35,26 @@ export function normalizeAgents(snapshot, server) {
         const pane = panes.get(agent.pane_id);
         const tab = tabs.get(agent.tab_id);
         const workspace = workspaces.get(agent.workspace_id);
+        const workspaceName = cleanText(workspace?.label) || 'Unnamed workspace';
+        const displayName = `${server.id === 'local' ? '' : `${cleanText(server.label)}/`}${workspaceName} · ${AGENT_TYPES[agent.agent].label}`;
+        let sessionTitle = cleanText(agent.terminal_title_stripped);
+        const suffix = ` | ${workspaceName}`;
+        if (sessionTitle.endsWith(suffix))
+            sessionTitle = sessionTitle.slice(0, -suffix.length).trim();
+        if (sessionTitle.toLocaleLowerCase() === workspaceName.toLocaleLowerCase())
+            sessionTitle = '';
         const state = Object.hasOwn(STATES, agent.agent_status) && agent.agent_status !== 'offline'
             ? agent.agent_status : 'unknown';
         const paneName = cleanText(agent.name || pane.label || agent.pane_id.split(':').pop());
         const location = [
-            cleanText(workspace?.label) || 'Unnamed workspace',
+            workspaceName,
             cleanText(tab?.label ?? tab?.number) || 'Unnamed tab',
             paneName,
         ].join(':');
         const id = `${server.id}/${agent.pane_id}`;
         agents.set(id, {
             id, serverId: server.id, machine: server.label,
-            paneId: agent.pane_id, bootId, state, agentType: agent.agent,
+            paneId: agent.pane_id, bootId, state, agentType: agent.agent, displayName, sessionTitle,
             terminalId: typeof agent.terminal_id === 'string' ? agent.terminal_id : null,
             stateChangeSeq: Number.isSafeInteger(agent.state_change_seq) && agent.state_change_seq >= 0
                 ? agent.state_change_seq : 0,

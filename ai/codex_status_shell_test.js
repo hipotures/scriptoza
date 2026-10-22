@@ -157,24 +157,27 @@ export async function run() {
     const agents = ['idle', 'working', 'done', 'blocked', 'unknown']
         .map((state, index) => ({state, agentType: index === 0 ? 'claude' : 'codex',
             serverId: index === 0 || index === 3 ? 'local' : 'gpu-id',
-            bootId: 'boot-1', location: `gpu/phase${index}:run:p1`}));
+            bootId: 'boot-1', displayName: `phase${index} · ${index === 0 ? 'Claude Code' : 'Codex'}`,
+            sessionTitle: index === 0 ? '' : `Task ${index}`, location: `gpu/phase${index}:run:p1`}));
     agents.push({state: 'working', agentType: 'claude', serverId: 'cpu-id',
-        bootId: 'boot-1', location: 'gpu/second:run:p1'});
+        bootId: 'boot-1', displayName: 'gpu/second · Claude Code', sessionTitle: 'Second task', location: 'gpu/second:run:p1'});
     const data = {agents, errors: [],
         metrics: {totalMs: 300, parseMs: 0.3}};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.8'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.11'),
         'Menu footer did not display the loaded widget version');
     const heading = () => widget._indicator.menu._getMenuItems()[0].label.text;
     check(heading() === '2 local agents, 4 remote agents',
         'Heading must count agent machine identities, including all types and idle agents');
-    check(widget._agentRows.every(({agent, row, icon, label, statusLabel}) => {
+    check(widget._agentRows.every(({agent, row, icon, textBox, label, titleLabel, tooltip, statusLabel}) => {
         const children = row.get_children().filter(child => child.visible);
-        return children.length === 3 && children[0] === icon && children[1] === label &&
+        return children.length === 3 && children[0] === icon && children[1] === textBox &&
             children[2] === statusLabel && statusLabel.text === STATES[agent.state].label &&
             statusLabel.get_style() === `color: ${STATES[agent.state].color};` &&
-            label.text === agent.location && label.get_style() === `color: ${STATES[agent.state].color};` &&
+            label.text === agent.displayName && label.get_style() === `color: ${STATES[agent.state].color}; font-weight: bold;` &&
+            titleLabel.text === agent.sessionTitle && titleLabel.visible === Boolean(agent.sessionTitle) &&
+            tooltip.text === agent.location &&
             row.accessible_name.endsWith(STATES[agent.state].label);
     }),
         'Rows must contain the icon, colored name, and text status without a duplicate dot');
@@ -214,8 +217,8 @@ export async function run() {
     widget._render({...data, agents: agents.filter(agent => agent.state !== 'blocked')});
     check(!widget._blinkSource, 'Working agents must not start an animation timer');
     widget._render({...data, agents: [
-        {state: 'idle', agentType: 'codex', serverId: 'local', location: 'first:run:p1'},
-        {state: 'idle', agentType: 'claude', serverId: 'local', location: 'second:run:p1'},
+        {state: 'idle', agentType: 'codex', serverId: 'local', displayName: 'first · Codex', sessionTitle: '', location: 'first:run:p1'},
+        {state: 'idle', agentType: 'claude', serverId: 'local', displayName: 'second · Claude Code', sessionTitle: '', location: 'second:run:p1'},
     ]});
     check(heading() === '2 local agents, 0 remote agents', 'All-local heading is incorrect');
     check(widget._indicator.visible && widget._panelDots.length === 2,
@@ -224,8 +227,8 @@ export async function run() {
         'Idle dots must remain steady');
     for (const state of ['done', 'idle', 'working']) {
         widget._render({...data, agents: [
-            {state, agentType: 'codex', serverId: 'local', location: 'A:run:p1', lastActivityAt: 100},
-            {state, agentType: 'claude', serverId: 'gpu-id', location: 'Z:run:p1', lastActivityAt: 200},
+            {state, agentType: 'codex', serverId: 'local', displayName: 'A · Codex', sessionTitle: '', location: 'A:run:p1', lastActivityAt: 100},
+            {state, agentType: 'claude', serverId: 'gpu-id', displayName: 'gpu/Z · Claude Code', sessionTitle: '', location: 'Z:run:p1', lastActivityAt: 200},
         ]});
         check(widget._agentRows[0].agent.location.startsWith(state === 'working' ? 'A:' : 'Z:'),
             'Recent activity must sort done and idle rows while working rows keep stable order');
@@ -240,7 +243,7 @@ export async function run() {
     const codexRow = widget._agentRows.find(({agent}) => agent.agentType === 'codex');
     const claudeRow = widget._agentRows.find(({agent}) => agent.agentType === 'claude');
     check(claudeRow.icon.gicon.get_file().get_basename() === 'anthropic.svg' &&
-        claudeRow.row.accessible_name.startsWith('Claude Code:'), 'Claude Code icon or accessibility label missing');
+        claudeRow.row.accessible_name.startsWith(claudeRow.agent.displayName), 'Claude Code icon or accessibility label missing');
     codexRow.row.set_style('color: #ffffff;');
     await pause(50);
     check(codexRow.icon.gicon.get_file().get_basename() === 'openai-light.svg',
@@ -266,6 +269,7 @@ export async function run() {
     await pause(250);
     widget._agentRows[0].row.hover = true;
     check(widget._agentRows[0].row.active, 'Hover highlights the whole row');
+    check(widget._agentRows[0].tooltip.visible, 'Hover must reveal the technical location');
     check(widget._agentRows[0].row.has_style_pseudo_class('selected'),
         'Hover applies the native whole-row selection state');
     widget._agentRows[0].row.grab_key_focus();
@@ -295,7 +299,7 @@ export async function run() {
         `Mouse activation failed (${navigated.length} requests, menu open: ${widget._indicator.menu.isOpen})`);
     widget._indicator.menu.close();
     let targetData = {...data, agents: [{id: 'local/w1:p3', serverId: 'local', paneId: 'w1:p3',
-        bootId: 'boot-1', state: 'working', agentType: 'codex', location: 'project:run:p3'}]};
+        bootId: 'boot-1', state: 'working', agentType: 'codex', displayName: 'project · Codex', sessionTitle: '', location: 'project:run:p3'}]};
     widget._render(targetData);
     check(heading() === '1 local agent, 0 remote agents', 'Local heading is incorrect');
     for (const patch of [{bootId: 'boot-2'}, {serverId: 'gpu-id'}, {paneId: 'w2:p3'},
@@ -322,7 +326,18 @@ export async function run() {
     widget.disable();
     check(!widget._blinkSource && !widget._collector && !widget._indicator &&
         widget._renderKey === null && widget._footer === null, 'Disable leaked state');
+    const addTimeout = GLib.timeout_add;
+    let pollInterval = 0;
+    GLib.timeout_add = (priority, interval, callback) => {
+        if (interval === 60000) {
+            pollInterval = interval;
+            interval = 5000;
+        }
+        return addTimeout(priority, interval, callback);
+    };
     widget.enable();
+    GLib.timeout_add = addTimeout;
+    check(pollInterval === 60000, 'Polling interval must remain 60 seconds');
     widget._collector.close();
     widget._collector = collector;
     widget._busy = false;
