@@ -3,7 +3,7 @@
 import GLib from 'gi://GLib';
 import System from 'system';
 
-import {Collector, POLL_SECONDS} from './agentai-status/collector.js';
+import {Collector} from './agentai-status/collector.js';
 
 const loop = new GLib.MainLoop(null, false);
 const collector = new Collector();
@@ -17,7 +17,7 @@ async function benchmark() {
             ignoredMachines: result.ignoredMachines, ...result.metrics}));
         if (index < 2) {
             await new Promise(resolve => {
-                GLib.timeout_add(GLib.PRIORITY_DEFAULT, POLL_SECONDS * 1000, () => {
+                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 60000, () => {
                     resolve();
                     return GLib.SOURCE_REMOVE;
                 });

@@ -147,13 +147,8 @@ export async function run() {
     const {STATES} = await import(extension.dir.get_child('model.js').get_uri());
     const widget = extension.stateObj;
     widget._collector.close();
-    const collector = {close() {}, calls: 0, async collect() {
-        this.calls++;
-        await pause(200);
-        return {agents: [], errors: [], metrics: null};
-    }};
+    const collector = {close() {}};
     widget._collector = collector;
-    widget._busy = false;
     const agents = ['idle', 'working', 'done', 'blocked', 'unknown']
         .map((state, index) => ({state, agentType: index === 0 ? 'claude' : 'codex',
             serverId: index === 0 || index === 3 ? 'local' : 'gpu-id',
@@ -165,7 +160,7 @@ export async function run() {
         metrics: {totalMs: 300, parseMs: 0.3}};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.11'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.12'),
         'Menu footer did not display the loaded widget version');
     const heading = () => widget._indicator.menu._getMenuItems()[0].label.text;
     check(heading() === '2 local agents, 4 remote agents',
@@ -236,7 +231,6 @@ export async function run() {
     widget._render(data);
     check(widget._panelDots.every(({state}) => state !== 'idle'),
         'Idle dots disappear again when another agent starts working');
-    check(collector.calls === 0, 'Opening the menu triggered a poll');
     check(widget._agentRows.length === agents.length, 'One interactive row per agent');
     check(widget._agentRows.every(({row}) => row.reactive && row.can_focus && row.track_hover),
         'Agent rows support pointer hover and keyboard focus');
@@ -317,37 +311,15 @@ export async function run() {
     check(widget._indicator.menu._getMenuItems().some(item => item.label?.text === 'Herdr: unavailable'),
         'Changed errors failed to update the menu');
     await testRealWindowActivation(extension);
-    await Promise.all([widget._refresh(), widget._refresh()]);
-    check(collector.calls === 1, 'Overlapping refreshes were not suppressed');
+    widget._render({...data, agents: []});
     check(heading() === '0 local agents, 0 remote agents', 'Empty heading is incorrect');
-    const pollStarted = GLib.get_monotonic_time();
-    widget._pollSource && GLib.Source.remove(widget._pollSource);
-    widget._pollSource = 0;
     widget.disable();
     check(!widget._blinkSource && !widget._collector && !widget._indicator &&
         widget._renderKey === null && widget._footer === null, 'Disable leaked state');
-    const addTimeout = GLib.timeout_add;
-    let pollInterval = 0;
-    GLib.timeout_add = (priority, interval, callback) => {
-        if (interval === 60000) {
-            pollInterval = interval;
-            interval = 5000;
-        }
-        return addTimeout(priority, interval, callback);
-    };
     widget.enable();
-    GLib.timeout_add = addTimeout;
-    check(pollInterval === 60000, 'Polling interval must remain 60 seconds');
-    widget._collector.close();
-    widget._collector = collector;
-    widget._busy = false;
-    await pause(4500);
-    check(collector.calls === 1, 'Polled before 5 seconds');
-    await pause(900);
-    check(collector.calls === 2, 'Did not poll at 5 seconds');
-    check(GLib.get_monotonic_time() - pollStarted >= 5000000, 'Polling cadence');
+    check(!widget._pollSource && widget._collector._process, 'Widget must start its push worker without a polling timer');
     widget.disable();
-    check(!widget._pollSource && !widget._blinkSource && !widget._collector && !widget._indicator,
+    check(!widget._blinkSource && !widget._collector && !widget._indicator,
         'Disable did not release sources and actors');
     print('CODEX_STATUS_SHELL_TEST_PASSED');
 }

@@ -16,7 +16,6 @@ const modelReady = modelRevision
     })
     : Promise.resolve();
 
-export const POLL_SECONDS = 60;
 const OFFLINE_RETRY_SECONDS = 60;
 
 export class Collector {

@@ -10,9 +10,9 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.11';
+const WIDGET_VERSION = '0.0.12';
 
-const {Collector, POLL_SECONDS} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
+const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {StatusProcess} = await import(`./status-process.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {AGENT_TYPES, STATES, sortAgents, summarize} = await import(`./model.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -21,9 +21,7 @@ export default class CodexStatus extends Extension {
     enable() {
         this._collector = new StatusProcess(this.dir.get_child('status-worker.js').get_path());
         this._navigationCollector = new Collector();
-        this._busy = false;
         this._blinkSource = 0;
-        this._pollSource = 0;
         this._indicator = new PanelMenu.Button(0.0, 'Herdr agent status', false);
         this._panelBox = new St.BoxLayout({style_class: 'codex-status-panel'});
         this._panelDots = [];
@@ -43,19 +41,21 @@ export default class CodexStatus extends Extension {
         this._indicator.menu.addMenuItem(new PopupMenu.PopupMenuItem('Checking agents…', {reactive: false}));
         Main.panel.addToStatusArea(this.uuid, this._indicator);
         this._indicator.visible = false;
-        this._refresh();
-        this._pollSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, POLL_SECONDS * 1000, () => {
-            this._refresh();
-            return GLib.SOURCE_CONTINUE;
+        const collector = this._collector;
+        collector.start(result => {
+            if (this._collector === collector)
+                this._render(result);
+        }, error => {
+            if (this._collector === collector) {
+                console.error(`Agent Status: ${error.message}`);
+                this._render({agents: [], errors: [{machine: 'Herdr', message: error.message}], metrics: null});
+            }
         });
     }
 
     disable() {
-        if (this._pollSource)
-            GLib.Source.remove(this._pollSource);
         if (this._blinkSource)
             GLib.Source.remove(this._blinkSource);
-        this._pollSource = 0;
         this._blinkSource = 0;
         this._navigator?.close();
         this._navigator = null;
@@ -71,26 +71,6 @@ export default class CodexStatus extends Extension {
         this._renderKey = null;
         this._footer = null;
         this._icons = null;
-    }
-
-    async _refresh() {
-        if (this._busy || !this._collector)
-            return;
-        this._busy = true;
-        const collector = this._collector;
-        try {
-            const result = await collector.collect();
-            if (this._collector === collector)
-                this._render(result);
-        } catch (error) {
-            if (this._collector === collector) {
-                console.error(`Agent Status: ${error.message}`);
-                this._render({agents: [], errors: [{machine: 'Herdr', message: error.message}], metrics: null});
-            }
-        } finally {
-            if (this._collector === collector)
-                this._busy = false;
-        }
     }
 
     _render({agents, errors, metrics, waitingForServer = false}) {

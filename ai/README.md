@@ -8,10 +8,12 @@ inside a new Herdr pane, see the
 
 `agentai-status/` is a GNOME Shell 50/51 extension written in JavaScript/GJS. It
 shows Codex and Claude Code agents locally and on every enabled saved Herdr machine.
-It reads agent status directly from Herdr and runs independently of
-`codex-resume`; status polling never sends input, marks completions as seen, or
+It subscribes to agent changes directly from Herdr and runs independently of
+`codex-resume`; status monitoring never sends input, marks completions as seen, or
 controls services.
-It requires `herdr`, `gjs`, and GNU coreutils `timeout` in the user's executable paths.
+It requires `herdr`, `gjs`, OpenSSH, and GNU coreutils `timeout` in the user's executable paths.
+Remote push monitoring supports Linux and macOS Herdr servers with managed SSH
+connections and cached executable metadata from a successful Herdr connection.
 
 Install and enable it for your user:
 
@@ -94,52 +96,61 @@ alphabetical order. The helper remembers activity across its existing polls
 and uses Herdr's state-change sequence to notice work between polls; reading
 a completion does not update its activity time. History starts when the widget
 is enabled or reloaded, since Herdr supplies sequences rather than timestamps
-comparable across machines. Observed times have the polling interval's precision.
+comparable across machines. Observed times follow the arrival of authoritative state updates.
 
-Polling starts immediately and then runs every 60 seconds. A slow round never
-overlaps the next round, and opening the menu does not trigger extra requests.
-Each round first requests the local `api snapshot`. If the local server is
-unavailable, it skips machine discovery and all remote requests for that round.
-The panel shows a slowly pulsing yellow hollow circle; its menu says
-“Waiting for the Herdr server to start”. Normal agent indicators return after
-a successful local check.
-Otherwise it reads the enabled machine list once and requests one snapshot per
-remote server concurrently. Snapshots contain agent and layout names in one
-response. Subprocess communication is asynchronous; an 8-second timeout stops
-unresponsive requests. A single helper process performs discovery, starts Herdr
-and SSH commands, and parses the full snapshots outside GNOME Shell. The Shell
-sends it one collection request per poll and asynchronously reads only normalized
-agent data. The helper has no independent polling timer and survives between
-polls, preserving offline retry state. The timeout has a one-second termination
-grace period and also covers SSH child processes. Disabling the widget cancels
-pending requests and stops the helper and its active command groups. A failed
-helper is reported without repeatedly spawning replacements; disable and enable
-the widget to retry. Unreachable remote machines are ignored: they have no
-rows or warning indicators and their agents do not contribute to counters.
-An unavailable remote profile is not queried again for 60 seconds, while active
-agents continue updating every 60 seconds. A recovered machine returns on the
-next retry. The Herdr CLI does not expose the client's sidebar connection
-state in its machine list; failed remote snapshot requests identify machines
-to ignore. A machine-list or local-server failure is still reported in the menu.
-Disabling the extension removes timers, destroys its panel/menu, and stops its
-pending commands.
+Status updates are event-driven. The worker keeps one `events.subscribe`
+connection per server, listening for pane lifecycle, agent state, session title,
+and workspace/tab name changes. Events are coalesced for 100 ms, then trigger
+one authoritative `session.snapshot` read on the affected machine. Other machines
+are not queried. A read already in flight is followed by another read if an event
+arrives during it. Events invalidate cached state rather than replaying possibly
+stale payloads over snapshots. Opening the menu does not issue extra requests.
+
+Subscriptions are acknowledged before a reconciliation snapshot; changing the
+pane inventory rebuilds subscriptions so newly started agents are included.
+A closed connection or `events_lost` discards that machine's displayed agents,
+reconnects, subscribes, and reconciles again. There is no periodic agent-status
+polling. The enabled saved-machine list is checked at startup and every 60 seconds.
+Remote profiles are reconciled independently, so one slow host cannot delay
+updates from another host.
+
+Local events use `herdr remote-api-bridge`. Remote events use a persistent SSH
+channel to the saved machine's session and cached Herdr executable. The worker
+reuses Herdr's managed OpenSSH control socket, with strict host-key checking,
+noninteractive authentication, and SSH keepalives. It never installs or restarts
+Herdr. Missing/unsupported remote metadata or failed subscriptions make that
+machine unavailable; there is no polling fallback. Snapshot reads use the existing
+`herdr --machine` CLI path and an 8-second timeout. Event subscription setup has
+a 10-second deadline; an established event stream has no idle timeout.
+
+If the local server is unavailable, machine discovery and all remote subscriptions
+stop. The panel shows a slowly pulsing yellow hollow circle and the menu says
+“Waiting for the Herdr server to start”. Local recovery is retried every 3 seconds.
+Unavailable remote machines are omitted and retried after 60 seconds; their
+failure does not block live updates from connected machines. Discovery failures
+remain visible in the menu.
+
+The helper performs discovery, SSH setup, snapshot parsing, event handling, and
+activity tracking outside GNOME Shell. Shell receives normalized updates over a
+persistent pipe. Pending writes coalesce to the latest state if Shell is slow.
+Disabling the widget cancels reads, timers, and active command/SSH process groups.
+EOF on the parent's pipe also stops the helper. A failed helper is reported
+without repeated respawning; reload the widget to retry.
 
 Unchanged snapshots retain the panel dots and interactive menu rows; only the
-footer is updated. This avoids rebuilding Shell actors every five seconds and
-preserves row hover, keyboard focus, and the blinking timer between polls.
-Changed agent identities, server boots, states, locations, or errors rebuild the
-display so navigation always uses the current target.
+footer is updated. Changed identities, server boots, states, names, titles, or
+errors rebuild the display so navigation uses the current target.
 
 In an isolated GNOME Shell 51 test, unchanged updates with 32 and 64 agent rows
 took approximately 0.05 and 0.07 ms after the initial render. Rebuilding those
 rows took approximately 17 and 50 ms. These timings use generated snapshots;
 they do not measure SSH latency or the user's desktop.
 
-The menu footer shows the update time, total polling latency, time spent
-parsing snapshots in the helper, and the widget version (currently `v0.0.11`).
-The total latency includes waiting for local and remote replies; it is not a
+The menu footer shows the update time, total snapshot refresh latency, time spent
+parsing snapshots in the helper, and the widget version (currently `v0.0.12`).
+The total latency includes waiting for the refreshed server's reply; it is not a
 measure of time spent blocking GNOME Shell. Run the standalone
-GJS benchmark for three rounds and their mean:
+GJS snapshot-collection benchmark for three rounds and their mean:
 
 ```bash
 gjs -m ai/codex_status_benchmark.js
@@ -159,7 +170,7 @@ Offline collector/model tests run with the repository's unittest suite when
 isolated headless GNOME Shell:
 
 ```bash
-gnome-extensions pack ai/agentai-status --extra-source=collector.js --extra-source=navigation.js --extra-source=model.js --extra-source=reload.js --extra-source=status-process.js --extra-source=status-worker.js --extra-source=assets --out-dir=/tmp --force
+gnome-extensions pack ai/agentai-status --extra-source=collector.js --extra-source=navigation.js --extra-source=model.js --extra-source=reload.js --extra-source=status-process.js --extra-source=status-worker.js --extra-source=event-stream.js --extra-source=event-monitor.js --extra-source=assets --out-dir=/tmp --force
 dbus-run-session -- gnome-shell-test-tool --extra-filter org.scriptoza.CodexStatusWindowTest --headless --extension /tmp/codex-status@scriptoza.shell-extension.zip ai/codex_status_shell_test.js
 ```
 

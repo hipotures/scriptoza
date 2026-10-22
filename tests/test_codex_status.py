@@ -18,8 +18,10 @@ class CodexStatusTests(unittest.TestCase):
 import GLib from 'gi://GLib';
 import System from 'system';
 import {{normalizeAgents, summarize, sortAgents, trackActivity}} from '{(EXTENSION / 'model.js').as_uri()}';
-import {{Collector, POLL_SECONDS}} from '{(EXTENSION / 'collector.js').as_uri()}';
+import {{Collector}} from '{(EXTENSION / 'collector.js').as_uri()}';
 import Gio from 'gi://Gio';
+import {{EventMonitor}} from '{(EXTENSION / 'event-monitor.js').as_uri()}';
+import {{EventStream, subscriptions, remoteCommand}} from '{(EXTENSION / 'event-stream.js').as_uri()}';
 import {{StatusProcess}} from '{(EXTENSION / 'status-process.js').as_uri()}';
 import {{Navigator, clientWindowToken, findClientWindow, focusTarget}} from '{(EXTENSION / 'navigation.js').as_uri()}';
 function check(condition, message) {{ if (!condition) throw new Error(message); }}
@@ -235,7 +237,6 @@ collector._readJson = async args => {
     return {result: {snapshot: snapshot(['done'])}};
 };
 (async () => {
-    check(POLL_SECONDS === 60, 'Polling interval');
     let result = await collector.collect();
     check(result.agents.length === 2 && result.errors.length === 0, 'Local and remote Codexes');
     check(!result.waitingForServer, 'Working server leaves waiting state');
@@ -387,87 +388,217 @@ function childStopped() {
 loop.run();
 """)
 
-    def test_status_worker_spawns_once_and_preserves_machine_identity(self):
+    def test_event_monitor_updates_only_changed_machine_and_reconciles_inflight_events(self):
+        self.run_gjs("""
+const loop = new GLib.MainLoop(null, false);
+const updates = [];
+const streams = new Map();
+const calls = [];
+let localState = 'idle';
+let remoteState = 'idle';
+let hold = false;
+let release;
+const collector = new Collector();
+collector._readJson = async (args, metrics) => {
+    calls.push(args.join(' '));
+    if (args[0] === 'machine')
+        return [{id: 'gpu-id', label: 'gpu', enabled: true}];
+    metrics.requests++;
+    const data = snapshot([args[0] === '--machine' ? remoteState : localState]);
+    if (hold && args[0] !== '--machine') {
+        hold = false;
+        await new Promise(resolve => { release = resolve; });
+    }
+    return {result: {snapshot: data}};
+};
+const monitor = new EventMonitor(data => updates.push(data), {collector,
+    stream: (server, herdr, panes, ready, event, error) => {
+        const value = {panes, ready, event, error, closed: false, close() { this.closed = true; }};
+        streams.set(server.id, value);
+        return value;
+    }});
+function pause(ms) { return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms,
+    () => { resolve(); return GLib.SOURCE_REMOVE; })); }
+(async () => {
+    monitor.start(); await pause(20);
+    check(streams.size === 2 && updates.at(-1).agents.length === 2, 'Bootstrap local and remote agents');
+    streams.get('local').ready(); streams.get('gpu-id').ready(); await pause(150);
+    const baseline = calls.length;
+    localState = 'working';
+    streams.get('local').event({}); streams.get('local').event({});
+    await pause(150);
+    check(calls.length === baseline + 1 && calls.at(-1) === 'api snapshot',
+        'Event bursts must refresh only their machine, without discovery or remote polling');
+    check(updates.at(-1).agents.find(a => a.serverId === 'local').state === 'working', 'Push state');
+    const stable = calls.length; await pause(150);
+    check(calls.length === stable, 'Idle subscription polled snapshots');
+    hold = true; streams.get('local').event({}); await pause(150);
+    localState = 'blocked'; streams.get('local').event({});
+    release(); await pause(30);
+    check(updates.at(-1).agents.find(a => a.serverId === 'local').state === 'blocked',
+        'An event arriving during a read must trigger another authoritative snapshot');
+    remoteState = 'working'; streams.get('gpu-id').event({}); await pause(150);
+    check(updates.at(-1).agents.find(a => a.serverId === 'gpu-id').state === 'working', 'Remote push');
+    const old = streams.get('gpu-id');
+    old.error(new Error('events_lost'));
+    check(old.closed && updates.at(-1).agents.length === 1, 'Lost remote stream retained stale rows');
+    const entry = monitor._entries.get('gpu-id');
+    GLib.Source.remove(entry.timer); entry.timer = 0;
+    await monitor._refresh(entry);
+    check(streams.get('gpu-id') !== old && updates.at(-1).agents.length === 2, 'Resubscribe after loss');
+    old.event({}); await pause(150);
+    const beforeClose = calls.length;
+    monitor.close(); streams.get('local').event({}); await pause(150);
+    check(calls.length === beforeClose && [...streams.values()].every(s => s.closed),
+        'Closed monitor retained streams or accepted late events');
+})().catch(error => { printerr(error.stack); System.exit(1); }).finally(() => { monitor.close(); loop.quit(); });
+loop.run();
+""")
+
+    def test_event_monitor_rebuilds_subscriptions_and_gates_remotes_when_local_is_lost(self):
+        self.run_gjs("""
+const loop = new GLib.MainLoop(null, false);
+const updates = [];
+const streams = [];
+let panes = 1;
+let hold = false;
+let release;
+let remoteQueries = 0;
+const collector = new Collector();
+collector._readJson = async (args, metrics) => {
+    if (args[0] === 'machine')
+        return [{id: 'gpu-id', label: 'gpu', enabled: true}];
+    if (args[0] === '--machine') remoteQueries++;
+    const data = snapshot(Array(panes).fill('working'));
+    if (hold) { hold = false; await new Promise(resolve => { release = resolve; }); }
+    return {result: {snapshot: data}};
+};
+const monitor = new EventMonitor(data => updates.push(data), {collector,
+    stream: (server, herdr, ids, ready, event, error) => {
+        const stream = {server, ids, event, error, closed: false, close() { this.closed = true; }};
+        streams.push(stream); return stream;
+    }});
+function pause(ms) { return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms,
+    () => { resolve(); return GLib.SOURCE_REMOVE; })); }
+(async () => {
+    monitor.start(); await pause(20);
+    panes = 2; streams[0].event({}); await pause(150);
+    const local = streams.at(-1);
+    check(streams[0].closed && local.ids.length === 2, 'New panes require a fresh status subscription');
+    const before = remoteQueries;
+    hold = true; local.event({}); await pause(150);
+    local.error(new Error('connection closed'));
+    release(); await pause(30);
+    check(updates.at(-1).waitingForServer && updates.at(-1).agents.length === 0,
+        'Inflight snapshot restored stale state after disconnect');
+    check(streams.every(s => s.closed), 'Local failure left remote subscriptions alive');
+    await monitor._discover();
+    check(remoteQueries === before, 'Local failure must gate remote discovery');
+    const entry = monitor._entries.get('local');
+    GLib.Source.remove(entry.timer); entry.timer = 0;
+    await monitor._refresh(entry); await pause(20);
+    check(!updates.at(-1).waitingForServer && updates.at(-1).agents.length === 4,
+        'Local recovery failed to rediscover remote agents');
+})().catch(error => { printerr(error.stack); System.exit(1); }).finally(() => { monitor.close(); loop.quit(); });
+loop.run();
+""")
+
+    def test_event_stream_acknowledgement_loss_and_shutdown(self):
         with tempfile.TemporaryDirectory() as directory:
-            fake = Path(directory) / "herdr"
-            fake.write_text("""#!/usr/bin/python3
-import json, os, sys
-args = sys.argv[1:]
-with open(os.environ['STATUS_REQUEST_LOG'], 'a') as log:
-    log.write(' '.join(args) + '\\n')
-if args[:2] == ['machine', 'list']:
-    print(json.dumps([dict(id='gpu-id', label='GPU', enabled=True)]))
-else:
-    print(json.dumps(dict(result=dict(snapshot=dict(
-        boot_id='worker-boot',
-        agents=[dict(agent='codex', agent_status=('idle' if os.path.exists(os.environ['STATUS_STATE_FILE']) else 'working'),
-                     state_change_seq=(2 if os.path.exists(os.environ['STATUS_STATE_FILE']) else 1), pane_id='w1:p3',
-                     tab_id='w1:t1', workspace_id='w1'),
-                dict(agent='claude', agent_status='working', pane_id='w1:p4',
-                     tab_id='w1:t1', workspace_id='w1')],
-        panes=[dict(pane_id='w1:p3'), dict(pane_id='w1:p4')], tabs=[dict(tab_id='w1:t1', label='run')],
-        workspaces=[dict(workspace_id='w1', label='project')])))))
+            bridge = Path(directory) / "herdr"
+            bridge.write_text("""#!/usr/bin/python3
+import json, os, signal, subprocess, sys, time
+request = json.loads(sys.stdin.readline())
+assert request['method'] == 'events.subscribe'
+assert any(item['type'] == 'pane.agent_status_changed' for item in request['params']['subscriptions'])
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+def stop(signum, frame):
+    child.wait()
+    sys.exit(0)
+signal.signal(signal.SIGTERM, stop)
+print(json.dumps({'result': {'type': 'subscription_started'}}), flush=True)
+print(json.dumps({'event': 'pane.agent_status_changed', 'pids': [os.getpid(), child.pid]}), flush=True)
+print(json.dumps({'error': {'code': 'events_lost'}}), flush=True)
+time.sleep(60)
 """, encoding="utf-8")
-            fake.chmod(0o755)
-            env = {**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
-                   "STATUS_REQUEST_LOG": str(Path(directory) / "requests"),
-                   "STATUS_STATE_FILE": str(Path(directory) / "state")}
+            bridge.chmod(0o755)
             self.run_gjs(f"""
 const loop = new GLib.MainLoop(null, false);
-const worker = new StatusProcess('{EXTENSION / 'status-worker.js'}');
+let ready = 0, events = 0, errors = 0, pids = [];
+const stream = new EventStream({{id: 'local'}}, '{bridge}', ['w1:p0'], () => ready++,
+    data => {{ events++; pids = data.pids; }}, error => {{
+        check(error.message === 'events_lost', 'Subscription error was ignored'); errors++;
+    }});
+function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms,
+    () => {{ resolve(); return GLib.SOURCE_REMOVE; }})); }}
+(async () => {{
+    for (let index = 0; index < 150 && errors === 0; index++)
+        await pause(20);
+    for (let index = 0; index < 150 && pids.some(pid =>
+        GLib.file_test(`/proc/${{pid}}`, GLib.FileTest.EXISTS)); index++)
+        await pause(20);
+    check(ready === 1 && events === 1 && errors === 1 && stream._closed && !stream._deadline,
+        'Event stream must acknowledge, deliver push, and close on event loss');
+    check(pids.every(pid => !GLib.file_test(`/proc/${{pid}}`, GLib.FileTest.EXISTS)),
+        'Lost subscription left bridge descendants running');
+}})().catch(error => {{ printerr(error.stack); System.exit(1); }}).finally(() => {{ stream.close(); loop.quit(); }});
+loop.run();
+""")
+
+    def test_status_worker_streams_updates_and_reaps_on_close(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worker_file = Path(directory) / "worker.js"
+            worker_file.write_text("""
+import GLib from 'gi://GLib';
+const data = {agents: [], errors: [], metrics: {totalMs: 1, parseMs: 0}};
+print(JSON.stringify(data));
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+    print(JSON.stringify({...data, agents: [{state: 'working'}]}));
+    return GLib.SOURCE_REMOVE;
+});
+new GLib.MainLoop(null, false).run();
+""", encoding="utf-8")
+            self.run_gjs(f"""
+const loop = new GLib.MainLoop(null, false);
+const worker = new StatusProcess('{worker_file}');
+const updates = [];
 const launches = [];
 const spawn = Gio.Subprocess.new;
 Gio.Subprocess.new = (args, flags) => {{ launches.push(args); return spawn(args, flags); }};
 function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms,
     () => {{ resolve(); return GLib.SOURCE_REMOVE; }})); }}
 (async () => {{
-    let first = await worker.collect();
+    worker.start(data => updates.push(data), error => {{ throw error; }});
     const pid = worker._process.get_identifier();
-    const second = await worker.collect();
-    check(worker._process.get_identifier() === pid && launches.length === 1,
-        'Polling spawned more processes inside the Shell instead of reusing its worker');
-    check(first.agents.length === 4 && second.agents.length === 4 && second.metrics.requests === 3,
-        'Worker did not preserve snapshot polling');
-    check(first.agents[0].paneId === first.agents[2].paneId &&
-        first.agents[0].id !== first.agents[2].id && first.agents[2].serverId === 'gpu-id' &&
-        first.agents.every(agent => agent.bootId === 'worker-boot'), 'Machine or boot identities lost');
-    check(first.agents.filter(agent => agent.agentType === 'claude').length === 2 &&
-        second.agents.filter(agent => agent.agentType === 'codex').length === 2,
-        'Worker did not preserve both agent types across local and remote machines');
-    check(JSON.stringify(first.agents) === JSON.stringify(second.agents),
-        'Persistent worker emitted changing timestamps for unchanged working rows');
-    GLib.file_set_contents(GLib.getenv('STATUS_STATE_FILE'), 'idle');
-    const third = await worker.collect();
-    check(third.agents.filter(agent => agent.agentType === 'codex')
-        .every(agent => agent.state === 'idle' && agent.lastActivityAt > 0),
-        'Persistent worker lost activity when working agents became idle');
-    const [, bytes] = GLib.file_get_contents(GLib.getenv('STATUS_REQUEST_LOG'));
-    check(new TextDecoder().decode(bytes).trim().split('\\n').length === 9, 'Extra worker polling');
+    for (let index = 0; index < 150 && updates.length < 2; index++)
+        await pause(20);
+    check(updates.length === 2 && updates[1].agents[0].state === 'working',
+        'Push updates were not delivered without a collection request');
+    check(launches.length === 1 && worker._process.get_identifier() === pid, 'Worker was respawned');
     worker.close();
-    await pause(150);
-    check(!worker._process && !worker._killSource && !worker._deadline &&
-        !GLib.file_test(`/proc/${{pid}}`, GLib.FileTest.EXISTS), 'Disable left a worker running');
+    for (let index = 0; index < 150 && worker._process; index++)
+        await pause(20);
+    check(!worker._process && !worker._killSource &&
+        !GLib.file_test(`/proc/${{pid}}`, GLib.FileTest.EXISTS), 'Worker survived close');
 }})().catch(error => {{ printerr(error.stack); System.exit(1); }}).finally(() => {{ worker.close(); loop.quit(); }});
 loop.run();
-""", env=env)
+""")
 
-    def test_failed_status_worker_does_not_respawn_on_every_poll(self):
+    def test_failed_status_worker_reports_error_without_respawning(self):
         with tempfile.TemporaryDirectory() as directory:
             worker_file = Path(directory) / "worker.js"
             worker_file.write_text('print("invalid");', encoding="utf-8")
             self.run_gjs(f"""
 const loop = new GLib.MainLoop(null, false);
 const worker = new StatusProcess('{worker_file}');
-const launches = [];
-const spawn = Gio.Subprocess.new;
-Gio.Subprocess.new = (args, flags) => {{ launches.push(args); return spawn(args, flags); }};
+let errors = 0;
+worker.start(() => {{ throw new Error('Invalid response accepted'); }}, () => errors++);
+function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms,
+    () => {{ resolve(); return GLib.SOURCE_REMOVE; }})); }}
 (async () => {{
-    for (let index = 0; index < 3; index++) {{
-        let failed = false;
-        try {{ await worker.collect(); }} catch {{ failed = true; }}
-        check(failed, 'Broken worker response was accepted');
-    }}
-    check(launches.length === 1 && !worker._deadline, 'Broken worker respawned on every poll');
+    for (let index = 0; index < 150 && (errors === 0 || worker._process); index++)
+        await pause(20);
+    check(errors === 1 && worker._closed && !worker._process, 'Failed worker was not stopped');
 }})().catch(error => {{ printerr(error.stack); System.exit(1); }}).finally(() => {{ worker.close(); loop.quit(); }});
 loop.run();
 """)
@@ -477,9 +608,6 @@ loop.run();
             fake = Path(directory) / "herdr"
             fake.write_text("""#!/usr/bin/python3
 import json, os, pathlib, signal, subprocess, sys, time
-if sys.argv[1:3] == ['machine', 'list']:
-    print('[]')
-    sys.exit(0)
 child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
 def stop(signum, frame):
     child.wait()
@@ -497,7 +625,7 @@ const worker = new StatusProcess('{EXTENSION / 'status-worker.js'}');
 function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms,
     () => {{ resolve(); return GLib.SOURCE_REMOVE; }})); }}
 (async () => {{
-    const pending = worker.collect().catch(() => null);
+    worker.start(() => {{}}, error => {{ throw error; }});
     const pid = worker._process.get_identifier();
     const file = GLib.getenv('STATUS_CHILD_PIDS');
     for (let index = 0; index < 100 && !GLib.file_test(file, GLib.FileTest.EXISTS); index++)
@@ -506,10 +634,10 @@ function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORI
     const [, bytes] = GLib.file_get_contents(file);
     const pids = JSON.parse(new TextDecoder().decode(bytes));
     worker.close();
-    await pending;
-    for (let index = 0; index < 100 && worker._process; index++)
+    for (let index = 0; index < 100 && [pid, ...pids].some(value =>
+        GLib.file_test(`/proc/${{value}}`, GLib.FileTest.EXISTS)); index++)
         await pause(20);
-    check(!worker._process && !worker._killSource && !worker._deadline, 'Worker was not reaped');
+    check(!worker._process && !worker._killSource, 'Worker was not reaped');
     check([pid, ...pids].every(value => !GLib.file_test(`/proc/${{value}}`, GLib.FileTest.EXISTS)),
         'Disable left worker command descendants running');
 }})().catch(error => {{ printerr(error.stack); System.exit(1); }}).finally(() => {{ worker.close(); loop.quit(); }});
@@ -531,18 +659,16 @@ const worker = new StatusProcess('{worker_file}');
 function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms,
     () => {{ resolve(); return GLib.SOURCE_REMOVE; }})); }}
 (async () => {{
-    const pending = worker.collect().catch(() => null);
+    worker.start(() => {{}}, () => {{}});
     const pid = worker._process.get_identifier();
     await pause(200);
     worker.close();
-    await pending;
     await pause(2200);
-    check(!worker._process && !worker._killSource && !worker._deadline &&
+    check(!worker._process && !worker._killSource &&
         !GLib.file_test(`/proc/${{pid}}`, GLib.FileTest.EXISTS), 'Unresponsive worker survived shutdown');
     const immediate = new StatusProcess('{EXTENSION / 'status-worker.js'}');
-    const collecting = immediate.collect().catch(() => null);
+    immediate.start(() => {{}}, () => {{}});
     immediate.close();
-    await collecting;
     await pause(150);
     check(!immediate._process && !immediate._killSource, 'Immediate startup cancellation leaked a worker');
 }})().catch(error => {{ printerr(error.stack); System.exit(1); }}).finally(() => {{ worker.close(); loop.quit(); }});

@@ -6,65 +6,68 @@ import GLib from 'gi://GLib';
 import GLibUnix from 'gi://GLibUnix';
 import System from 'system';
 
-import {Collector} from './collector.js';
+import {EventMonitor} from './event-monitor.js';
 
-const collector = new Collector();
 const loop = new GLib.MainLoop(null, false);
 const cancellable = new Gio.Cancellable();
-const input = new Gio.DataInputStream({base_stream: new GioUnix.InputStream({fd: 0, close_fd: false})});
+const input = new GioUnix.InputStream({fd: 0, close_fd: false});
 const output = new GioUnix.OutputStream({fd: 1, close_fd: false});
 let stopped = false;
 let failed = false;
 let signalSource = 0;
+let writing = false;
+let pending = null;
 
 function stop() {
-    if (!stopped) {
-        stopped = true;
-        cancellable.cancel();
-        collector.close();
+    if (stopped)
+        return;
+    stopped = true;
+    cancellable.cancel();
+    monitor.close();
+    if (signalSource)
+        GLib.Source.remove(signalSource);
+    signalSource = 0;
+    loop.quit();
+}
+
+async function publish(data) {
+    pending = data;
+    if (writing || stopped)
+        return;
+    writing = true;
+    try {
+        while (pending && !stopped) {
+            const bytes = new TextEncoder().encode(`${JSON.stringify(pending)}\n`);
+            pending = null;
+            await new Promise((resolve, reject) => {
+                output.write_all_async(bytes, GLib.PRIORITY_DEFAULT, cancellable, (source, result) => {
+                    try { source.write_all_finish(result); resolve(); } catch (error) { reject(error); }
+                });
+            });
+        }
+    } catch (error) {
+        if (!stopped) {
+            printerr(`Agent Status worker: ${error.message}`);
+            failed = true;
+            stop();
+        }
+    } finally {
+        writing = false;
     }
 }
 
+const monitor = new EventMonitor(publish);
 signalSource = GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, 15, () => {
     signalSource = 0;
     stop();
     return GLib.SOURCE_REMOVE;
 });
-
-async function run() {
-    while (!stopped) {
-        const line = await new Promise((resolve, reject) => {
-            input.read_line_async(GLib.PRIORITY_DEFAULT, cancellable, (source, result) => {
-                try { resolve(source.read_line_finish_utf8(result)[0]); } catch (error) { reject(error); }
-            });
-        });
-        if (line === null)
-            return;
-        if (line !== 'collect')
-            throw new Error('Invalid status collector request');
-        const data = await collector.collect();
-        if (stopped)
-            return;
-        await new Promise((resolve, reject) => {
-            output.write_all_async(new TextEncoder().encode(`${JSON.stringify(data)}\n`),
-                GLib.PRIORITY_DEFAULT, cancellable, (source, result) => {
-                    try { source.write_all_finish(result); resolve(); } catch (error) { reject(error); }
-                });
-        });
-    }
-}
-
-run().catch(error => {
-    if (!stopped) {
-        printerr(`Agent Status worker: ${error.message}`);
-        failed = true;
-    }
-}).finally(() => {
+// The parent owns stdin. EOF also stops bridges if the Shell disappears.
+input.read_bytes_async(1, GLib.PRIORITY_DEFAULT, cancellable, (source, result) => {
+    try { source.read_bytes_finish(result); } catch {}
     stop();
-    if (signalSource)
-        GLib.Source.remove(signalSource);
-    loop.quit();
 });
+monitor.start();
 loop.run();
 if (failed)
     System.exit(1);
