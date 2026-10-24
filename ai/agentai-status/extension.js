@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.16';
+const WIDGET_VERSION = '0.0.17';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -130,13 +130,15 @@ export default class CodexStatus extends Extension {
         const usageContainer = new PopupMenu.PopupBaseMenuItem({reactive: false});
         usageContainer.add_child(usageSection.actor);
         for (const agentType of ['claude', 'codex']) {
-            const row = new PopupMenu.PopupBaseMenuItem({reactive: false, style_class: 'codex-status-usage-row'});
+            const row = new PopupMenu.PopupBaseMenuItem({reactive: false, style_class: 'codex-status-usage-row',
+                style: 'spacing: 8px; padding-top: 0; padding-bottom: 0; min-height: 0;'});
             row.x_expand = true;
             const icon = new St.Icon({icon_size: 16, y_align: Clutter.ActorAlign.CENTER,
                 accessible_name: AGENT_TYPES[agentType].label});
             row.add_child(icon);
             this._bindIcon(row, icon, agentType);
-            const label = new St.Label({style_class: 'codex-status-usage', y_align: Clutter.ActorAlign.CENTER});
+            const label = new St.Label({style_class: 'codex-status-usage',
+                style: 'font-size: 0.85em; color: #b0b0b0;', y_align: Clutter.ActorAlign.CENTER});
             row.add_child(label);
             usageSection.addMenuItem(row);
             this._usageRows.push({agentType, row, label});
