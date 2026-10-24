@@ -1,3 +1,4 @@
+import hashlib
 import shutil
 import subprocess
 import tempfile
@@ -107,6 +108,52 @@ class ConversionTests(unittest.TestCase):
 
             self.assertEqual(target.name, "song.mp3")
             self.assertGreater(bitrate or 0, 0)
+
+    def test_run_writes_provenance_tags_and_second_run_skips(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            make_wav(root / "song.wav")
+
+            self.assertEqual(main([str(root), "--run", "-q", "2"]), 0)
+            tags = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format_tags", "-of", "default", str(root / "song.mp3")],
+                capture_output=True, text=True, check=True,
+            ).stdout
+            self.assertIn("wav2mp3_source=song.wav|", tags)
+            self.assertIn("wav2mp3_settings=libmp3lame VBR -q:a 2", tags)
+            self.assertIn("wav2mp3_date=", tags)
+            self.assertIn(f"wav2mp3_source_md5={hashlib.md5((root / 'song.wav').read_bytes()).hexdigest()}", tags)
+
+            self.assertEqual(main([str(root), "--run"]), 0)
+            self.assertEqual(sorted(p.name for p in root.iterdir()), ["song.mp3", "song.wav"])
+
+    def test_changed_wav_with_same_name_and_size_is_converted_again(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            wav = root / "song.wav"
+            make_wav(wav)
+            self.assertEqual(main([str(root), "--run"]), 0)
+            data = bytearray(wav.read_bytes())
+            data[-1] ^= 0xFF
+            wav.write_bytes(bytes(data))
+
+            self.assertEqual(main([str(root), "--run"]), 0)
+
+            self.assertEqual(sorted(p.name for p in root.iterdir()), ["song.mp3", "song.wav", "song_1.mp3"])
+
+    def test_renamed_files_are_still_recognised_as_converted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            make_wav(root / "song.wav")
+            self.assertEqual(main([str(root), "--run"]), 0)
+            (root / "sub").mkdir()
+            (root / "song.wav").rename(root / "renamed take.wav")
+            (root / "song.mp3").rename(root / "sub" / "final mix.mp3")
+
+            self.assertEqual(main([str(root), "--run"]), 0)
+
+            self.assertEqual(sorted(p.name for p in root.iterdir()), ["renamed take.wav", "sub"])
+            self.assertEqual([p.name for p in (root / "sub").iterdir()], ["final mix.mp3"])
 
     def test_corrupt_wav_fails_without_leaving_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

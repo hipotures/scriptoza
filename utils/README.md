@@ -76,7 +76,7 @@ music.wav + music.mp3          -> music_1.mp3
 voice.wav + voice.mp3 + voice_1.mp3 -> voice_2.mp3
 ```
 
-Each file is encoded to a hidden temporary file and verified with `ffprobe` (MP3 stream present, duration within one second of the source) before it is moved to its final name. The WAV files are never modified or deleted, so you can check the results and remove them yourself. The exit status is non-zero if any conversion failed. The startup line shows the selected VBR quality with its typical bitrate, each converted file is reported with its actual bitrate, and the summary shows the average. Use `--quality 0-9` to change the LAME VBR quality. Requires `ffmpeg` and `ffprobe`.
+Each file is encoded to a hidden temporary file and verified with `ffprobe` (MP3 stream present, duration within one second of the source) before it is moved to its final name. Each MP3 gets `wav2mp3_source` (name and size), `wav2mp3_source_md5`, `wav2mp3_settings` and `wav2mp3_date` tags (readable with `ffprobe -show_entries format_tags`), and a re-run skips every WAV whose MD5 matches an MP3 made by this script anywhere under the scanned directory, so renamed WAV or MP3 files are still recognised and a changed WAV is converted again. Re-runs therefore read each WAV once to hash it. The WAV files are never modified or deleted, so you can check the results and remove them yourself. The exit status is non-zero if any conversion failed. The startup line shows the selected VBR quality with its typical bitrate, each converted file is reported with its actual bitrate, and the summary shows the average. Use `--quality 0-9` to change the LAME VBR quality. Requires `ffmpeg` and `ffprobe`.
 
 ## Google Chat Message Cleanup
 

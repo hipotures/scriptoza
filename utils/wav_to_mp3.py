@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
@@ -26,6 +29,8 @@ from rich.progress import (
 console = Console()
 
 DURATION_TOLERANCE_SECONDS = 1.0
+SOURCE_TAG = "wav2mp3_source"
+MD5_TAG = "wav2mp3_source_md5"
 APPROX_VBR_KBPS = (245, 225, 190, 175, 165, 130, 115, 100, 85, 65)
 
 
@@ -33,14 +38,18 @@ class ConversionError(Exception):
     pass
 
 
-def find_wav_files(root: Path) -> list[Path]:
-    wavs: list[Path] = []
+def find_files(root: Path, suffix: str) -> list[Path]:
+    found: list[Path] = []
     for directory, _dirnames, filenames in os.walk(root):
         for filename in filenames:
             path = Path(directory) / filename
-            if path.suffix.lower() == ".wav" and path.is_file() and not path.is_symlink():
-                wavs.append(path)
-    return sorted(wavs)
+            if path.suffix.lower() == suffix and path.is_file() and not path.is_symlink():
+                found.append(path)
+    return sorted(found)
+
+
+def find_wav_files(root: Path) -> list[Path]:
+    return find_files(root, ".wav")
 
 
 def next_available_path(path: Path, reserved: set[Path]) -> Path:
@@ -50,6 +59,90 @@ def next_available_path(path: Path, reserved: set[Path]) -> Path:
         candidate = path.with_name(f"{path.stem}_{counter}{path.suffix}")
         counter += 1
     return candidate
+
+
+def source_signature(wav: Path) -> str:
+    return f"{wav.name}|{wav.stat().st_size}"
+
+
+def md5_file(path: Path) -> str:
+    digest = hashlib.md5()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def provenance_args(wav: Path, quality: int) -> list[str]:
+    tags = {
+        SOURCE_TAG: source_signature(wav),
+        MD5_TAG: md5_file(wav),
+        "wav2mp3_settings": f"libmp3lame VBR -q:a {quality}, ~{APPROX_VBR_KBPS[quality]} kb/s typical",
+        "wav2mp3_date": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "encoded_by": "wav_to_mp3.py (Scriptoza)",
+    }
+    args: list[str] = []
+    for key, value in tags.items():
+        args.extend(["-metadata", f"{key}={value}"])
+    return args
+
+
+def read_provenance_tags(mp3: Path) -> dict[str, str]:
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", f"format_tags={SOURCE_TAG},{MD5_TAG}",
+            "-of", "json", str(mp3),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return {}
+    try:
+        tags = json.loads(result.stdout).get("format", {}).get("tags", {})
+    except json.JSONDecodeError:
+        return {}
+    return {key.lower(): value for key, value in tags.items()}
+
+
+def build_converted_index(mp3s: list[Path], progress: Progress | None = None) -> dict[str, tuple[int | None, Path]]:
+    index: dict[str, tuple[int | None, Path]] = {}
+    task_id = progress.add_task("Reading MP3 tags".ljust(25), total=len(mp3s)) if progress else None
+    for mp3 in mp3s:
+        tags = read_provenance_tags(mp3)
+        md5 = tags.get(MD5_TAG)
+        if md5:
+            try:
+                size: int | None = int(tags.get(SOURCE_TAG, "").rsplit("|", 1)[1])
+            except (IndexError, ValueError):
+                size = None
+            index.setdefault(md5, (size, mp3))
+        if progress and task_id is not None:
+            progress.advance(task_id)
+    return index
+
+
+def split_already_converted(
+    wavs: list[Path],
+    index: dict[str, tuple[int | None, Path]],
+    progress: Progress | None = None,
+) -> tuple[list[Path], list[tuple[Path, Path]]]:
+    sizes = {size for size, _mp3 in index.values()}
+    todo: list[Path] = []
+    done: list[tuple[Path, Path]] = []
+    task_id = progress.add_task("Checking WAV files".ljust(25), total=len(wavs)) if progress else None
+    for wav in wavs:
+        match = None
+        if index and (None in sizes or wav.stat().st_size in sizes):
+            match = index.get(md5_file(wav))
+        if match:
+            done.append((wav, match[1]))
+        else:
+            todo.append(wav)
+        if progress and task_id is not None:
+            progress.advance(task_id)
+    return todo, done
 
 
 def plan_targets(wavs: list[Path]) -> list[tuple[Path, Path]]:
@@ -102,6 +195,7 @@ def encode_to_temp(wav: Path, quality: int) -> tuple[Path, int | None]:
                 "-i", str(wav),
                 "-map", "0:a:0", "-vn", "-map_metadata", "0",
                 "-c:a", "libmp3lame", "-q:a", str(quality),
+                *provenance_args(wav, quality),
                 "-id3v2_version", "3", str(temp),
             ],
             capture_output=True,
@@ -159,6 +253,20 @@ def convert(wav: Path, quality: int) -> tuple[Path, int | None]:
         temp.unlink(missing_ok=True)
 
 
+def make_progress(*, transient: bool = True) -> Progress:
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=40),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        expand=False,
+        transient=transient,
+    )
+
+
 def print_settings(root: Path, quality: int, count: int) -> None:
     rows = (
         ("Source", f"{root.resolve()} (recursive)"),
@@ -166,9 +274,10 @@ def print_settings(root: Path, quality: int, count: int) -> None:
         ("Encoder", f"libmp3lame, -q:a {quality}"),
         ("Bitrate mode", f"VBR, quality {quality} (0 = best), typically ~{APPROX_VBR_KBPS[quality]} kb/s"),
         ("Sample rate / channels", "kept from the source"),
-        ("Tags", "ID3v2.3, metadata copied from the WAV"),
+        ("Tags", "ID3v2.3, metadata copied from the WAV plus wav2mp3_* provenance tags (source, MD5, settings, date)"),
         ("Output", "same directory, existing files never overwritten (_1, _2, ...)"),
         ("Verification", f"ffprobe: MP3 stream, duration within {DURATION_TOLERANCE_SECONDS:g}s of the source"),
+        ("Re-runs", "WAVs whose MD5 matches an MP3 made by this script are skipped (renames do not matter)"),
         ("Originals", "WAV files are kept"),
     )
     console.print("\n[bold]Settings[/bold]")
@@ -206,12 +315,11 @@ def main(argv: list[str] | None = None) -> int:
     if not root.is_dir():
         console.print(f"[red]Error: {root} is not a directory.[/red]")
         return 1
-    if args.run:
-        missing = [tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None]
-        if missing:
-            console.print(f"[red]Error: missing tool(s): {', '.join(missing)}[/red]")
-            return 1
-    else:
+    missing = [tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None]
+    if missing:
+        console.print(f"[red]Error: missing tool(s): {', '.join(missing)}[/red]")
+        return 1
+    if not args.run:
         console.print("[bold yellow]DRY RUN: no files will be created. Use --run to convert.[/bold yellow]")
 
     wavs = find_wav_files(root)
@@ -221,7 +329,14 @@ def main(argv: list[str] | None = None) -> int:
 
     print_settings(root, args.quality, len(wavs))
 
-    plan = plan_targets(wavs)
+    with make_progress() as scan_progress:
+        index = build_converted_index(find_files(root, ".mp3"), scan_progress)
+        todo, already_done = split_already_converted(wavs, index, scan_progress)
+    for wav, mp3 in already_done:
+        console.print(f"SKIPPED (already converted): {wav} -> {mp3.name}", highlight=False, markup=False)
+    plan = plan_targets(todo)
+    if not plan:
+        console.print("[yellow]Nothing to convert.[/yellow]")
     converted = 0
     bitrates: list[int] = []
     failed: list[tuple[Path, str]] = []
@@ -230,16 +345,7 @@ def main(argv: list[str] | None = None) -> int:
         for wav, target in plan:
             console.print(f"  {wav} -> {target}", highlight=False, markup=False)
     else:
-        progress = Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(bar_width=40),
-            MofNCompleteColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            console=console,
-            expand=False,
-        )
+        progress = make_progress(transient=False)
         task_id = progress.add_task("Converting WAV files".ljust(25), total=len(plan))
         try:
             with progress:
@@ -263,6 +369,7 @@ def main(argv: list[str] | None = None) -> int:
 
     console.print("\n[bold]Summary[/bold]")
     console.print(f"  WAV files found: {len(wavs)}")
+    console.print(f"  Skipped (already converted): {len(already_done)}")
     if args.run:
         console.print(f"  Converted: {converted}")
         if bitrates:
