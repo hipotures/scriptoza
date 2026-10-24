@@ -156,17 +156,21 @@ export async function run() {
             sessionTitle: index === 0 ? '' : `Task ${index}`, location: `gpu/phase${index}:run:p1`}));
     agents.push({state: 'working', agentType: 'claude', serverId: 'cpu-id',
         bootId: 'boot-1', displayName: 'gpu/second · Claude Code', sessionTitle: 'Second task', location: 'gpu/second:run:p1'});
+    const usageNow = Date.now() / 1000;
     const data = {agents, errors: [],
+        usage: {claude: {five: {usedPercent: 1, resetsAt: usageNow + 3 * 3600 + 12 * 60 - 1},
+            week: {usedPercent: 64, resetsAt: usageNow + 2 * 86400 + 3600}}, codex: null},
         updatedAt: new Date(2026, 9, 23, 0, 43, 55).getTime()};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.13'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.18'),
         'Menu footer did not display the loaded widget version');
-    check(widget._footer.label.text === 'Last update: 00:43:55 · v0.0.13',
+    check(widget._footer.label.text === 'Last update: 00:43:55 · v0.0.18',
         'Footer must use a 24-hour clock without a date or performance metrics');
-    const heading = () => widget._indicator.menu._getMenuItems()[0].label.text;
-    check(heading() === '2 local agents, 4 remote agents',
-        'Heading must count agent machine identities, including all types and idle agents');
+    check(widget._usageRows.map(({label}) => label.text).join('|') === '5h 99% · 3h12m, wk 36% · 2d|',
+        'Usage rows must show remaining percent and time per agent type, hiding types without data');
+    check(widget._usageRows.map(({row}) => row.visible).join() === 'true,false',
+        'A usage row without data must be hidden');
     check(widget._agentRows.every(({agent, row, icon, textBox, label, titleLabel, tooltip, statusLabel}) => {
         const children = row.get_children().filter(child => child.visible);
         return children.length === 3 && children[0] === icon && children[1] === textBox &&
@@ -184,12 +188,15 @@ export async function run() {
     const retainedDots = widget._panelDots.map(({dot}) => dot);
     const retainedBlink = widget._blinkSource;
     widget._render({...data, agents: agents.map(agent => ({...agent})),
-        updatedAt: new Date(2026, 9, 23, 13, 44, 56).getTime()});
+        updatedAt: new Date(2026, 9, 23, 13, 44, 56).getTime(),
+        usage: {...data.usage, codex: {five: {usedPercent: 36, resetsAt: usageNow + 600}, week: null}}});
     check(widget._agentRows.every(({row}, index) => row === retainedRows[index]) &&
         widget._panelDots.every(({dot}, index) => dot === retainedDots[index]),
         'Unchanged polling rebuilt panel dots or interactive rows');
-    check(widget._blinkSource === retainedBlink && widget._footer.label.text === 'Last update: 13:44:56 · v0.0.13',
-        'Unchanged polling restarted blinking or failed to update the footer');
+    check(widget._blinkSource === retainedBlink &&
+        widget._footer.label.text === 'Last update: 13:44:56 · v0.0.18' &&
+        widget._usageRows[1].label.text === '5h 64% · 10m',
+        'Unchanged polling restarted blinking or failed to update the footer or usage');
     check(widget._indicator.menu.box.get_n_children() === 5, 'Menu leaked children or lost a separator');
     check(widget._panelDots.length === 5 && widget._panelBox.get_n_children() === 5,
         'One dot per non-idle agent, no terminal icon or counters');
@@ -217,7 +224,6 @@ export async function run() {
         {state: 'idle', agentType: 'codex', serverId: 'local', displayName: 'first · Codex', sessionTitle: '', location: 'first:run:p1'},
         {state: 'idle', agentType: 'claude', serverId: 'local', displayName: 'second · Claude Code', sessionTitle: '', location: 'second:run:p1'},
     ]});
-    check(heading() === '2 local agents, 0 remote agents', 'All-local heading is incorrect');
     check(widget._indicator.visible && widget._panelDots.length === 2,
         'All idle agents retain individual gray dots and an accessible menu');
     check(widget._panelDots.every(({state, dot}) => state === 'idle' && dot.opacity === 255),
@@ -297,7 +303,6 @@ export async function run() {
     let targetData = {...data, agents: [{id: 'local/w1:p3', serverId: 'local', paneId: 'w1:p3',
         bootId: 'boot-1', state: 'working', agentType: 'codex', displayName: 'project · Codex', sessionTitle: '', location: 'project:run:p3'}]};
     widget._render(targetData);
-    check(heading() === '1 local agent, 0 remote agents', 'Local heading is incorrect');
     for (const patch of [{bootId: 'boot-2'}, {serverId: 'gpu-id'}, {paneId: 'w2:p3'},
         {location: 'other:run:p3'}, {state: 'done'}, {agentType: 'claude'}]) {
         const previousRow = widget._agentRows[0].row;
@@ -305,16 +310,12 @@ export async function run() {
         widget._render(targetData);
         check(widget._agentRows[0].row !== previousRow, 'Changed target or status retained a stale row');
         check(widget._agentRows[0].agent === targetData.agents[0], 'Row did not receive the current target');
-        const local = targetData.agents[0].serverId === 'local';
-        check(heading() === (local ? '1 local agent, 0 remote agents' : '0 local agents, 1 remote agent'),
-            'Changed machine identity retained stale local/remote counts');
     }
     widget._render({...targetData, errors: [{machine: 'Herdr', message: 'Unavailable'}]});
     check(widget._indicator.menu._getMenuItems().some(item => item.label?.text === 'Herdr: unavailable'),
         'Changed errors failed to update the menu');
     await testRealWindowActivation(extension);
     widget._render({...data, agents: []});
-    check(heading() === '0 local agents, 0 remote agents', 'Empty heading is incorrect');
     widget.disable();
     check(!widget._blinkSource && !widget._collector && !widget._indicator &&
         widget._renderKey === null && widget._footer === null, 'Disable leaked state');
