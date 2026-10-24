@@ -35,6 +35,7 @@ Collection of small utility scripts organized by category. Each category has its
 - `scan_mp4_to_json.py` - Scans MP4 files and outputs metadata as JSON
 - `delete-google-chat-messages.js` - Controlled Google Chat message cleanup through a browser CDP session and private match rules
 - `musescore_export_mp3_with_tags.py` - Exports MuseScore `.mscz` files to tagged MP3s named from `workTitle`
+- `wav_to_mp3.py` - Recursively converts WAV files to high-quality VBR MP3 next to the originals without overwriting or deleting anything
 - `install.py` - Installs selected utility scripts into a local bin directory
 - `migrate.py` - Small migration helper for local data transformations
 

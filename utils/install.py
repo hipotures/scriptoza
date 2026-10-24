@@ -39,6 +39,7 @@ def main():
         ("utils/organize_by_date.py", "organize-by-date"),
         ("utils/migrate.py", "migrate-tt"),
         ("utils/musescore_export_mp3_with_tags.py", "musescore-export-mp3-with-tags"),
+        ("utils/wav_to_mp3.py", "wav-to-mp3"),
     ]
 
     configs = [

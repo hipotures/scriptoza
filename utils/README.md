@@ -23,6 +23,7 @@ If you still need the old event workflow scripts, run them from `deprecated/pipe
 - `scan_mp4_to_json.py` - Scans MP4 files and outputs metadata as JSON
 - `delete-google-chat-messages.js` - Controlled Google Chat message cleanup through a browser CDP session and private match rules
 - `musescore_export_mp3_with_tags.py` - Exports MuseScore `.mscz` files to tagged MP3s named from `workTitle`
+- `wav_to_mp3.py` - Recursively converts WAV files to high-quality VBR MP3 next to the originals without overwriting or deleting anything
 - `install.py` - Installs selected utility scripts into a local bin directory
   and copies the optional `codex-resume` systemd user unit to
   `~/.config/systemd/user/`
@@ -57,6 +58,25 @@ audiosettings.json -> MP3 comment summary and musescore:audiosettings custom tag
 After export, the script prints the MP3 path and the readable MuseScore mixer summary, one mixer entry per line. Use `--print-mixer-json` to also print the full `audiosettings.json` value.
 
 The MuseScore binary is read from `MUSESCORE_BIN`, `--musescore-bin`, or a MuseScore command available in `PATH`.
+
+## WAV to MP3 Conversion
+
+`wav_to_mp3.py` finds WAV files (any extension case) under a directory and converts each to a VBR MP3 (`libmp3lame -q:a 0`, roughly 220-260 kb/s) in the same directory. It is a dry run by default and only converts when `--run` is passed:
+
+```bash
+python3 utils/wav_to_mp3.py /path/to/audio
+python3 utils/wav_to_mp3.py /path/to/audio --run
+```
+
+Existing files are never overwritten; a name collision produces the next free name:
+
+```text
+recording.wav                  -> recording.mp3
+music.wav + music.mp3          -> music_1.mp3
+voice.wav + voice.mp3 + voice_1.mp3 -> voice_2.mp3
+```
+
+Each file is encoded to a hidden temporary file and verified with `ffprobe` (MP3 stream present, duration within one second of the source) before it is moved to its final name. The WAV files are never modified or deleted, so you can check the results and remove them yourself. The exit status is non-zero if any conversion failed. Use `--quality 0-9` to change the LAME VBR quality. Requires `ffmpeg` and `ffprobe`.
 
 ## Google Chat Message Cleanup
 
