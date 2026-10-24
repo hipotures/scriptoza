@@ -57,7 +57,7 @@ line per agent type that has usage data: its icon, then the remaining percentage
 to reset of the 5-hour and weekly windows, such as `5h 99% · 3h12m, wk 36% · 2d`. A
 separator sits above the rows as well as above the footer.
 Each row contains a type icon, a workspace name colored by its status, and a matching
-text status on the right, without a duplicate dot.
+status icon on the right (its label is the accessible name), without a duplicate dot.
 SVG files in `agentai-status/assets/icons/` identify Codex and Claude Code.
 Screen readers announce the agent type, name, and status.
 The OpenAI icon switches between the supplied light and dark variants when the
@@ -149,7 +149,7 @@ they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the last successful snapshot update time in local time,
 using a 24-hour clock without a date, and the widget version:
-`Last update: 00:43:55 · v0.0.22`. Machine discovery and connection-error
+`Last update: 00:43:55 · v0.0.24`. Machine discovery and connection-error
 notifications preserve the last successful update time. Refresh latency and JSON
 parsing metrics are not displayed in the menu.
 

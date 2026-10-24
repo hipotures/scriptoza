@@ -1,12 +1,12 @@
 'use strict';
 
 export const STATES = {
-    blocked: {label: 'Needs attention', color: '#f66151'},
-    done: {label: 'Done', color: '#57e389'},
-    working: {label: 'Working', color: '#62a0ea'},
-    unknown: {label: 'Unknown', color: '#f8e45c'},
-    idle: {label: 'Idle', color: '#b0b0b0'},
-    offline: {label: 'Disconnected', color: '#777777'},
+    blocked: {label: 'Needs attention', color: '#f66151', icon: 'dialog-warning-symbolic'},
+    done: {label: 'Done', color: '#57e389', icon: 'object-select-symbolic'},
+    working: {label: 'Working', color: '#62a0ea', icon: 'emblem-synchronizing-symbolic'},
+    unknown: {label: 'Unknown', color: '#f8e45c', icon: 'dialog-question-symbolic'},
+    idle: {label: 'Idle', color: '#b0b0b0', icon: 'media-playback-pause-symbolic'},
+    offline: {label: 'Disconnected', color: '#777777', icon: 'network-offline-symbolic'},
 };
 
 export const AGENT_TYPES = {

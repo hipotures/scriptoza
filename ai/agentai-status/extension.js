@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.22';
+const WIDGET_VERSION = '0.0.24';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -212,9 +212,11 @@ export default class CodexStatus extends Extension {
             });
             row.connect('notify::mapped', () => { tooltip.hide(); });
             row.connect('destroy', () => tooltip.destroy());
-            const statusLabel = new St.Label({
-                text: STATES[agent.state].label,
-                style: `color: ${STATES[agent.state].color};${profile.font ? ` font-size: ${profile.font};` : ''}`,
+            const statusLabel = new St.Icon({
+                icon_name: STATES[agent.state].icon,
+                icon_size: 16,
+                style: `color: ${STATES[agent.state].color};`,
+                accessible_name: STATES[agent.state].label,
                 y_align: Clutter.ActorAlign.CENTER,
             });
             row.add_child(statusLabel);
@@ -234,6 +236,7 @@ export default class CodexStatus extends Extension {
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._footer = new PopupMenu.PopupMenuItem('', {reactive: false});
         this._footer.label.add_style_class_name('codex-status-footer');
+        this._footer.label.x_expand = true;
         this._footer.add_child(this._buildDensitySwitch());
         this._indicator.menu.addMenuItem(this._footer);
         this._updateFooter(updatedAt);
@@ -257,9 +260,10 @@ export default class CodexStatus extends Extension {
     }
 
     _buildDensitySwitch() {
-        const icon = new St.Icon({icon_name: 'emblem-system-symbolic', icon_size: 14});
+        const icon = new St.Icon({icon_name: 'emblem-system-symbolic', icon_size: 16});
         const button = new St.Button({child: icon, can_focus: true, reactive: true,
-            y_align: Clutter.ActorAlign.CENTER, accessible_name: `Density: ${this._density}`,
+            x_align: Clutter.ActorAlign.END, y_align: Clutter.ActorAlign.CENTER,
+            accessible_name: `Density: ${this._density}`,
             style: 'padding: 0; margin-right: 20px;', opacity: 180});
         button.connect('clicked', () => {
             this._setDensity(DENSITIES[(DENSITIES.indexOf(this._density) + 1) % DENSITIES.length]);
