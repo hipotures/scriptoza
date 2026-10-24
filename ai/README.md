@@ -54,7 +54,7 @@ that only repeats the workspace is hidden. A trailing ` | workspace` is removed
 from session titles. Hover over a row to see its full machine/workspace/tab/pane
 location. Names are automatic and require no manual pane renaming. The top of the menu shows one
 line per agent type that has usage data: its icon, then the remaining percentage and time
-to reset of the 5-hour and weekly windows, such as `5h 99% · 3h12m, wk 36% · 2d`. A
+to reset of the 5-hour and weekly windows, such as `5h 99% · 3h12m  wk 36% · 2d`. A
 separator sits above the rows as well as above the footer.
 Each row contains a type icon, a workspace name colored by its status, and a matching
 status icon on the right (its label is the accessible name), without a duplicate dot.
@@ -149,7 +149,7 @@ they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the last successful snapshot update time in local time,
 using a 24-hour clock without a date, and the widget version:
-`Last update: 00:43:55 · v0.0.29`. Machine discovery and connection-error
+`Last update: 00:43:55 · v0.0.30`. Machine discovery and connection-error
 notifications preserve the last successful update time. Refresh latency and JSON
 parsing metrics are not displayed in the menu.
 
