@@ -13,7 +13,7 @@ fi
 install -d "$target_dir"
 install -d "$target_dir/assets/icons"
 install -m 644 "$source_dir"/assets/icons/*.svg "$target_dir/assets/icons/"
-for filename in metadata.json extension.js collector.js navigation.js model.js reload.js status-process.js status-worker.js event-stream.js event-monitor.js stylesheet.css; do
+for filename in metadata.json extension.js usage.js usage-format.js collector.js navigation.js model.js reload.js status-process.js status-worker.js event-stream.js event-monitor.js stylesheet.css; do
     install -m 644 "$source_dir/$filename" "$target_dir/$filename"
 done
 

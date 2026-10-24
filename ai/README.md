@@ -52,9 +52,10 @@ include the machine name, such as **gpu/research · Claude Code**. A smaller
 second line shows the automatic terminal session title when available; a title
 that only repeats the workspace is hidden. A trailing ` | workspace` is removed
 from session titles. Hover over a row to see its full machine/workspace/tab/pane
-location. Names are automatic and require no manual pane renaming. The heading displays "N local agents,
-M remote agents", with a separator above the rows as well as above the footer.
-Counts use machine identities and include idle agents and both supported types.
+location. Names are automatic and require no manual pane renaming. The top of the menu shows one
+line per agent type that has usage data: its icon, then the remaining percentage and time
+to reset of the 5-hour and weekly windows, such as `5h 99% · 3h12m, wk 36% · 2d`. A
+separator sits above the rows as well as above the footer.
 Each row contains a type icon, a workspace name colored by its status, and a matching
 text status on the right, without a duplicate dot.
 SVG files in `agentai-status/assets/icons/` identify Codex and Claude Code.
@@ -146,11 +147,17 @@ took approximately 0.05 and 0.07 ms after the initial render. Rebuilding those
 rows took approximately 17 and 50 ms. These timings use generated snapshots;
 they do not measure SSH latency or the user's desktop.
 
-The menu footer shows the last successful snapshot update time in local time,
-using a 24-hour clock without a date, and the widget version:
-`Last update: 00:43:55 · v0.0.13`. Machine discovery and connection-error
-notifications preserve the last successful update time. Refresh latency and JSON
-parsing metrics are not displayed in the menu. Run the standalone
+The menu footer shows only the widget version, such as `v0.0.14`. Refresh latency and JSON
+parsing metrics are not displayed in the menu.
+
+Usage limits are read locally by the status worker once a minute and add no network
+requests. Claude Code data comes from `$XDG_RUNTIME_DIR/claude-statusline-input.json`, which
+`~/.claude/statusline.sh` writes from the status line JSON (`rate_limits`). Codex data comes from the last
+`rate_limits` event in the newest `~/.codex/sessions/*/*/*/rollout-*.jsonl`; windows are classified by
+`window_minutes`. Both files change only while the agent is running, so a window whose reset time has
+passed is hidden until fresh data arrives. Percentages are the amount remaining.
+
+Run the standalone
 GJS snapshot-collection benchmark for three rounds and their mean:
 
 ```bash
@@ -171,7 +178,7 @@ Offline collector/model tests run with the repository's unittest suite when
 isolated headless GNOME Shell:
 
 ```bash
-gnome-extensions pack ai/agentai-status --extra-source=collector.js --extra-source=navigation.js --extra-source=model.js --extra-source=reload.js --extra-source=status-process.js --extra-source=status-worker.js --extra-source=event-stream.js --extra-source=event-monitor.js --extra-source=assets --out-dir=/tmp --force
+gnome-extensions pack ai/agentai-status --extra-source=collector.js --extra-source=navigation.js --extra-source=usage.js --extra-source=usage-format.js --extra-source=model.js --extra-source=reload.js --extra-source=status-process.js --extra-source=status-worker.js --extra-source=event-stream.js --extra-source=event-monitor.js --extra-source=assets --out-dir=/tmp --force
 dbus-run-session -- gnome-shell-test-tool --extra-filter org.scriptoza.CodexStatusWindowTest --headless --extension /tmp/codex-status@scriptoza.shell-extension.zip ai/codex_status_shell_test.js
 ```
 

@@ -10,12 +10,13 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.13';
+const WIDGET_VERSION = '0.0.14';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {StatusProcess} = await import(`./status-process.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {AGENT_TYPES, STATES, sortAgents, summarize} = await import(`./model.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
+const {formatUsage} = await import(`./usage-format.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 
 export default class CodexStatus extends Extension {
     enable() {
@@ -28,6 +29,8 @@ export default class CodexStatus extends Extension {
         this._agentRows = [];
         this._renderKey = null;
         this._footer = null;
+        this._usageRows = [];
+        this._usage = null;
         this._icons = Object.fromEntries(['openai.svg', 'openai-light.svg', 'anthropic.svg'].map(name =>
             [name, new Gio.FileIcon({file: this.dir.resolve_relative_path(`assets/icons/${name}`)})]));
         this._indicator.add_child(this._panelBox);
@@ -70,16 +73,19 @@ export default class CodexStatus extends Extension {
         this._blockedLabels = [];
         this._renderKey = null;
         this._footer = null;
+        this._usageRows = [];
+        this._usage = null;
         this._icons = null;
     }
 
-    _render({agents, errors, updatedAt, waitingForServer = false}) {
+    _render({agents, errors, usage = null, waitingForServer = false}) {
+        this._usage = usage;
         const sorted = sortAgents(agents);
         // Include navigation identities, including the server boot, so retained
         // rows cannot keep a target from an earlier server instance.
         const renderKey = JSON.stringify([sorted, errors, waitingForServer]);
         if (renderKey === this._renderKey) {
-            this._updateFooter(updatedAt);
+            this._updateUsage();
             return;
         }
         const summary = summarize(agents, errors);
@@ -97,6 +103,7 @@ export default class CodexStatus extends Extension {
             this._indicator.menu.addMenuItem(new PopupMenu.PopupMenuItem(message, {reactive: false}));
             this._blockedLabels = [];
             this._agentRows = [];
+            this._usageRows = [];
             this._footer = null;
             this._updateAnimation();
             this._renderKey = renderKey;
@@ -116,14 +123,24 @@ export default class CodexStatus extends Extension {
         this._indicator.menu.removeAll();
         this._blockedLabels = [];
         this._agentRows = [];
+        this._usageRows = [];
 
-        const localCount = agents.filter(agent => agent.serverId === 'local').length;
-        const remoteCount = agents.length - localCount;
-        const heading = new PopupMenu.PopupMenuItem(
-            `${localCount} local agent${localCount === 1 ? '' : 's'}, ` +
-            `${remoteCount} remote agent${remoteCount === 1 ? '' : 's'}`, {reactive: false});
-        heading.label.set_style('font-weight: bold;');
-        this._indicator.menu.addMenuItem(heading);
+        const usageSection = new PopupMenu.PopupMenuSection();
+        const usageContainer = new PopupMenu.PopupBaseMenuItem({reactive: false});
+        usageContainer.add_child(usageSection.actor);
+        for (const agentType of Object.keys(AGENT_TYPES)) {
+            const row = new PopupMenu.PopupBaseMenuItem({reactive: false, style_class: 'codex-status-row'});
+            row.x_expand = true;
+            const icon = new St.Icon({icon_size: 16, y_align: Clutter.ActorAlign.CENTER,
+                accessible_name: AGENT_TYPES[agentType].label});
+            row.add_child(icon);
+            this._bindIcon(row, icon, agentType);
+            const label = new St.Label({style_class: 'codex-status-usage', y_align: Clutter.ActorAlign.CENTER});
+            row.add_child(label);
+            usageSection.addMenuItem(row);
+            this._usageRows.push({agentType, row, label});
+        }
+        this._indicator.menu.addMenuItem(usageContainer);
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         const section = new PopupMenu.PopupMenuSection();
@@ -151,16 +168,7 @@ export default class CodexStatus extends Extension {
             const icon = new St.Icon({icon_size: 16, y_align: Clutter.ActorAlign.CENTER,
                 accessible_name: AGENT_TYPES[agent.agentType].label});
             row.add_child(icon);
-            const updateIcon = () => {
-                let name = 'anthropic.svg';
-                if (agent.agentType === 'codex') {
-                    const color = row.get_theme_node().get_foreground_color();
-                    const brightness = 0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue;
-                    name = brightness > 128 ? 'openai-light.svg' : 'openai.svg';
-                }
-                icon.gicon = this._icons[name];
-            };
-            row.connect('style-changed', updateIcon);
+            this._bindIcon(row, icon, agent.agentType);
             const textBox = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true,
                 y_align: Clutter.ActorAlign.CENTER});
             const label = new St.Label({
@@ -196,7 +204,6 @@ export default class CodexStatus extends Extension {
             row.add_child(statusLabel);
             this._agentRows.push({agent, row, icon, textBox, label, titleLabel, tooltip, statusLabel});
             section.addMenuItem(row);
-            updateIcon();
             if (agent.state === 'blocked')
                 this._blockedLabels.push(label, statusLabel);
         }
@@ -209,22 +216,35 @@ export default class CodexStatus extends Extension {
             this._indicator.menu.addMenuItem(row);
         }
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this._footer = new PopupMenu.PopupMenuItem('', {reactive: false});
+        this._footer = new PopupMenu.PopupMenuItem(`v${WIDGET_VERSION}`, {reactive: false});
         this._footer.label.add_style_class_name('codex-status-footer');
         this._indicator.menu.addMenuItem(this._footer);
-        this._updateFooter(updatedAt);
+        this._updateUsage();
         this._updateAnimation();
         this._renderKey = renderKey;
     }
 
-    _updateFooter(updatedAt) {
-        if (!this._footer)
-            return;
-        const time = updatedAt
-            ? new Date(updatedAt).toLocaleTimeString('en-GB', {
-                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-            }) : '—';
-        this._footer.label.text = `Last update: ${time} · v${WIDGET_VERSION}`;
+    _bindIcon(row, icon, agentType) {
+        const update = () => {
+            let name = 'anthropic.svg';
+            if (agentType === 'codex') {
+                const color = row.get_theme_node().get_foreground_color();
+                const brightness = 0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue;
+                name = brightness > 128 ? 'openai-light.svg' : 'openai.svg';
+            }
+            icon.gicon = this._icons[name];
+        };
+        row.connect('style-changed', update);
+        update();
+    }
+
+    _updateUsage() {
+        const now = Date.now() / 1000;
+        for (const {agentType, row, label} of this._usageRows) {
+            const text = formatUsage(this._usage?.[agentType], now);
+            label.text = text;
+            row.visible = text !== '';
+        }
     }
 
     _updateAnimation() {

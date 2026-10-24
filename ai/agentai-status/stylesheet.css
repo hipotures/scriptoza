@@ -27,3 +27,8 @@
 .codex-status-error {
     color: #f8e45c;
 }
+
+.codex-status-usage {
+    font-size: 0.85em;
+    color: #b0b0b0;
+}

@@ -22,6 +22,8 @@ import {{Collector}} from '{(EXTENSION / 'collector.js').as_uri()}';
 import Gio from 'gi://Gio';
 import {{EventMonitor}} from '{(EXTENSION / 'event-monitor.js').as_uri()}';
 import {{EventStream, subscriptions, remoteCommand}} from '{(EXTENSION / 'event-stream.js').as_uri()}';
+import {{parseClaudeUsage, parseCodexUsage, readCodexUsage, readClaudeUsage}} from '{(EXTENSION / 'usage.js').as_uri()}';
+import {{formatUsage}} from '{(EXTENSION / 'usage-format.js').as_uri()}';
 import {{StatusProcess}} from '{(EXTENSION / 'status-process.js').as_uri()}';
 import {{Navigator, clientWindowToken, findClientWindow, focusTarget}} from '{(EXTENSION / 'navigation.js').as_uri()}';
 function check(condition, message) {{ if (!condition) throw new Error(message); }}
@@ -547,6 +549,39 @@ function pause(ms) {{ return new Promise(resolve => GLib.timeout_add(GLib.PRIORI
         'Lost subscription left bridge descendants running');
 }})().catch(error => {{ printerr(error.stack); System.exit(1); }}).finally(() => {{ stream.close(); loop.quit(); }});
 loop.run();
+""")
+
+    def test_usage_parsing_formatting_and_local_readers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime").mkdir()
+            (root / "runtime" / "claude-statusline-input.json").write_text(
+                '{"rate_limits":{"five_hour":{"used_percentage":1,"resets_at":2000},'
+                '"seven_day":{"used_percentage":64,"resets_at":900000}}}', encoding="utf-8")
+            day = root / "codex" / "sessions" / "2026" / "10" / "24"
+            day.mkdir(parents=True)
+            event = ('{"payload":{"type":"token_count","rate_limits":{"primary":'
+                     '{"used_percent":36.0,"window_minutes":300,"resets_at":1500},"secondary":'
+                     '{"used_percent":68.0,"window_minutes":10080,"resets_at":800000}}}}')
+            (day / "rollout-2026-10-24T01-00-00-a.jsonl").write_text(event + "\n", encoding="utf-8")
+            (day / "rollout-2026-10-24T02-00-00-b.jsonl").write_text('{"payload":{}}\n', encoding="utf-8")
+            self.run_gjs(f"""
+const claude = readClaudeUsage('{root / "runtime"}');
+check(claude.five.usedPercent === 1 && claude.week.resetsAt === 900000, 'Claude usage was not parsed');
+check(readClaudeUsage('{root / "missing"}') === null, 'Missing Claude input must yield no usage');
+check(parseClaudeUsage('{{"rate_limits":{{}}}}') === null, 'Empty Claude limits must yield no usage');
+const codex = readCodexUsage('{root / "codex"}');
+check(codex.five.usedPercent === 36 && codex.week.usedPercent === 68,
+    'Codex usage must come from the newest rollout that has rate limits');
+check(readCodexUsage('{root / "missing"}') === null, 'Missing Codex data must yield no usage');
+const weeklyOnly = parseCodexUsage('{{"payload":{{"rate_limits":{{"primary":'
+    + '{{"used_percent":10,"window_minutes":10080,"resets_at":5}}}}}}}}');
+check(weeklyOnly.five === null && weeklyOnly.week.usedPercent === 10, 'Windows must be classified by length');
+check(formatUsage(claude, 1000) === '5h 99% · 17m, wk 36% · 10d', formatUsage(claude, 1000));
+check(formatUsage(claude, 2000) === 'wk 36% · 10d', 'Expired windows must be hidden');
+check(formatUsage(null, 0) === '', 'Missing usage must format as empty');
+check(formatUsage({{five: {{usedPercent: 0, resetsAt: 3 * 3600 + 12 * 60}}, week: null}}, 1) === '5h 100% · 3h12m',
+    'Hours and minutes must be zero padded');
 """)
 
     def test_status_worker_streams_updates_and_reaps_on_close(self):
