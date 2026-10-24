@@ -28,6 +28,13 @@
     color: #f8e45c;
 }
 
+.codex-status-usage-row {
+    spacing: 8px;
+    padding-top: 0;
+    padding-bottom: 0;
+    min-height: 0;
+}
+
 .codex-status-usage {
     font-size: 0.85em;
     color: #b0b0b0;
