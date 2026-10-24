@@ -159,6 +159,24 @@ def convert(wav: Path, quality: int) -> tuple[Path, int | None]:
         temp.unlink(missing_ok=True)
 
 
+def print_settings(root: Path, quality: int, count: int) -> None:
+    rows = (
+        ("Source", f"{root.resolve()} (recursive)"),
+        ("WAV files found", str(count)),
+        ("Encoder", f"libmp3lame, -q:a {quality}"),
+        ("Bitrate mode", f"VBR, quality {quality} (0 = best), typically ~{APPROX_VBR_KBPS[quality]} kb/s"),
+        ("Sample rate / channels", "kept from the source"),
+        ("Tags", "ID3v2.3, metadata copied from the WAV"),
+        ("Output", "same directory, existing files never overwritten (_1, _2, ...)"),
+        ("Verification", f"ffprobe: MP3 stream, duration within {DURATION_TOLERANCE_SECONDS:g}s of the source"),
+        ("Originals", "WAV files are kept"),
+    )
+    console.print("\n[bold]Settings[/bold]")
+    for label, value in rows:
+        console.print(f"  {label + ':':<24}{value}", highlight=False, markup=False)
+    console.print()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -196,15 +214,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         console.print("[bold yellow]DRY RUN: no files will be created. Use --run to convert.[/bold yellow]")
 
-    console.print(
-        f"Encoding: MP3 VBR quality {args.quality} "
-        f"(libmp3lame -q:a {args.quality}, typically ~{APPROX_VBR_KBPS[args.quality]} kb/s)"
-    )
-
     wavs = find_wav_files(root)
     if not wavs:
         console.print("[yellow]No WAV files found.[/yellow]")
         return 0
+
+    print_settings(root, args.quality, len(wavs))
 
     plan = plan_targets(wavs)
     converted = 0
