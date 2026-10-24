@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.14';
+const WIDGET_VERSION = '0.0.15';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -78,13 +78,14 @@ export default class CodexStatus extends Extension {
         this._icons = null;
     }
 
-    _render({agents, errors, usage = null, waitingForServer = false}) {
+    _render({agents, errors, updatedAt, usage = null, waitingForServer = false}) {
         this._usage = usage;
         const sorted = sortAgents(agents);
         // Include navigation identities, including the server boot, so retained
         // rows cannot keep a target from an earlier server instance.
         const renderKey = JSON.stringify([sorted, errors, waitingForServer]);
         if (renderKey === this._renderKey) {
+            this._updateFooter(updatedAt);
             this._updateUsage();
             return;
         }
@@ -216,9 +217,10 @@ export default class CodexStatus extends Extension {
             this._indicator.menu.addMenuItem(row);
         }
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this._footer = new PopupMenu.PopupMenuItem(`v${WIDGET_VERSION}`, {reactive: false});
+        this._footer = new PopupMenu.PopupMenuItem('', {reactive: false});
         this._footer.label.add_style_class_name('codex-status-footer');
         this._indicator.menu.addMenuItem(this._footer);
+        this._updateFooter(updatedAt);
         this._updateUsage();
         this._updateAnimation();
         this._renderKey = renderKey;
@@ -236,6 +238,16 @@ export default class CodexStatus extends Extension {
         };
         row.connect('style-changed', update);
         update();
+    }
+
+    _updateFooter(updatedAt) {
+        if (!this._footer)
+            return;
+        const time = updatedAt
+            ? new Date(updatedAt).toLocaleTimeString('en-GB', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+            }) : '—';
+        this._footer.label.text = `Last update: ${time} · v${WIDGET_VERSION}`;
     }
 
     _updateUsage() {

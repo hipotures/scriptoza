@@ -163,9 +163,10 @@ export async function run() {
         updatedAt: new Date(2026, 9, 23, 0, 43, 55).getTime()};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith('v0.0.14'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.15'),
         'Menu footer did not display the loaded widget version');
-    check(widget._footer.label.text === 'v0.0.14', 'Footer must show only the widget version');
+    check(widget._footer.label.text === 'Last update: 00:43:55 · v0.0.15',
+        'Footer must use a 24-hour clock without a date or performance metrics');
     check(widget._usageRows.map(({label}) => label.text).join('|') === '5h 99% · 3h12m, wk 36% · 2d|',
         'Usage rows must show remaining percent and time per agent type, hiding types without data');
     check(widget._usageRows.map(({row}) => row.visible).join() === 'true,false',
@@ -187,13 +188,15 @@ export async function run() {
     const retainedDots = widget._panelDots.map(({dot}) => dot);
     const retainedBlink = widget._blinkSource;
     widget._render({...data, agents: agents.map(agent => ({...agent})),
+        updatedAt: new Date(2026, 9, 23, 13, 44, 56).getTime(),
         usage: {...data.usage, codex: {five: {usedPercent: 36, resetsAt: usageNow + 600}, week: null}}});
     check(widget._agentRows.every(({row}, index) => row === retainedRows[index]) &&
         widget._panelDots.every(({dot}, index) => dot === retainedDots[index]),
         'Unchanged polling rebuilt panel dots or interactive rows');
     check(widget._blinkSource === retainedBlink &&
+        widget._footer.label.text === 'Last update: 13:44:56 · v0.0.15' &&
         widget._usageRows[1].label.text === '5h 64% · 10m',
-        'Unchanged polling restarted blinking or failed to update usage');
+        'Unchanged polling restarted blinking or failed to update the footer or usage');
     check(widget._indicator.menu.box.get_n_children() === 5, 'Menu leaked children or lost a separator');
     check(widget._panelDots.length === 5 && widget._panelBox.get_n_children() === 5,
         'One dot per non-idle agent, no terminal icon or counters');

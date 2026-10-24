@@ -147,7 +147,10 @@ took approximately 0.05 and 0.07 ms after the initial render. Rebuilding those
 rows took approximately 17 and 50 ms. These timings use generated snapshots;
 they do not measure SSH latency or the user's desktop.
 
-The menu footer shows only the widget version, such as `v0.0.14`. Refresh latency and JSON
+The menu footer shows the last successful snapshot update time in local time,
+using a 24-hour clock without a date, and the widget version:
+`Last update: 00:43:55 · v0.0.15`. Machine discovery and connection-error
+notifications preserve the last successful update time. Refresh latency and JSON
 parsing metrics are not displayed in the menu.
 
 Usage limits are read locally by the status worker once a minute and add no network
