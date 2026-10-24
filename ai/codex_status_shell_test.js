@@ -163,9 +163,9 @@ export async function run() {
         updatedAt: new Date(2026, 9, 23, 0, 43, 55).getTime()};
     for (let index = 0; index < 30; index++)
         widget._render(data);
-    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.24'),
+    check(widget._indicator.menu._getMenuItems().at(-1).label.text.endsWith(' · v0.0.25'),
         'Menu footer did not display the loaded widget version');
-    check(widget._footer.label.text === 'Last update: 00:43:55 · v0.0.24',
+    check(widget._footer.label.text === 'Last update: 00:43:55 · v0.0.25',
         'Footer must use a 24-hour clock without a date or performance metrics');
     check(widget._usageRows.map(({label}) => label.text).join('|') === '5h 99% · 3h12m, wk 36% · 2d|',
         'Usage rows must show remaining percent and time per agent type, hiding types without data');
@@ -195,7 +195,7 @@ export async function run() {
         widget._panelDots.every(({dot}, index) => dot === retainedDots[index]),
         'Unchanged polling rebuilt panel dots or interactive rows');
     check(widget._blinkSource === retainedBlink &&
-        widget._footer.label.text === 'Last update: 13:44:56 · v0.0.24' &&
+        widget._footer.label.text === 'Last update: 13:44:56 · v0.0.25' &&
         widget._usageRows[1].label.text === '5h 64% · 10m',
         'Unchanged polling restarted blinking or failed to update the footer or usage');
     check(widget._indicator.menu.box.get_n_children() === 5, 'Menu leaked children or lost a separator');

@@ -3,7 +3,7 @@
 export const STATES = {
     blocked: {label: 'Needs attention', color: '#f66151', icon: 'dialog-warning-symbolic'},
     done: {label: 'Done', color: '#57e389', icon: 'object-select-symbolic'},
-    working: {label: 'Working', color: '#62a0ea', icon: 'emblem-synchronizing-symbolic'},
+    working: {label: 'Working', color: '#62a0ea', icon: 'media-playback-start-symbolic'},
     unknown: {label: 'Unknown', color: '#f8e45c', icon: 'dialog-question-symbolic'},
     idle: {label: 'Idle', color: '#b0b0b0', icon: 'media-playback-pause-symbolic'},
     offline: {label: 'Disconnected', color: '#777777', icon: 'network-offline-symbolic'},
