@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.28';
+const WIDGET_VERSION = '0.0.29';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
