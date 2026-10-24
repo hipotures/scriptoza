@@ -18,7 +18,7 @@ export function formatUsage(usage, now) {
         if (!window || window.resetsAt <= now)
             continue;
         const left = Math.max(0, Math.min(100, Math.round(100 - window.usedPercent)));
-        parts.push(`${name} ${left}% · ${formatRemaining(window.resetsAt - now)}`);
+        parts.push(`${name} ${String(left).padStart(3)}% · ${formatRemaining(window.resetsAt - now).padStart(5)}`);
     }
     return parts.join(', ');
 }

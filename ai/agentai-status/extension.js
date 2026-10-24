@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.26';
+const WIDGET_VERSION = '0.0.27';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -145,8 +145,7 @@ export default class CodexStatus extends Extension {
             row.add_child(icon);
             this._bindIcon(row, icon, agentType);
             const label = new St.Label({y_align: Clutter.ActorAlign.CENTER});
-            if (profile.font)
-                label.set_style(`font-size: ${profile.font};`);
+            label.set_style(`font-family: monospace;${profile.font ? ` font-size: ${profile.font};` : ''}`);
             row.add_child(label);
             usageSection.addMenuItem(row);
             this._usageRows.push({agentType, row, label});

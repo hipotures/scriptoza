@@ -149,7 +149,7 @@ they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the last successful snapshot update time in local time,
 using a 24-hour clock without a date, and the widget version:
-`Last update: 00:43:55 · v0.0.26`. Machine discovery and connection-error
+`Last update: 00:43:55 · v0.0.27`. Machine discovery and connection-error
 notifications preserve the last successful update time. Refresh latency and JSON
 parsing metrics are not displayed in the menu.
 
