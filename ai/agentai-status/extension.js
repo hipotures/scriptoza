@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.18';
+const WIDGET_VERSION = '0.0.19';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -130,8 +130,8 @@ export default class CodexStatus extends Extension {
         const usageContainer = new PopupMenu.PopupBaseMenuItem({reactive: false});
         usageContainer.add_child(usageSection.actor);
         for (const agentType of ['claude', 'codex']) {
-            const row = new PopupMenu.PopupBaseMenuItem({reactive: false, style_class: 'codex-status-usage-row',
-                style: 'spacing: 8px; padding-top: 0; padding-bottom: 0; min-height: 0;'});
+            const row = new PopupMenu.PopupBaseMenuItem({reactive: false, style_class: 'codex-status-usage-row'});
+            row.set_style('spacing: 8px; padding-top: 0; padding-bottom: 0; min-height: 0;');
             row.x_expand = true;
             const icon = new St.Icon({icon_size: 16, y_align: Clutter.ActorAlign.CENTER,
                 accessible_name: AGENT_TYPES[agentType].label});
