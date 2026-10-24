@@ -7,7 +7,6 @@ import GLibUnix from 'gi://GLibUnix';
 import System from 'system';
 
 import {EventMonitor} from './event-monitor.js';
-import {UsageMonitor} from './usage.js';
 
 const loop = new GLib.MainLoop(null, false);
 const cancellable = new Gio.Cancellable();
@@ -18,7 +17,6 @@ let failed = false;
 let signalSource = 0;
 let writing = false;
 let pending = null;
-let latest = null;
 
 function stop() {
     if (stopped)
@@ -26,7 +24,6 @@ function stop() {
     stopped = true;
     cancellable.cancel();
     monitor.close();
-    usage.close();
     if (signalSource)
         GLib.Source.remove(signalSource);
     signalSource = 0;
@@ -59,9 +56,7 @@ async function publish(data) {
     }
 }
 
-const emit = () => { if (latest) publish({...latest, usage: usage.current}); };
-const monitor = new EventMonitor(data => { latest = data; emit(); });
-const usage = new UsageMonitor(emit);
+const monitor = new EventMonitor(publish);
 signalSource = GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, 15, () => {
     signalSource = 0;
     stop();
@@ -73,7 +68,6 @@ input.read_bytes_async(1, GLib.PRIORITY_DEFAULT, cancellable, (source, result) =
     stop();
 });
 monitor.start();
-usage.start();
 loop.run();
 if (failed)
     System.exit(1);
