@@ -26,6 +26,7 @@ from rich.progress import (
 console = Console()
 
 DURATION_TOLERANCE_SECONDS = 1.0
+APPROX_VBR_KBPS = (245, 225, 190, 175, 165, 130, 115, 100, 85, 65)
 
 
 class ConversionError(Exception):
@@ -61,32 +62,36 @@ def plan_targets(wavs: list[Path]) -> list[tuple[Path, Path]]:
     return plan
 
 
-def probe_audio(path: Path) -> tuple[str | None, float | None]:
+def probe_audio(path: Path) -> tuple[str | None, float | None, int | None]:
     result = subprocess.run(
         [
             "ffprobe", "-v", "error", "-select_streams", "a:0",
-            "-show_entries", "stream=codec_name:format=duration",
+            "-show_entries", "stream=codec_name:format=duration,bit_rate",
             "-of", "json", str(path),
         ],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
-        return None, None
+        return None, None, None
     try:
         data = json.loads(result.stdout)
     except json.JSONDecodeError:
-        return None, None
+        return None, None, None
     streams = data.get("streams") or []
     codec = streams[0].get("codec_name") if streams else None
     try:
         duration = float(data["format"]["duration"])
     except (KeyError, ValueError, TypeError):
         duration = None
-    return codec, duration
+    try:
+        bitrate = round(int(data["format"]["bit_rate"]) / 1000)
+    except (KeyError, ValueError, TypeError):
+        bitrate = None
+    return codec, duration, bitrate
 
 
-def encode_to_temp(wav: Path, quality: int) -> Path:
+def encode_to_temp(wav: Path, quality: int) -> tuple[Path, int | None]:
     handle, temp_name = tempfile.mkstemp(prefix=".wav2mp3.", suffix=".mp3", dir=wav.parent)
     os.close(handle)
     temp = Path(temp_name)
@@ -104,26 +109,27 @@ def encode_to_temp(wav: Path, quality: int) -> Path:
         )
         if result.returncode != 0:
             raise ConversionError(f"ffmpeg failed: {result.stderr.strip() or result.returncode}")
-        verify_mp3(wav, temp)
+        bitrate = verify_mp3(wav, temp)
         shutil.copymode(wav, temp)
     except BaseException:
         temp.unlink(missing_ok=True)
         raise
-    return temp
+    return temp, bitrate
 
 
-def verify_mp3(wav: Path, mp3: Path) -> None:
+def verify_mp3(wav: Path, mp3: Path) -> int | None:
     if mp3.stat().st_size == 0:
         raise ConversionError("output file is empty")
-    codec, duration = probe_audio(mp3)
+    codec, duration, bitrate = probe_audio(mp3)
     if codec != "mp3":
         raise ConversionError(f"output has no valid MP3 stream (codec: {codec})")
-    _source_codec, source_duration = probe_audio(wav)
+    _source_codec, source_duration, _source_bitrate = probe_audio(wav)
     if source_duration is not None and duration is not None:
         if abs(source_duration - duration) > DURATION_TOLERANCE_SECONDS:
             raise ConversionError(
                 f"duration mismatch: source {source_duration:.2f}s, output {duration:.2f}s"
             )
+    return bitrate
 
 
 def publish(temp: Path, wav: Path) -> Path:
@@ -145,10 +151,10 @@ def publish(temp: Path, wav: Path) -> Path:
     return target
 
 
-def convert(wav: Path, quality: int) -> Path:
-    temp = encode_to_temp(wav, quality)
+def convert(wav: Path, quality: int) -> tuple[Path, int | None]:
+    temp, bitrate = encode_to_temp(wav, quality)
     try:
-        return publish(temp, wav)
+        return publish(temp, wav), bitrate
     finally:
         temp.unlink(missing_ok=True)
 
@@ -190,6 +196,11 @@ def main(argv: list[str] | None = None) -> int:
     else:
         console.print("[bold yellow]DRY RUN: no files will be created. Use --run to convert.[/bold yellow]")
 
+    console.print(
+        f"Encoding: MP3 VBR quality {args.quality} "
+        f"(libmp3lame -q:a {args.quality}, typically ~{APPROX_VBR_KBPS[args.quality]} kb/s)"
+    )
+
     wavs = find_wav_files(root)
     if not wavs:
         console.print("[yellow]No WAV files found.[/yellow]")
@@ -197,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
 
     plan = plan_targets(wavs)
     converted = 0
+    bitrates: list[int] = []
     failed: list[tuple[Path, str]] = []
 
     if not args.run:
@@ -218,13 +230,16 @@ def main(argv: list[str] | None = None) -> int:
             with progress:
                 for wav, _planned in plan:
                     try:
-                        target = convert(wav, args.quality)
+                        target, bitrate = convert(wav, args.quality)
                     except (ConversionError, OSError) as exc:
                         failed.append((wav, str(exc)))
                         progress.console.print(f"FAILED: {wav}: {exc}", style="red", highlight=False, markup=False)
                     else:
                         converted += 1
-                        progress.console.print(f"OK: {wav} -> {target}", highlight=False, markup=False)
+                        rate = f" [{bitrate} kb/s]" if bitrate else ""
+                        if bitrate:
+                            bitrates.append(bitrate)
+                        progress.console.print(f"OK{rate}: {wav} -> {target}", highlight=False, markup=False)
                     progress.advance(task_id)
                 progress.update(task_id, description="[bold green]Finished![/bold green]".ljust(25))
         except KeyboardInterrupt:
@@ -235,6 +250,11 @@ def main(argv: list[str] | None = None) -> int:
     console.print(f"  WAV files found: {len(wavs)}")
     if args.run:
         console.print(f"  Converted: {converted}")
+        if bitrates:
+            console.print(
+                f"  Bitrate: avg {round(sum(bitrates) / len(bitrates))} kb/s "
+                f"(min {min(bitrates)}, max {max(bitrates)})"
+            )
         console.print(f"  Failed: {len(failed)}")
         console.print("  Original WAV files were left untouched.")
     else:

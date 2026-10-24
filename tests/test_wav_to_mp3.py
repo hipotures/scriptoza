@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from utils.wav_to_mp3 import find_wav_files, main, plan_targets, publish
+from utils.wav_to_mp3 import convert, find_wav_files, main, plan_targets, publish
 
 
 def make_wav(path: Path, seconds: float = 0.5) -> None:
@@ -97,6 +97,16 @@ class ConversionTests(unittest.TestCase):
             )
             self.assertEqual((root / "song.mp3").read_bytes(), b"existing")
             self.assertGreater((root / "song_1.mp3").stat().st_size, 0)
+
+    def test_convert_reports_bitrate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav = Path(tmpdir) / "song.wav"
+            make_wav(wav)
+
+            target, bitrate = convert(wav, 0)
+
+            self.assertEqual(target.name, "song.mp3")
+            self.assertGreater(bitrate or 0, 0)
 
     def test_corrupt_wav_fails_without_leaving_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
