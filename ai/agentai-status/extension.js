@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.25';
+const WIDGET_VERSION = '0.0.26';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -264,7 +264,7 @@ export default class CodexStatus extends Extension {
         const button = new St.Button({child: icon, can_focus: true, reactive: true,
             x_align: Clutter.ActorAlign.END, y_align: Clutter.ActorAlign.CENTER,
             accessible_name: `Density: ${this._density}`,
-            style: 'padding: 0; margin-right: 20px;', opacity: 180});
+            style: 'padding: 0; margin-right: 8px;', opacity: 180});
         button.connect('clicked', () => {
             this._setDensity(DENSITIES[(DENSITIES.indexOf(this._density) + 1) % DENSITIES.length]);
         });
