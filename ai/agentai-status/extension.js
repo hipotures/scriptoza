@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.21';
+const WIDGET_VERSION = '0.0.22';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -33,7 +33,6 @@ export default class CodexStatus extends Extension {
         this._usageRows = [];
         this._usage = null;
         this._density = loadDensity();
-        this._densityButtons = [];
         this._lastData = null;
         this._icons = Object.fromEntries(['openai.svg', 'openai-light.svg', 'anthropic.svg'].map(name =>
             [name, new Gio.FileIcon({file: this.dir.resolve_relative_path(`assets/icons/${name}`)})]));
@@ -79,7 +78,6 @@ export default class CodexStatus extends Extension {
         this._footer = null;
         this._usageRows = [];
         this._usage = null;
-        this._densityButtons = [];
         this._lastData = null;
         this._icons = null;
     }
@@ -259,18 +257,14 @@ export default class CodexStatus extends Extension {
     }
 
     _buildDensitySwitch() {
-        const box = new St.BoxLayout({y_align: Clutter.ActorAlign.CENTER, style: 'spacing: 4px;'});
-        this._densityButtons = [];
-        for (const [density, text] of [['large', 'L'], ['medium', 'M'], ['compact', 'S']]) {
-            const selected = density === this._density;
-            const button = new St.Button({label: text, can_focus: true, reactive: true,
-                accessible_name: `Density: ${density}`,
-                style: `font-size: 0.85em; padding: 0 5px; ${selected ? 'font-weight: bold; color: #ffffff;' : 'color: #b0b0b0;'}`});
-            button.connect('clicked', () => this._setDensity(density));
-            box.add_child(button);
-            this._densityButtons.push({density, button});
-        }
-        return box;
+        const icon = new St.Icon({icon_name: 'emblem-system-symbolic', icon_size: 14});
+        const button = new St.Button({child: icon, can_focus: true, reactive: true,
+            y_align: Clutter.ActorAlign.CENTER, accessible_name: `Density: ${this._density}`,
+            style: 'padding: 0; margin-right: 20px;', opacity: 180});
+        button.connect('clicked', () => {
+            this._setDensity(DENSITIES[(DENSITIES.indexOf(this._density) + 1) % DENSITIES.length]);
+        });
+        return button;
     }
 
     _setDensity(density) {

@@ -149,13 +149,13 @@ they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the last successful snapshot update time in local time,
 using a 24-hour clock without a date, and the widget version:
-`Last update: 00:43:55 · v0.0.21`. Machine discovery and connection-error
+`Last update: 00:43:55 · v0.0.22`. Machine discovery and connection-error
 notifications preserve the last successful update time. Refresh latency and JSON
 parsing metrics are not displayed in the menu.
 
 The menu density has three levels: large (default), medium and compact. They change the
-list width, font sizes and row spacing. Choose one with the `L M S` buttons at the right of the
-footer; the choice is saved in `~/.config/ai-agent-status/config.json` (`XDG_CONFIG_HOME` is honored) as
+list width, font sizes and row spacing. Click the gear at the right of the
+footer to cycle through them; the choice is saved in `~/.config/ai-agent-status/config.json` (`XDG_CONFIG_HOME` is honored) as
 `{"density": "large"}`. A missing, broken or unknown value falls back to large. The file is created on the
 first click, not by the installer.
 
