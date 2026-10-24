@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.31';
+const WIDGET_VERSION = '0.0.32';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -156,6 +156,8 @@ export default class CodexStatus extends Extension {
         const section = new PopupMenu.PopupMenuSection();
         const scroll = new St.ScrollView({style_class: 'codex-status-scroll', overlay_scrollbars: true});
         scroll.set_style(`min-width: ${profile.width}px;`);
+        scroll.x_expand = true;
+        section.actor.x_expand = true;
         scroll.add_child(section.actor);
         const container = new PopupMenu.PopupBaseMenuItem({reactive: false});
         container.add_child(scroll);
