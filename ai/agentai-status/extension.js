@@ -10,12 +10,13 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const WIDGET_VERSION = '0.0.20';
+const WIDGET_VERSION = '0.0.21';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {StatusProcess} = await import(`./status-process.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {AGENT_TYPES, STATES, sortAgents, summarize} = await import(`./model.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
+const {DENSITIES, PROFILES, loadDensity, saveDensity} = await import(`./density.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {formatUsage} = await import(`./usage-format.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 
 export default class CodexStatus extends Extension {
@@ -31,6 +32,9 @@ export default class CodexStatus extends Extension {
         this._footer = null;
         this._usageRows = [];
         this._usage = null;
+        this._density = loadDensity();
+        this._densityButtons = [];
+        this._lastData = null;
         this._icons = Object.fromEntries(['openai.svg', 'openai-light.svg', 'anthropic.svg'].map(name =>
             [name, new Gio.FileIcon({file: this.dir.resolve_relative_path(`assets/icons/${name}`)})]));
         this._indicator.add_child(this._panelBox);
@@ -75,15 +79,18 @@ export default class CodexStatus extends Extension {
         this._footer = null;
         this._usageRows = [];
         this._usage = null;
+        this._densityButtons = [];
+        this._lastData = null;
         this._icons = null;
     }
 
     _render({agents, errors, updatedAt, usage = null, waitingForServer = false}) {
         this._usage = usage;
+        this._lastData = {agents, errors, updatedAt, usage, waitingForServer};
         const sorted = sortAgents(agents);
         // Include navigation identities, including the server boot, so retained
         // rows cannot keep a target from an earlier server instance.
-        const renderKey = JSON.stringify([sorted, errors, waitingForServer]);
+        const renderKey = JSON.stringify([sorted, errors, waitingForServer, this._density]);
         if (renderKey === this._renderKey) {
             this._updateFooter(updatedAt);
             this._updateUsage();
@@ -126,19 +133,22 @@ export default class CodexStatus extends Extension {
         this._agentRows = [];
         this._usageRows = [];
 
+        const profile = PROFILES[this._density];
         const usageSection = new PopupMenu.PopupMenuSection();
         const usageContainer = new PopupMenu.PopupBaseMenuItem({reactive: false});
         usageContainer.set_style('padding-bottom: 0;');
         usageContainer.add_child(usageSection.actor);
         for (const agentType of ['claude', 'codex']) {
             const row = new PopupMenu.PopupBaseMenuItem({reactive: false, style_class: 'codex-status-usage-row'});
-            row.set_style('spacing: 8px; padding-top: 3px; padding-bottom: 3px; min-height: 0;');
+            row.set_style(`spacing: 8px; padding-top: ${profile.usagePadY}px; padding-bottom: ${profile.usagePadY}px; min-height: 0;`);
             row.x_expand = true;
             const icon = new St.Icon({icon_size: 16, y_align: Clutter.ActorAlign.CENTER,
                 accessible_name: AGENT_TYPES[agentType].label});
             row.add_child(icon);
             this._bindIcon(row, icon, agentType);
             const label = new St.Label({y_align: Clutter.ActorAlign.CENTER});
+            if (profile.font)
+                label.set_style(`font-size: ${profile.font};`);
             row.add_child(label);
             usageSection.addMenuItem(row);
             this._usageRows.push({agentType, row, label});
@@ -148,6 +158,7 @@ export default class CodexStatus extends Extension {
 
         const section = new PopupMenu.PopupMenuSection();
         const scroll = new St.ScrollView({style_class: 'codex-status-scroll', overlay_scrollbars: true});
+        scroll.set_style(`min-width: ${profile.width}px;`);
         scroll.add_child(section.actor);
         const container = new PopupMenu.PopupBaseMenuItem({reactive: false});
         container.add_child(scroll);
@@ -161,6 +172,10 @@ export default class CodexStatus extends Extension {
                 style_class: 'codex-status-row',
             });
             row.x_expand = true;
+            const rowStyle = [profile.gap !== null ? `spacing: ${profile.gap}px;` : '',
+                profile.padY !== null ? `padding-top: ${profile.padY}px; padding-bottom: ${profile.padY}px;` : ''].join(' ').trim();
+            if (rowStyle)
+                row.set_style(rowStyle);
             row.accessible_name = `${agent.displayName}: ${agent.sessionTitle ? `${agent.sessionTitle}: ` : ''}${STATES[agent.state].label}`;
             // PopupBaseMenuItem closes its menu after emitting `activate`. Keep
             // the menu open until the asynchronous client and window checks
@@ -176,13 +191,13 @@ export default class CodexStatus extends Extension {
                 y_align: Clutter.ActorAlign.CENTER});
             const label = new St.Label({
                 text: agent.displayName,
-                style: `color: ${STATES[agent.state].color}; font-weight: bold;`,
+                style: `color: ${STATES[agent.state].color}; font-weight: bold;${profile.font ? ` font-size: ${profile.font};` : ''}`,
                 x_expand: true,
                 y_align: Clutter.ActorAlign.CENTER,
             });
             textBox.add_child(label);
             const titleLabel = new St.Label({text: agent.sessionTitle || '',
-                style: 'font-size: 0.85em; opacity: 0.75; max-width: 360px;',
+                style: `font-size: ${profile.title}; opacity: 0.75; max-width: ${profile.titleMax}px;`,
                 visible: Boolean(agent.sessionTitle)});
             textBox.add_child(titleLabel);
             row.add_child(textBox);
@@ -201,7 +216,7 @@ export default class CodexStatus extends Extension {
             row.connect('destroy', () => tooltip.destroy());
             const statusLabel = new St.Label({
                 text: STATES[agent.state].label,
-                style: `color: ${STATES[agent.state].color};`,
+                style: `color: ${STATES[agent.state].color};${profile.font ? ` font-size: ${profile.font};` : ''}`,
                 y_align: Clutter.ActorAlign.CENTER,
             });
             row.add_child(statusLabel);
@@ -221,6 +236,7 @@ export default class CodexStatus extends Extension {
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._footer = new PopupMenu.PopupMenuItem('', {reactive: false});
         this._footer.label.add_style_class_name('codex-status-footer');
+        this._footer.add_child(this._buildDensitySwitch());
         this._indicator.menu.addMenuItem(this._footer);
         this._updateFooter(updatedAt);
         this._updateUsage();
@@ -240,6 +256,37 @@ export default class CodexStatus extends Extension {
         };
         row.connect('style-changed', update);
         update();
+    }
+
+    _buildDensitySwitch() {
+        const box = new St.BoxLayout({y_align: Clutter.ActorAlign.CENTER, style: 'spacing: 4px;'});
+        this._densityButtons = [];
+        for (const [density, text] of [['large', 'L'], ['medium', 'M'], ['compact', 'S']]) {
+            const selected = density === this._density;
+            const button = new St.Button({label: text, can_focus: true, reactive: true,
+                accessible_name: `Density: ${density}`,
+                style: `font-size: 0.85em; padding: 0 5px; ${selected ? 'font-weight: bold; color: #ffffff;' : 'color: #b0b0b0;'}`});
+            button.connect('clicked', () => this._setDensity(density));
+            box.add_child(button);
+            this._densityButtons.push({density, button});
+        }
+        return box;
+    }
+
+    _setDensity(density) {
+        if (density === this._density || !DENSITIES.includes(density))
+            return;
+        this._density = density;
+        try {
+            saveDensity(density);
+        } catch (error) {
+            console.error(`Agent Status: cannot save the density: ${error.message}`);
+        }
+        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            if (this._indicator && this._lastData)
+                this._render(this._lastData);
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _updateFooter(updatedAt) {

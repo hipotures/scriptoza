@@ -24,6 +24,7 @@ import {{EventMonitor}} from '{(EXTENSION / 'event-monitor.js').as_uri()}';
 import {{EventStream, subscriptions, remoteCommand}} from '{(EXTENSION / 'event-stream.js').as_uri()}';
 import {{parseClaudeUsage, parseCodexUsage, readCodexUsage, readClaudeUsage}} from '{(EXTENSION / 'usage.js').as_uri()}';
 import {{formatUsage}} from '{(EXTENSION / 'usage-format.js').as_uri()}';
+import {{loadDensity, saveDensity, PROFILES, DENSITIES}} from '{(EXTENSION / 'density.js').as_uri()}';
 import {{StatusProcess}} from '{(EXTENSION / 'status-process.js').as_uri()}';
 import {{Navigator, clientWindowToken, findClientWindow, focusTarget}} from '{(EXTENSION / 'navigation.js').as_uri()}';
 function check(condition, message) {{ if (!condition) throw new Error(message); }}
@@ -582,6 +583,24 @@ check(formatUsage(claude, 2000) === 'wk 36% · 10d', 'Expired windows must be hi
 check(formatUsage(null, 0) === '', 'Missing usage must format as empty');
 check(formatUsage({{five: {{usedPercent: 0, resetsAt: 3 * 3600 + 12 * 60}}, week: null}}, 1) === '5h 100% · 3h12m',
     'Hours and minutes must be zero padded');
+""")
+
+    def test_density_config_defaults_and_roundtrip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "bad.json").write_text('{"density":"huge"}', encoding="utf-8")
+            (root / "broken.json").write_text("{", encoding="utf-8")
+            self.run_gjs(f"""
+check(DENSITIES.join() === 'large,medium,compact' && DENSITIES.every(name => PROFILES[name]), 'Density profiles are incomplete');
+check(loadDensity('{root / "missing.json"}') === 'large', 'Missing config must use the large density');
+check(loadDensity('{root / "bad.json"}') === 'large', 'Unknown density must use the large density');
+check(loadDensity('{root / "broken.json"}') === 'large', 'Broken config must use the large density');
+const path = '{root / "new" / "ai-agent-status" / "config.json"}';
+saveDensity('compact', path);
+check(loadDensity(path) === 'compact', 'Saved density was not read back');
+let failed = false;
+try {{ saveDensity('huge', path); }} catch {{ failed = true; }}
+check(failed && loadDensity(path) === 'compact', 'Unknown density must be rejected');
 """)
 
     def test_status_worker_streams_updates_and_reaps_on_close(self):

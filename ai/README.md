@@ -149,9 +149,15 @@ they do not measure SSH latency or the user's desktop.
 
 The menu footer shows the last successful snapshot update time in local time,
 using a 24-hour clock without a date, and the widget version:
-`Last update: 00:43:55 · v0.0.20`. Machine discovery and connection-error
+`Last update: 00:43:55 · v0.0.21`. Machine discovery and connection-error
 notifications preserve the last successful update time. Refresh latency and JSON
 parsing metrics are not displayed in the menu.
+
+The menu density has three levels: large (default), medium and compact. They change the
+list width, font sizes and row spacing. Choose one with the `L M S` buttons at the right of the
+footer; the choice is saved in `~/.config/ai-agent-status/config.json` (`XDG_CONFIG_HOME` is honored) as
+`{"density": "large"}`. A missing, broken or unknown value falls back to large. The file is created on the
+first click, not by the installer.
 
 Usage limits are read locally by the status worker once a minute and add no network
 requests. Claude Code data comes from `$XDG_RUNTIME_DIR/claude-statusline-input.json`, which
@@ -181,7 +187,7 @@ Offline collector/model tests run with the repository's unittest suite when
 isolated headless GNOME Shell:
 
 ```bash
-gnome-extensions pack ai/agentai-status --extra-source=collector.js --extra-source=navigation.js --extra-source=usage.js --extra-source=usage-format.js --extra-source=model.js --extra-source=reload.js --extra-source=status-process.js --extra-source=status-worker.js --extra-source=event-stream.js --extra-source=event-monitor.js --extra-source=assets --out-dir=/tmp --force
+gnome-extensions pack ai/agentai-status --extra-source=collector.js --extra-source=navigation.js --extra-source=density.js --extra-source=usage.js --extra-source=usage-format.js --extra-source=model.js --extra-source=reload.js --extra-source=status-process.js --extra-source=status-worker.js --extra-source=event-stream.js --extra-source=event-monitor.js --extra-source=assets --out-dir=/tmp --force
 dbus-run-session -- gnome-shell-test-tool --extra-filter org.scriptoza.CodexStatusWindowTest --headless --extension /tmp/codex-status@scriptoza.shell-extension.zip ai/codex_status_shell_test.js
 ```
 
