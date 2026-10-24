@@ -578,8 +578,8 @@ check(readCodexUsage('{root / "missing"}') === null, 'Missing Codex data must yi
 const weeklyOnly = parseCodexUsage('{{"payload":{{"rate_limits":{{"primary":'
     + '{{"used_percent":10,"window_minutes":10080,"resets_at":5}}}}}}}}');
 check(weeklyOnly.five === null && weeklyOnly.week.usedPercent === 10, 'Windows must be classified by length');
-check(formatUsage(claude, 1000) === '5h  99% · 17m    wk  36% · 10d  ', formatUsage(claude, 1000));
-check(formatUsage(claude, 2000) === 'wk  36% · 10d  ', 'Expired windows must be hidden');
+check(formatUsage(claude, 1000) === '5h 99% · 17m    wk 36% · 10d  ', formatUsage(claude, 1000));
+check(formatUsage(claude, 2000) === 'wk 36% · 10d  ', 'Expired windows must be hidden');
 check(formatUsage(null, 0) === '', 'Missing usage must format as empty');
 check(formatUsage({{five: {{usedPercent: 0, resetsAt: 3 * 3600 + 12 * 60}}, week: null}}, 1) === '5h 100% · 3h12m',
     'Hours and minutes must be zero padded');
