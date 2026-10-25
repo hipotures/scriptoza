@@ -49,14 +49,45 @@ fi
     def calls(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
 
-    def test_no_arguments_shows_usage_and_full_efi_details(self):
+    def test_no_arguments_shows_readable_state_without_raw_efi_data(self):
         result = self.run_script()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Usage: bootsel", result.stdout)
         self.assertIn("--once", result.stdout)
-        self.assertIn("BootCurrent: 000A", result.stdout)
-        self.assertIn("\\EFI\\ubuntu\\shimx64.efi) optional-data", result.stdout)
+        self.assertIn("Current boot: ubuntu [000A]", result.stdout)
+        self.assertIn("Next boot override: proxmox [0002]", result.stdout)
+        self.assertIn("1. proxmox [0002]", result.stdout)
+        self.assertIn("2. ubuntu [000A]", result.stdout)
+        self.assertIn("EFI file: \\EFI\\ubuntu\\shimx64.efi", result.stdout)
+        self.assertNotIn("HD(", result.stdout)
+        self.assertNotIn("optional-data", result.stdout)
         self.assertEqual(self.calls(), ["-v"])
+
+    def test_debug_includes_full_original_state(self):
+        result = self.run_script("--debug")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(STATE, result.stdout)
+        self.assertEqual(self.calls(), ["-v"])
+
+    def test_limine_firmware_and_network_entries_are_readable(self):
+        self.state.write_text(
+            "BootCurrent: 0007\nBootOrder: 0007,0000,0003\n"
+            "Boot0000* BootManagerMenuApp\tFvVol(guid)/FvFile(other-guid)\n"
+            "Boot0003* UEFI PXEv4\tPciRoot(0x0)/MAC(bc2411a4520b,1)/IPv4(0.0.0.0)\n"
+            "Boot0007* Limine\tHD(2,GPT,partition-guid,0x1000,0x800000)/"
+            "\\EFI\\limine\\limine_x64.efi\n"
+            "Boot0008  Disabled entry\tFile(\\EFI\\disabled.efi)\n"
+        )
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Current boot: Limine [0007]", result.stdout)
+        self.assertIn("Next boot override: none (uses boot order)", result.stdout)
+        self.assertIn("EFI file: \\EFI\\limine\\limine_x64.efi", result.stdout)
+        self.assertIn("Loader: built into firmware", result.stdout)
+        self.assertIn("Loader: network boot", result.stdout)
+        self.assertIn("Disabled entry [0008] [inactive]", result.stdout)
+        self.assertNotIn("partition-guid", result.stdout)
+        self.assertNotIn("FvVol(", result.stdout)
 
     def test_dry_run_does_not_write(self):
         result = self.run_script("UBUNTU")
