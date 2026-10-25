@@ -15,6 +15,7 @@ If you still need the old event workflow scripts, run them from `deprecated/pipe
 
 ## Active Scripts
 
+- `bootsel.sh` - Selects a UEFI boot entry by label, permanently or for the next boot only
 - `statusline.py` - Rich status line for Claude Code with SQLite session logging
 - `session_stats.sh` - Session statistics
 - `claude_usage_report.py` - Aggregates JSONL history into per-session and per-day totals
@@ -28,6 +29,28 @@ If you still need the old event workflow scripts, run them from `deprecated/pipe
   and copies the optional `codex-resume` systemd user unit to
   `~/.config/systemd/user/`
 - `migrate.py` - Small migration helper for local data transformations
+
+## UEFI Boot Selection
+
+`bootsel.sh` requires Bash 4+, `efibootmgr`, and Linux booted in UEFI mode with access to EFI variables. It accepts any exact UEFI label, case-insensitively, including quoted labels with spaces. Duplicate labels are rejected rather than choosing an arbitrary entry. Disk names and boot entry numbers are not hardcoded.
+
+```bash
+bash utils/bootsel.sh
+bash utils/bootsel.sh ubuntu
+bash utils/bootsel.sh ubuntu --run
+bash utils/bootsel.sh proxmox --once --run
+bash utils/bootsel.sh "Windows Boot Manager" --once
+```
+
+Selecting a label previews changes by default; add `--run` to apply them. Writes automatically request root through `sudo`; if reading EFI variables also requires root, launch the script with `sudo`. Permanent selection moves the entry to the front of `BootOrder`, preserves the relative order of other entries, and clears an existing `BootNext`. `--once` only sets `BootNext`. The script shows the current state and never reboots. Some firmware drops `BootNext` after a full power cut. Selecting an inactive entry does not activate it; firmware may skip it in `BootOrder`.
+
+Running without arguments shows usage and verbose EFI entries, including loader device paths and optional boot data recorded in firmware. Kernel arguments stored separately in GRUB configuration are not part of these EFI entries.
+
+To make the command available as `bootsel`:
+
+```bash
+install -Dm755 utils/bootsel.sh ~/.local/bin/bootsel
+```
 
 ## MuseScore MP3 Export
 
