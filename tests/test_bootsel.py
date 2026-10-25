@@ -101,6 +101,33 @@ fi
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls(), ["-v", "-o 000A,0002,0003", "-N", "-v"])
 
+    def test_numeric_selector_uses_boot_order_position_not_efi_id(self):
+        result = self.run_script("2", "--run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ubuntu first", result.stdout)
+        self.assertEqual(self.calls(), ["-v", "-o 000A,0002,0003", "-N", "-v"])
+
+    def test_numeric_once_and_duplicate_labels(self):
+        self.state.write_text(STATE.replace("Windows Boot Manager", "ubuntu"))
+        result = self.run_script("3", "--once", "--run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls(), ["-v", "-n 0003", "-v"])
+
+    def test_invalid_positions_never_write(self):
+        for selector in ["0", "4", "02", "999999999999999999999999999999"]:
+            with self.subTest(selector=selector):
+                result = self.run_script(selector, "--run")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Invalid boot order position", result.stderr)
+        self.assertEqual(self.calls(), ["-v"] * 4)
+
+    def test_numeric_selector_rejects_missing_entry(self):
+        self.state.write_text("BootOrder: 0007\nBoot000A* ubuntu\n")
+        result = self.run_script("1", "--run")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("entry 0007 does not exist", result.stderr)
+        self.assertEqual(self.calls(), ["-v"])
+
     def test_once_with_spaces_only_writes_bootnext(self):
         result = self.run_script("--run", "Windows Boot Manager", "--once")
         self.assertEqual(result.returncode, 0, result.stderr)

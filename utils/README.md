@@ -39,11 +39,14 @@ bash utils/bootsel.sh
 bash utils/bootsel.sh --debug
 bash utils/bootsel.sh ubuntu
 bash utils/bootsel.sh ubuntu --run
+bash utils/bootsel.sh 3 --run
 bash utils/bootsel.sh proxmox --once --run
 bash utils/bootsel.sh "Windows Boot Manager" --once
 ```
 
 Selecting a label previews changes by default; add `--run` to apply them. Writes automatically request root through `sudo`; if reading EFI variables also requires root, launch the script with `sudo`. Permanent selection moves the entry to the front of `BootOrder`, preserves the relative order of other entries, and clears an existing `BootNext`. `--once` only sets `BootNext`. The script shows the current state and never reboots. Some firmware drops `BootNext` after a full power cut. Selecting an inactive entry does not activate it; firmware may skip it in `BootOrder`.
+
+A numeric selector chooses the position in the currently displayed boot order: `3` selects its third entry, not EFI ID `0003`. Positions change when the boot order changes; use labels in automation. Numeric selectors are reserved for positions. They also allow choosing between duplicate labels. Dry runs label the final summary as the unchanged current firmware state.
 
 Running without arguments shows usage and a readable summary: the current bootloader, the next boot override, the ordered list of boot labels, and available entries with EFI file paths. Firmware applications and network entries get short descriptions; inactive entries are marked. Add `--debug` to include the raw `efibootmgr -v` output with full device paths and optional boot data recorded in firmware. Kernel arguments stored separately in bootloader configuration (such as GRUB or Limine) are not part of these EFI entries.
 
