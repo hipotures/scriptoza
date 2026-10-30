@@ -116,3 +116,6 @@ build/
 # Ignore MkDocs build output
 site/
 .cache/
+
+# Allow YubiKey notification service
+!utils/yubikey-touch-sound.service

@@ -1,0 +1,13 @@
+[Unit]
+Description=Play a sound when YubiKey touch waiting starts or stops
+Wants=yubikey-touch-detector.service
+After=yubikey-touch-detector.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/bin/yubikey_touch_sound.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

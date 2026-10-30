@@ -130,3 +130,18 @@ Use `--url` to target a specific conversation, `--env PATH` to load rules from a
 
 - Event workflow and review tools are no longer active under `utils/`
 - Historical pipeline scripts remain available only under `deprecated/pipeline/`
+
+## YubiKey Touch Sounds
+
+`yubikey_touch_sound.py` plays distinct sounds when touch waiting starts and ends, at 15% volume. An end event does not prove authentication succeeded. Requires Python 3, `ffplay` (FFmpeg), and a working `yubikey-touch-detector` user service exposing its Unix socket.
+
+The installer includes the script and `yubikey-touch-sound.service`. Audio files are intentionally excluded from the repository because their license has not been verified. Supply `universfield-new-notification-066-494545.mp3` and `universfield-new-notification-064-494547.mp3` in `~/.local/share/sounds/` yourself; the existing local files are left untouched.
+
+```bash
+python3 utils/install.py          # Preview without changing files
+python3 utils/install.py --run    # Install utilities, and services
+systemctl --user daemon-reload
+systemctl --user enable --now yubikey-touch-sound.service
+```
+
+The installed script is `~/.local/bin/yubikey_touch_sound.py`, the unit is in `~/.config/systemd/user/`, and sounds are in `~/.local/share/sounds/`. Adjust the `ffplay -volume` argument in the source and reinstall to change loudness. Reinstalling an already running service requires `systemctl --user restart yubikey-touch-sound.service`. The installer copies units but does not activate them.

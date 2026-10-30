@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os
+import argparse
 import shutil
 from pathlib import Path
 from rich.console import Console
@@ -10,6 +10,12 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCo
 console = Console()
 
 def main():
+    parser = argparse.ArgumentParser(description="Install Scriptoza utilities (preview by default).")
+    parser.add_argument("--run", action="store_true", help="Apply installation changes")
+    args = parser.parse_args()
+    if not args.run:
+        console.print("[yellow]DRY RUN: no files will change. Use --run to install.[/yellow]")
+
     # Directories
     repo_dir = Path(__file__).parent.parent.resolve()
     bin_dir = Path.home() / ".local" / "bin"
@@ -19,11 +25,12 @@ def main():
     console.print(Panel.fit("[bold blue]🚀 Scriptoza Installer[/bold blue]", border_style="blue"))
 
     # Ensure directories exist
-    bin_dir.mkdir(parents=True, exist_ok=True)
-    config_dir.mkdir(parents=True, exist_ok=True)
-    systemd_user_dir.mkdir(parents=True, exist_ok=True)
+    if args.run:
+        for directory in (bin_dir, config_dir, systemd_user_dir):
+            directory.mkdir(parents=True, exist_ok=True)
 
     scripts = [
+        ("utils/yubikey_touch_sound.py", "yubikey_touch_sound.py"),
         ("video/rename_video_univ.py", "rename-video-univ"),
         ("video/rename_video_by_tags.py", "rename-video-by-tags"),
         ("video/rename_video_by_tags.py", "rename-video"),
@@ -47,6 +54,7 @@ def main():
     ]
 
     services = [
+        ("utils/yubikey-touch-sound.service", systemd_user_dir / "yubikey-touch-sound.service"),
         ("ai/codex-resume.service", systemd_user_dir / "codex-resume.service"),
     ]
 
@@ -73,12 +81,13 @@ def main():
         for src_rel, dest_name in scripts:
             src = repo_dir / src_rel
             dest = bin_dir / dest_name
-            status = "[bold green]DONE[/bold green]"
+            status = "[bold green]DONE[/bold green]" if args.run else "[yellow]WOULD COPY[/yellow]"
             
             if src.exists():
                 try:
-                    shutil.copy2(src, dest)
-                    dest.chmod(0o755)
+                    if args.run:
+                        shutil.copy2(src, dest)
+                        dest.chmod(0o755)
                 except Exception as e:
                     status = f"[bold red]ERR: {e}[/bold red]"
             else:
@@ -90,11 +99,12 @@ def main():
         for src_rel, dest_name in configs:
             src = repo_dir / src_rel
             dest = config_dir / dest_name
-            status = "[bold green]DONE[/bold green]"
+            status = "[bold green]DONE[/bold green]" if args.run else "[yellow]WOULD COPY[/yellow]"
             
             if src.exists():
                 try:
-                    shutil.copy2(src, dest)
+                    if args.run:
+                        shutil.copy2(src, dest)
                 except Exception as e:
                     status = f"[bold red]ERR: {e}[/bold red]"
             else:
@@ -105,11 +115,12 @@ def main():
 
         for src_rel, dest in services:
             src = repo_dir / src_rel
-            status = "[bold green]DONE[/bold green]"
+            status = "[bold green]DONE[/bold green]" if args.run else "[yellow]WOULD COPY[/yellow]"
 
             if src.exists():
                 try:
-                    shutil.copy2(src, dest)
+                    if args.run:
+                        shutil.copy2(src, dest)
                 except Exception as e:
                     status = f"[bold red]ERR: {e}[/bold red]"
             else:
@@ -120,10 +131,11 @@ def main():
 
     console.print(table)
     
-    console.print(f"\n[bold green]✅ Installation finished successfully![/bold green]")
+    console.print("\nInstallation finished." if args.run else "\nDRY RUN complete. Use --run to install.")
     console.print(f"[dim]Scripts installed to: {bin_dir}[/dim]")
     console.print(f"[dim]Configs installed to: {config_dir}[/dim]")
     console.print(f"[dim]User services installed to: {systemd_user_dir}[/dim]")
+    console.print("Enable YubiKey sounds: systemctl --user daemon-reload && systemctl --user enable --now yubikey-touch-sound.service")
     console.print("\n[yellow]Note:[/yellow] The 'by tags' script is available as both [bold cyan]rename-video-by-tags[/bold cyan] and [bold cyan]rename-video[/bold cyan].")
 
 if __name__ == "__main__":
