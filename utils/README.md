@@ -133,6 +133,8 @@ Use `--url` to target a specific conversation, `--env PATH` to load rules from a
 
 ## YubiKey Touch Sounds
 
+See [sound sources and reinstall instructions](../docs/yubikey-sound-sources.md) for both download links, asset IDs, and exact local filenames.
+
 `yubikey_touch_sound.py` plays distinct sounds when touch waiting starts and ends, at 15% volume. An end event does not prove authentication succeeded. Requires Python 3, `ffplay` (FFmpeg), and a working `yubikey-touch-detector` user service exposing its Unix socket.
 
 The installer includes the script and `yubikey-touch-sound.service`. Audio files are intentionally excluded from the repository; download them separately from Pixabay. The source for `universfield-new-notification-064-494547.mp3` is [New Notification 064 by Universfield](https://pixabay.com/sound-effects/technology-new-notification-064-494547/), offered under the [Pixabay Content License](https://pixabay.com/service/license-summary/). That license restricts standalone redistribution, so these unchanged MP3s are not bundled here. Supply `universfield-new-notification-066-494545.mp3` and `universfield-new-notification-064-494547.mp3` in `~/.local/share/sounds/` yourself; the existing local files are left untouched.
