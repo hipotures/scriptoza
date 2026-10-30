@@ -3,6 +3,7 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import * as Model from './model.js';
+import {remoteCommand} from './event-stream.js';
 
 const modelRevision = import.meta.url.match(/\?.*$/)?.[0] ?? '';
 let cleanText = Model.cleanText;
@@ -49,9 +50,9 @@ export class Collector {
         this._activity.clear();
     }
 
-    _launch(args) {
+    _launch(args, command = [this._herdr, ...args]) {
         return new Promise((resolve, reject) => {
-            this._pending.push({args, resolve, reject});
+            this._pending.push({command, resolve, reject});
             if (this._launchSource)
                 return;
             // Process creation is synchronous. Launch one request per idle
@@ -61,7 +62,7 @@ export class Collector {
                 try {
                     // timeout owns a process group, including SSH subprocesses.
                     const process = Gio.Subprocess.new([this._timeout, '--kill-after=1s', '8s',
-                        this._herdr, ...request.args],
+                        ...request.command],
                         Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
                     this._processes.add(process);
                     request.resolve(process);
@@ -83,7 +84,17 @@ export class Collector {
             throw new Error('herdr executable not found');
         if (!this._timeout)
             throw new Error('GNU timeout executable not found');
-        const process = await this._launch(args);
+        let command;
+        if (args[0] === '--machine') {
+            const profiles = await this.readJson(['machine', 'list', '--json']);
+            const server = profiles.find(profile => profile.id === args[1] && profile.enabled);
+            if (!server)
+                throw new Error('Saved machine is unavailable');
+            command = remoteCommand(server, args.slice(2));
+        }
+        if (this._closed)
+            throw new Error('Collector stopped');
+        const process = await this._launch(args, command);
         metrics.requests++;
         try {
             const [stdout, stderr] = await new Promise((resolve, reject) => {

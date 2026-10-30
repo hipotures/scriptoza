@@ -15,7 +15,7 @@ function quote(value) {
     return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-export function remoteCommand(server) {
+export function remoteCommand(server, args = ['remote-api-bridge']) {
     if (!/^[a-f0-9]{32}$/.test(server.id) || typeof server.target !== 'string' ||
         !server.target || server.target.startsWith('-') || typeof server.session !== 'string')
         throw new Error('Invalid saved SSH machine');
@@ -42,10 +42,11 @@ export function remoteCommand(server) {
         throw new Error('Unsafe Herdr SSH control directory');
     // Use the same namespace and target hash as Herdr's managed OpenSSH pool.
     const controlPath = `${controlDir}/${checksum.get_string().slice(0, 24)}-%C`;
+    // A missing or lost master must fail locally, never start authentication.
     return ['ssh', '-T', '-S', controlPath, '-o', 'ControlMaster=no', '-o', 'BatchMode=yes',
-        '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=8',
+        '-o', 'ProxyCommand=/bin/false', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=8',
         '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3', server.target,
-        `exec ${quote(cache.metadata.executable)} --session ${quote(server.session)} remote-api-bridge`];
+        `exec ${quote(cache.metadata.executable)} --session ${quote(server.session)} ${args.map(quote).join(' ')}`];
 }
 
 export class EventStream {

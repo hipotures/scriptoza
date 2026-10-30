@@ -120,8 +120,11 @@ channel to the saved machine's session and cached Herdr executable. The worker
 reuses Herdr's managed OpenSSH control socket, with strict host-key checking,
 noninteractive authentication, and SSH keepalives. It never installs or restarts
 Herdr. Missing/unsupported remote metadata or failed subscriptions make that
-machine unavailable; there is no polling fallback. Snapshot reads use the existing
-`herdr --machine` CLI path and an 8-second timeout. Event subscription setup has
+machine unavailable; there is no polling fallback. Remote snapshot reads use the same managed control socket directly and an
+8-second timeout. Both snapshots and subscriptions set `ProxyCommand=/bin/false`:
+only an existing Herdr SSH master can carry requests. If it is missing or closes,
+requests fail locally without a network connection or hardware-key authentication.
+The widget never establishes a new SSH transport; connect in Herdr first. Event subscription setup has
 a 10-second deadline; an established event stream has no idle timeout.
 
 If the local server is unavailable, machine discovery and all remote subscriptions

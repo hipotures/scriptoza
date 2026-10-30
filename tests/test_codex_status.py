@@ -49,6 +49,61 @@ function snapshot(states = ['working']) {{
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("CRITICAL", result.stderr)
 
+    def test_remote_requests_cannot_start_ssh_authentication(self):
+        self.run_gjs("""
+const loop = new GLib.MainLoop(null, false);
+const directory = GLib.dir_make_tmp('widget-ssh-test-XXXXXX');
+const originalState = GLib.getenv('XDG_STATE_HOME');
+GLib.setenv('XDG_STATE_HOME', directory, true);
+const uid = Gio.File.new_for_path('/proc/self').query_info('unix::uid',
+    Gio.FileQueryInfoFlags.NONE, null).get_attribute_uint32('unix::uid');
+const controlDir = `/tmp/hssh-${uid}`;
+const createdControlDir = !GLib.file_test(controlDir, GLib.FileTest.EXISTS);
+if (createdControlDir) GLib.mkdir_with_parents(controlDir, 0o700);
+const metadataDir = `${directory}/herdr/client/ssh-metadata`;
+GLib.mkdir_with_parents(metadataDir, 0o700);
+const server = {id: 'a'.repeat(32), label: 'test', enabled: true,
+    target: 'widget-no-connection-test.invalid', session: 'default'};
+const metadataPath = `${metadataDir}/${server.id}.json`;
+GLib.file_set_contents(metadataPath, JSON.stringify({version: 1, target: server.target,
+    session: server.session, metadata: {os: 'linux', executable: '/test/herdr'}}));
+(async () => {
+    for (const args of [['remote-api-bridge'], ['api', 'snapshot']]) {
+        const command = remoteCommand(server, args);
+        check(command.includes('ProxyCommand=/bin/false'), 'New transports must be blocked');
+        check(command.includes('ControlMaster=no'), 'Widget must not create a master');
+        const process = Gio.Subprocess.new(command,
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+        await new Promise((resolve, reject) => process.communicate_utf8_async(null, null,
+            (source, result) => { try { source.communicate_utf8_finish(result); resolve(); }
+                catch (error) { reject(error); } }));
+        check(!process.get_successful(), 'A missing master must fail');
+    }
+    const collector = new Collector();
+    const read = collector.readJson.bind(collector);
+    collector.readJson = async args => args[0] === 'machine' ? [server] : read(args);
+    let launched;
+    collector._launch = async (args, command) => {
+        launched = command;
+        throw new Error('captured');
+    };
+    try { await collector.readJson(['--machine', server.id, 'api', 'snapshot']); } catch {}
+    check(launched?.[0] === 'ssh' && launched.includes('ProxyCommand=/bin/false'),
+        'Remote snapshots must bypass the Herdr CLI auto-connect path');
+    check(launched.at(-1).endsWith("'api' 'snapshot'"), 'Remote snapshot command');
+    collector.close();
+})().catch(error => { printerr(error.stack); System.exit(1); }).finally(() => {
+    if (originalState === null) GLib.unsetenv('XDG_STATE_HOME');
+    else GLib.setenv('XDG_STATE_HOME', originalState, true);
+    GLib.unlink(metadataPath); GLib.rmdir(metadataDir);
+    GLib.rmdir(`${directory}/herdr/client`); GLib.rmdir(`${directory}/herdr`);
+    GLib.rmdir(directory);
+    if (createdControlDir) GLib.rmdir(controlDir);
+    loop.quit();
+});
+loop.run();
+""")
+
     def test_statuses_priority_and_unknown_values(self):
         self.run_gjs("""
 const agents = normalizeAgents(snapshot(['idle', 'done', 'working', 'blocked', 'alien', '__proto__']),
