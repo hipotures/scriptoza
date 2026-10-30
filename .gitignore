@@ -119,3 +119,7 @@ site/
 
 # Allow YubiKey notification service
 !utils/yubikey-touch-sound.service
+
+# Keep third-party YubiKey notification audio local
+universfield-new-notification-064-494547.mp3
+universfield-new-notification-066-494545.mp3
