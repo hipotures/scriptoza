@@ -163,7 +163,7 @@ Requirements: Python 3, `openssl`, `dig`, and certbot installed with uv:
 uv tool install certbot
 ```
 
-Configuration lives in `~/.config/scriptoza/srm-cert-renew.conf` (KEY=VALUE, mode 0600; the script refuses to start otherwise). Start from `utils/srm-cert-renew.conf.example`. Use a dedicated SRM admin account without 2-step verification. ACME account, keys and certificates are kept in `~/.local/state/scriptoza/srm-cert-renew/` (mode 0700) and are recreated automatically on a clean machine.
+Configuration lives in `~/.config/scriptoza/srm-cert-renew.conf` (KEY=VALUE, mode 0600; the script refuses to start otherwise). Start from `utils/srm-cert-renew.conf.example`. `ACME_EMAIL` may be left empty; the ACME account is then registered without an e-mail address. Use a dedicated SRM admin account without 2-step verification. ACME account, keys and certificates are kept in `~/.local/state/scriptoza/srm-cert-renew/` (mode 0700) and are recreated automatically on a clean machine.
 
 ```bash
 python3 utils/srm_cert_renew.py                                  # Dry run: report what would happen

@@ -29,7 +29,6 @@ STATE_DIR = Path.home() / ".local" / "state" / "scriptoza" / "srm-cert-renew"
 REQUIRED_KEYS = (
     "DOMAIN",
     "DNS_ZONE",
-    "ACME_EMAIL",
     "SPACESHIP_API_KEY",
     "SPACESHIP_API_SECRET",
     "SRM_URL",
@@ -237,6 +236,13 @@ def find_certbot() -> str | None:
     return str(fallback) if fallback.is_file() else None
 
 
+def account_args(config: dict[str, str]) -> list[str]:
+    email = config.get("ACME_EMAIL", "")
+    if email:
+        return ["--no-eff-email", "-m", email]
+    return ["--register-unsafely-without-email"]
+
+
 def run_certbot(config: dict[str, str], config_path: Path) -> None:
     certbot = find_certbot()
     if not certbot:
@@ -250,9 +256,7 @@ def run_certbot(config: dict[str, str], config_path: Path) -> None:
         "certonly",
         "--non-interactive",
         "--agree-tos",
-        "--no-eff-email",
-        "-m",
-        config["ACME_EMAIL"],
+        *account_args(config),
         "--manual",
         "--preferred-challenges",
         "dns",
