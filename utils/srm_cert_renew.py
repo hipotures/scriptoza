@@ -38,6 +38,7 @@ REQUIRED_KEYS = (
 SPACESHIP_URL = "https://spaceship.dev/api/v1/dns/records/{zone}"
 RESOLVERS = ("1.1.1.1", "8.8.8.8")
 CERT_DESC = "scriptoza srm-cert-renew"
+USER_AGENT = "scriptoza-srm-cert-renew/1.0"
 HTTP_TIMEOUT = 30
 TLS_TIMEOUT = 15
 DIG_TIMEOUT = 15
@@ -107,6 +108,7 @@ def spaceship_request(config: dict[str, str], method: str, body: Any) -> None:
             "X-API-Key": config["SPACESHIP_API_KEY"],
             "X-API-Secret": config["SPACESHIP_API_SECRET"],
             "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
         },
     )
     try:
@@ -326,7 +328,7 @@ class SrmClient:
         url = f"{self.base}/webapi/{path}"
         if query:
             url += "?" + urllib.parse.urlencode(query)
-        headers = {"Content-Type": content_type}
+        headers = {"Content-Type": content_type, "User-Agent": USER_AGENT}
         if self.token:
             headers["X-SYNO-TOKEN"] = self.token
         request = urllib.request.Request(url, data=data, method="POST", headers=headers)
