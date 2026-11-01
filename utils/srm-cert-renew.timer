@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly SRM router certificate check
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

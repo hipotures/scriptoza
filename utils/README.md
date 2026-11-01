@@ -25,6 +25,7 @@ If you still need the old event workflow scripts, run them from `deprecated/pipe
 - `delete-google-chat-messages.js` - Controlled Google Chat message cleanup through a browser CDP session and private match rules
 - `musescore_export_mp3_with_tags.py` - Exports MuseScore `.mscz` files to tagged MP3s named from `workTitle`
 - `wav_to_mp3.py` - Recursively converts WAV files to high-quality VBR MP3 next to the originals without overwriting or deleting anything
+- `srm_cert_renew.py` - Keeps a Let's Encrypt certificate current on a Synology SRM router
 - `install.py` - Installs selected utility scripts into a local bin directory
   and copies the optional `codex-resume` systemd user unit to
   `~/.config/systemd/user/`
@@ -147,3 +148,37 @@ systemctl --user enable --now yubikey-touch-sound.service
 ```
 
 The installed script is `~/.local/bin/yubikey_touch_sound.py`, the unit is in `~/.config/systemd/user/`, and sounds are in `~/.local/share/sounds/`. Adjust the `ffplay -volume` argument in the source and reinstall to change loudness. Reinstalling an already running service requires `systemctl --user restart yubikey-touch-sound.service`. The installer copies units but does not activate them.
+
+## SRM Router Certificate
+
+`srm_cert_renew.py` keeps a Let's Encrypt certificate for a Synology SRM router current. It uses only the ACME DNS-01 challenge through the Spaceship DNS API, so the router hostname may resolve to a private LAN address and no port has to be reachable from the internet. Each run:
+
+1. runs certbot with `--keep-until-expiring`, which issues the certificate if none exists and renews it when fewer than 30 days remain. The certbot hooks call `hook-auth` / `hook-cleanup` on this script: they create the `_acme-challenge` TXT record, wait up to 10 minutes until it is visible on 1.1.1.1 and 8.8.8.8, and remove it afterwards;
+2. compares the SHA-256 fingerprint of the certificate served on `SRM_URL` with the local one;
+3. if they differ, logs in to the SRM web API, imports the certificate as the default (replacing the entry it created earlier, or the current default entry), logs out, and checks that the router serves the new certificate.
+
+Requirements: Python 3, `openssl`, `dig`, and certbot installed with uv:
+
+```bash
+uv tool install certbot
+```
+
+Configuration lives in `~/.config/scriptoza/srm-cert-renew.conf` (KEY=VALUE, mode 0600; the script refuses to start otherwise). Start from `utils/srm-cert-renew.conf.example`. Use a dedicated SRM admin account without 2-step verification. ACME account, keys and certificates are kept in `~/.local/state/scriptoza/srm-cert-renew/` (mode 0700) and are recreated automatically on a clean machine.
+
+```bash
+python3 utils/srm_cert_renew.py                                  # Dry run: report what would happen
+python3 utils/srm_cert_renew.py --run --allow-untrusted-router   # First import while SRM serves a self-signed certificate
+python3 utils/srm_cert_renew.py --run                            # Normal run
+```
+
+Router TLS is verified against `DOMAIN` by default. `--allow-untrusted-router` disables verification for that single run only and is not available as a config option.
+
+Install and enable the hourly timer (`OnBootSec=5min`, `OnUnitActiveSec=1h`, `Persistent=true`); logs go to the journal:
+
+```bash
+python3 utils/install.py --run
+systemctl --user daemon-reload
+systemctl --user enable --now srm-cert-renew.timer
+loginctl enable-linger "$USER"    # Run without an active login session
+journalctl --user -u srm-cert-renew.service
+```

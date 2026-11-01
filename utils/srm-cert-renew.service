@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew the SRM router Let's Encrypt certificate and deploy it
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/bin/srm-cert-renew --run

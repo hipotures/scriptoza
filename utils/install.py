@@ -31,6 +31,7 @@ def main():
 
     scripts = [
         ("utils/yubikey_touch_sound.py", "yubikey_touch_sound.py"),
+        ("utils/srm_cert_renew.py", "srm-cert-renew"),
         ("video/rename_video_univ.py", "rename-video-univ"),
         ("video/rename_video_by_tags.py", "rename-video-by-tags"),
         ("video/rename_video_by_tags.py", "rename-video"),
@@ -55,6 +56,8 @@ def main():
 
     services = [
         ("utils/yubikey-touch-sound.service", systemd_user_dir / "yubikey-touch-sound.service"),
+        ("utils/srm-cert-renew.service", systemd_user_dir / "srm-cert-renew.service"),
+        ("utils/srm-cert-renew.timer", systemd_user_dir / "srm-cert-renew.timer"),
         ("ai/codex-resume.service", systemd_user_dir / "codex-resume.service"),
     ]
 
@@ -136,6 +139,7 @@ def main():
     console.print(f"[dim]Configs installed to: {config_dir}[/dim]")
     console.print(f"[dim]User services installed to: {systemd_user_dir}[/dim]")
     console.print("Enable YubiKey sounds: systemctl --user daemon-reload && systemctl --user enable --now yubikey-touch-sound.service")
+    console.print("Enable SRM certificate renewal: systemctl --user daemon-reload && systemctl --user enable --now srm-cert-renew.timer")
     console.print("\n[yellow]Note:[/yellow] The 'by tags' script is available as both [bold cyan]rename-video-by-tags[/bold cyan] and [bold cyan]rename-video[/bold cyan].")
 
 if __name__ == "__main__":

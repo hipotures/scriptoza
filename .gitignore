@@ -123,3 +123,8 @@ site/
 # Keep third-party YubiKey notification audio local
 universfield-new-notification-064-494547.mp3
 universfield-new-notification-066-494545.mp3
+
+# Allow SRM certificate renewal units and example config
+!utils/srm-cert-renew.service
+!utils/srm-cert-renew.timer
+!utils/srm-cert-renew.conf.example
