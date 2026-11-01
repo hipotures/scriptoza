@@ -8,6 +8,7 @@ DSM-style web API whenever the router serves a different certificate.
 
 import argparse
 import hashlib
+import http.cookiejar
 import json
 import os
 import shlex
@@ -319,6 +320,10 @@ class SrmClient:
         self.user = config["SRM_USER"]
         self.password = config["SRM_PASSWORD"]
         self.context = tls_context(verify)
+        self.opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=self.context),
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()),
+        )
         self.apis: dict[str, dict[str, Any]] = {}
         self.sid: str | None = None
         self.token: str | None = None
@@ -333,7 +338,7 @@ class SrmClient:
             headers["X-SYNO-TOKEN"] = self.token
         request = urllib.request.Request(url, data=data, method="POST", headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT, context=self.context) as response:
+            with self.opener.open(request, timeout=HTTP_TIMEOUT) as response:
                 body = response.read()
         except urllib.error.HTTPError as error:
             raise SrmError(f"SRM request failed with HTTP {error.code}") from None
@@ -357,7 +362,16 @@ class SrmClient:
             self.apis[api]["path"],
             urllib.parse.urlencode(fields).encode(),
             "application/x-www-form-urlencoded",
+            self.session_query(),
         )
+
+    def session_query(self) -> dict[str, str]:
+        query: dict[str, str] = {}
+        if self.sid:
+            query["_sid"] = self.sid
+        if self.token:
+            query["SynoToken"] = self.token
+        return query
 
     def discover(self) -> None:
         wanted = ("SYNO.API.Auth", "SYNO.Core.Certificate", "SYNO.Core.Certificate.CRT")
@@ -387,7 +401,6 @@ class SrmClient:
             passwd=self.password,
             enable_syno_token="yes",
             format="sid",
-            session="srm-cert-renew",
         )
         if not result.get("success"):
             code = error_code(result)
@@ -402,13 +415,13 @@ class SrmClient:
         self.token = data.get("synotoken")
         if not self.sid:
             raise SrmError("SRM login returned no session")
-        log("Logged in to SRM")
+        log(f"Logged in to SRM (SynoToken: {'yes' if self.token else 'no'})")
 
     def logout(self) -> None:
         if not self.sid:
             return
         try:
-            self.call("SYNO.API.Auth", "logout", self.auth_version, session="srm-cert-renew")
+            self.call("SYNO.API.Auth", "logout", self.auth_version)
             log("Logged out of SRM")
         except SrmError as error:
             log(f"WARNING: SRM logout failed: {error}")
@@ -450,10 +463,8 @@ class SrmClient:
             "api": "SYNO.Core.Certificate",
             "method": "import",
             "version": str(self.version("SYNO.Core.Certificate")),
-            "_sid": self.sid or "",
+            **self.session_query(),
         }
-        if self.token:
-            query["SynoToken"] = self.token
         result = self.request(
             self.apis["SYNO.Core.Certificate"]["path"],
             b"".join(parts),
