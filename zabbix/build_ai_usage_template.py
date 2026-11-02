@@ -350,11 +350,13 @@ def f(kind, name, value):
     return {'type': kind, 'name': name, 'value': str(value)}
 
 
-def value_widget(name, itemid, x, y, width=12, decimals=2):
-    return {'type': 'item', 'name': name, 'x': x, 'y': y, 'width': width, 'height': 3, 'view_mode': '0',
-            'fields': [f(ITEM, 'itemid.0', itemid), f(INT, 'show.0', 1), f(INT, 'show.1', 2), f(INT, 'show.2', 4),
-                       f(STR, 'description', name), f(INT, 'decimal_places', decimals), f(INT, 'value_size', 40),
-                       f(INT, 'desc_size', 12), f(INT, 'adv_conf', 1)]}
+def value_widget(name, itemid, x, y, width=12, decimals=2, size=40):
+    # header hidden: the description under the value already names it; no change arrow (red/green
+    # would read a shorter request time as bad)
+    return {'type': 'item', 'name': name, 'x': x, 'y': y, 'width': width, 'height': 3, 'view_mode': '1',
+            'fields': [f(ITEM, 'itemid.0', itemid), f(INT, 'show.0', 1), f(INT, 'show.1', 2),
+                       f(STR, 'description', name), f(INT, 'decimal_places', decimals), f(INT, 'value_size', size),
+                       f(INT, 'desc_size', 14), f(INT, 'adv_conf', 1)]}
 
 
 def graph_widget(name, host, series, x, y, width=36, height=5, bars=False, period=None):
@@ -408,17 +410,18 @@ def dashboard_widgets(host, ids):
                ('Codex turns, 24h', 'ai.codex.turns[24h]', 0), ('Codex tool calls, 24h', 'ai.codex.tools[24h]', 0),
                ('Codex turn duration, avg', 'ai.codex.turn.duration[24h]', 1),
                ('Codex time to first token, avg', 'ai.codex.turn.ttft[24h]', 1)]
-    w += [value_widget(name, ids[key], 9 * n, 19, width=9, decimals=d) for n, (name, key, d) in enumerate(details)]
+    w += [value_widget(name, ids[key], 9 * n, 19, width=9, decimals=d, size=28) for n, (name, key, d) in enumerate(details)]
     return w
 
 
 def dashboard(url, token, host, run):
-    hosts = api(url, token, 'host.get', {'filter': {'host': [host]}, 'output': ['hostid']})
+    hosts = api(url, token, 'host.get', {'filter': {'host': [host]}, 'output': ['hostid', 'name']})
     if not hosts:
         raise SystemExit(f'host {host} not found')
     items = api(url, token, 'item.get', {'hostids': hosts[0]['hostid'], 'output': ['itemid', 'key_']})
     ids = {i['key_']: i['itemid'] for i in items}
-    page = {'name': 'Overview', 'widgets': dashboard_widgets(host, ids)}
+    # graph and pie data sets match hosts by visible name
+    page = {'name': 'Overview', 'widgets': dashboard_widgets(hosts[0]['name'], ids)}
     existing = api(url, token, 'dashboard.get', {'filter': {'name': [DASHBOARD]}, 'output': ['dashboardid']})
     action = 'update' if existing else 'create'
     print(f"{'would ' if not run else ''}{action} dashboard {DASHBOARD!r} ({len(page['widgets'])} widgets) for host {host}")
