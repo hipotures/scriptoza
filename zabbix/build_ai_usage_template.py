@@ -14,12 +14,15 @@ Agent metrics are listed in AGENTS; a new agent in hs-usage needs one entry ther
   build_ai_usage_template.py                                   dry run: show what would be written/imported
   build_ai_usage_template.py --run                             write ai-usage-template.json
   build_ai_usage_template.py --import URL TOKENFILE --run      write and import (create/update)
+  build_ai_usage_template.py --backfill URL TOKENFILE --run    push past daily totals (up to 30 days) into
+                                                               the per-day items of host --host (default ai-usage)
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import time
 import urllib.request
 import uuid
 from pathlib import Path
@@ -104,6 +107,57 @@ d.series.forEach(function (s) {
 return JSON.stringify(out);'''
 
 
+# Total of the previous UTC day (completed buckets only); 7d buckets are 3h, aligned to UTC days.
+DAILY_JS = '''if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number
+var d = JSON.parse(value).datasets, agents = AGENTS, measure = MEASURE;
+var end = Math.floor(Date.now() / 86400000) * 86400, start = end - 86400, sum = 0;
+agents.forEach(function (a) {
+  var ds = d[a + '.' + measure];
+  if (!ds || ds.state !== 'available') { throw 'dataset ' + a + '.' + measure + ' unavailable'; }
+  ds.series.forEach(function (s) {
+    if (measure === 'tokens' && s.dimensions.category !== 'total') { return; }
+    s.points.forEach(function (p) { if (p[0] >= start && p[0] < end) { sum += p[1]; } });
+  });
+});
+return sum;'''
+DAILY_WINDOW = '7d'
+DAILY_MEASURES = {'cost': ('cost', 'USD'), 'tokens': ('tokens, total', '')}
+
+
+def daily_agents(agent):
+    return list(AGENTS) if agent == 'all' else [agent]
+
+
+def daily_total(datasets, agent, measure, start, end):
+    """Python twin of DAILY_JS for the backfill: sum of bucket points in [start, end)."""
+    total = 0.0
+    for a in daily_agents(agent):
+        for s in datasets[f'{a}.{measure}']['series']:
+            if measure == 'tokens' and s['dimensions'].get('category') != 'total':
+                continue
+            total += sum(p[1] for p in s['points'] if start <= p[0] < end)
+    return total
+
+
+def daily_items():
+    out = []
+    for agent in ['all', *AGENTS]:
+        label = 'All agents' if agent == 'all' else AGENTS[agent][0]
+        for measure, (name, units) in DAILY_MEASURES.items():
+            key = f'ai.daily.{measure}[{agent}]'
+            js = DAILY_JS.replace('AGENTS', json.dumps(daily_agents(agent))).replace('MEASURE', json.dumps(measure))
+            out.append({'uuid': uid(TEMPLATE, 'item', key), 'name': f'{label}: {name} per day (UTC)', 'type': 'HTTP_AGENT',
+                        'key': key, 'delay': '0;h3m0', 'history': '400d', 'value_type': 'FLOAT', 'units': units,
+                        'url': '{$AI.USAGE.URL}/api/dashboard/snapshot', 'timeout': '30s',
+                        'query_fields': [{'name': 'range', 'value': DAILY_WINDOW}], 'allow_traps': 'YES',
+                        'allowed_hosts': '{$AI.PUSH.ALLOWED}',
+                        'preprocessing': [{'type': 'JAVASCRIPT', 'parameters': [js]}],
+                        'description': 'Total of the previous UTC day, read daily at 03:00 server time. '
+                                       'Accepts history.push, used to backfill past days.',
+                        'tags': tags(agent=agent, window='1d', component='cost' if measure == 'cost' else 'usage')})
+    return out
+
+
 def sum_js(dataset, **match):
     return SUM_JS.replace('DATASET', json.dumps(dataset)).replace('FILTER', json.dumps(match))
 
@@ -154,7 +208,7 @@ def items():
     cost['description'] = 'Claude Code cost as it reports it; Codex cost estimated by hs-usage from list prices.'
     cost['triggers'] = [trigger(cost['key'], f'last(/{TEMPLATE}/ai.all.cost[24h])>{{$AI.COST.24H.WARN}}',
                                 'AI agents cost over {$AI.COST.24H.WARN} USD in the last 24h', 'WARNING')]
-    return out
+    return out + daily_items()
 
 
 def proto(key, name, units, js, **tag):
@@ -203,6 +257,7 @@ def build():
     macros = {
         '{$AI.USAGE.URL}': ('http://AI-USAGE', 'Base URL of the AI Usage (hs-usage) service, set it on the host.'),
         '{$AI.USAGE.INTERVAL}': ('5m', 'Poll interval; the service caches its Prometheus reads.'),
+        '{$AI.PUSH.ALLOWED}': ('127.0.0.1', 'Addresses allowed to push history into the per-day items (backfill).'),
         '{$AI.COST.24H.WARN}': ('150', 'Warn when all agents together cost more (USD) in the last 24h.'),
     }
     template = {'uuid': uid(TEMPLATE, 'template'), 'template': TEMPLATE, 'name': TEMPLATE,
@@ -226,12 +281,74 @@ def api(url, token, method, params):
     return reply['result']
 
 
+BACKFILL_RANGE = '30d'
+PUSH_OFFSET = 3 * 3600  # a past day is stored at 03:00 UTC of the next day, near the daily poll
+
+
+def backfill(url, token, host, run):
+    hosts = api(url, token, 'host.get', {'filter': {'host': [host]}, 'output': ['hostid'],
+                                          'selectMacros': ['macro', 'value']})
+    if not hosts:
+        raise SystemExit(f'host {host} not found')
+    macros = {m['macro']: m['value'] for m in hosts[0]['macros']}
+    source = macros.get('{$AI.USAGE.URL}')
+    if not source:
+        raise SystemExit(f'{{$AI.USAGE.URL}} is not set on host {host}')
+    items = api(url, token, 'item.get', {'hostids': hosts[0]['hostid'], 'search': {'key_': 'ai.daily.'},
+                                         'output': ['itemid', 'key_']})
+    with urllib.request.urlopen(f"{source.rstrip('/')}/api/dashboard/snapshot?range={BACKFILL_RANGE}", timeout=120) as r:
+        datasets = json.load(r)['datasets']
+    today = int(time.time()) // 86400 * 86400
+    points = [p[0] for a in AGENTS for m in DAILY_MEASURES for s in datasets[f'{a}.{m}']['series'] for p in s['points']]
+    if not points:
+        print('no usage data to backfill')
+        return
+    days = range(min(points) // 86400 * 86400, today, 86400)
+    pushes = []
+    for item in items:
+        measure, agent = item['key_'][len('ai.daily.'):-1].split('[')
+        stored = api(url, token, 'history.get', {'itemids': item['itemid'], 'history': 0, 'output': ['clock'],
+                                                  'time_from': days[0] + 86400, 'time_till': today + 86400})
+        have = {(int(h['clock']) - 1) // 86400 * 86400 - 86400 for h in stored}
+        for day in days:
+            if day in have:
+                continue
+            value = daily_total(datasets, agent, measure, day, day + 86400)
+            pushes.append({'itemid': item['itemid'], 'clock': day + 86400 + PUSH_OFFSET, 'ns': 0, 'value': str(value)})
+            print(f"  {time.strftime('%Y-%m-%d', time.gmtime(day))} {item['key_']:28} {value:,.4f}")
+    print(f"{'pushing' if run else 'would push'} {len(pushes)} values into {host}")
+    if run and pushes:
+        result = api(url, token, 'history.push', pushes)
+        errors = [d for d in result.get('data', []) if 'error' in d]
+        print(f"{result.get('response')}: {len(pushes) - len(errors)} accepted, {len(errors)} rejected")
+        for e in errors[:5]:
+            print('  ', e['error'])
+        time.sleep(10)  # values pass preprocessing and the history cache before they are readable
+        ids = sorted({p['itemid'] for p in pushes})
+        stored = api(url, token, 'history.get', {'itemids': ids, 'history': 0, 'countOutput': True,
+                                                  'time_from': min(p['clock'] for p in pushes)})
+        print(f'verified in history: {stored} of {len(pushes)}')
+        failing = api(url, token, 'item.get', {'itemids': ids, 'filter': {'state': 1}, 'output': ['key_', 'error']})
+        for item in failing:
+            print(f"  {item['key_']} not supported: {item['error'].splitlines()[0]}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--import', dest='target', nargs=2, metavar=('URL', 'TOKENFILE'))
+    parser.add_argument('--backfill', nargs=2, metavar=('URL', 'TOKENFILE'))
+    parser.add_argument('--host', default='ai-usage', help='host for --backfill')
     parser.add_argument('--out', default=str(Path(__file__).with_name('ai-usage-template.json')))
     parser.add_argument('--run', action='store_true', help='write the file and import; without it nothing changes')
     args = parser.parse_args()
+    if args.backfill:
+        url, tokenfile = args.backfill
+        if not args.run:
+            print('DRY RUN: nothing is pushed. Add --run to apply.')
+        backfill(url, Path(tokenfile).expanduser().read_text().strip(), args.host, args.run)
+        if not args.run:
+            print('DRY RUN finished: re-run with --run to apply.')
+        return 0
     export = build()
     text = json.dumps(export, indent=1, ensure_ascii=False) + '\n'
     t = export['zabbix_export']['templates'][0]

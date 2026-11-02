@@ -3476,6 +3476,264 @@
         "value": "usage"
        }
       ]
+     },
+     {
+      "uuid": "7c5e3b78b1f6437493e2e9f7f1b8aa38",
+      "name": "All agents: cost per day (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.daily.cost[all]",
+      "delay": "0;h3m0",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "7d"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, agents = [\"claude\", \"codex\"], measure = \"cost\";\nvar end = Math.floor(Date.now() / 86400000) * 86400, start = end - 86400, sum = 0;\nagents.forEach(function (a) {\n  var ds = d[a + '.' + measure];\n  if (!ds || ds.state !== 'available') { throw 'dataset ' + a + '.' + measure + ' unavailable'; }\n  ds.series.forEach(function (s) {\n    if (measure === 'tokens' && s.dimensions.category !== 'total') { return; }\n    s.points.forEach(function (p) { if (p[0] >= start && p[0] < end) { sum += p[1]; } });\n  });\n});\nreturn sum;"
+        ]
+       }
+      ],
+      "description": "Total of the previous UTC day, read daily at 03:00 server time. Accepts history.push, used to backfill past days.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "1d"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ]
+     },
+     {
+      "uuid": "00f9de184c1e4169ace0652ddf624db5",
+      "name": "All agents: tokens, total per day (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.daily.tokens[all]",
+      "delay": "0;h3m0",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "7d"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, agents = [\"claude\", \"codex\"], measure = \"tokens\";\nvar end = Math.floor(Date.now() / 86400000) * 86400, start = end - 86400, sum = 0;\nagents.forEach(function (a) {\n  var ds = d[a + '.' + measure];\n  if (!ds || ds.state !== 'available') { throw 'dataset ' + a + '.' + measure + ' unavailable'; }\n  ds.series.forEach(function (s) {\n    if (measure === 'tokens' && s.dimensions.category !== 'total') { return; }\n    s.points.forEach(function (p) { if (p[0] >= start && p[0] < end) { sum += p[1]; } });\n  });\n});\nreturn sum;"
+        ]
+       }
+      ],
+      "description": "Total of the previous UTC day, read daily at 03:00 server time. Accepts history.push, used to backfill past days.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "1d"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "2b2f52986dd246c58c65e6459b3a8201",
+      "name": "Claude Code: cost per day (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.daily.cost[claude]",
+      "delay": "0;h3m0",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "7d"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, agents = [\"claude\"], measure = \"cost\";\nvar end = Math.floor(Date.now() / 86400000) * 86400, start = end - 86400, sum = 0;\nagents.forEach(function (a) {\n  var ds = d[a + '.' + measure];\n  if (!ds || ds.state !== 'available') { throw 'dataset ' + a + '.' + measure + ' unavailable'; }\n  ds.series.forEach(function (s) {\n    if (measure === 'tokens' && s.dimensions.category !== 'total') { return; }\n    s.points.forEach(function (p) { if (p[0] >= start && p[0] < end) { sum += p[1]; } });\n  });\n});\nreturn sum;"
+        ]
+       }
+      ],
+      "description": "Total of the previous UTC day, read daily at 03:00 server time. Accepts history.push, used to backfill past days.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1d"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ]
+     },
+     {
+      "uuid": "379133fa922d42e98a34c03d422ea264",
+      "name": "Claude Code: tokens, total per day (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.daily.tokens[claude]",
+      "delay": "0;h3m0",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "7d"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, agents = [\"claude\"], measure = \"tokens\";\nvar end = Math.floor(Date.now() / 86400000) * 86400, start = end - 86400, sum = 0;\nagents.forEach(function (a) {\n  var ds = d[a + '.' + measure];\n  if (!ds || ds.state !== 'available') { throw 'dataset ' + a + '.' + measure + ' unavailable'; }\n  ds.series.forEach(function (s) {\n    if (measure === 'tokens' && s.dimensions.category !== 'total') { return; }\n    s.points.forEach(function (p) { if (p[0] >= start && p[0] < end) { sum += p[1]; } });\n  });\n});\nreturn sum;"
+        ]
+       }
+      ],
+      "description": "Total of the previous UTC day, read daily at 03:00 server time. Accepts history.push, used to backfill past days.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1d"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "0259d73b6774414a840d5fcac2c614e3",
+      "name": "Codex: cost per day (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.daily.cost[codex]",
+      "delay": "0;h3m0",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "7d"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, agents = [\"codex\"], measure = \"cost\";\nvar end = Math.floor(Date.now() / 86400000) * 86400, start = end - 86400, sum = 0;\nagents.forEach(function (a) {\n  var ds = d[a + '.' + measure];\n  if (!ds || ds.state !== 'available') { throw 'dataset ' + a + '.' + measure + ' unavailable'; }\n  ds.series.forEach(function (s) {\n    if (measure === 'tokens' && s.dimensions.category !== 'total') { return; }\n    s.points.forEach(function (p) { if (p[0] >= start && p[0] < end) { sum += p[1]; } });\n  });\n});\nreturn sum;"
+        ]
+       }
+      ],
+      "description": "Total of the previous UTC day, read daily at 03:00 server time. Accepts history.push, used to backfill past days.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1d"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ]
+     },
+     {
+      "uuid": "346703aec276470281ffc556724dfc13",
+      "name": "Codex: tokens, total per day (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.daily.tokens[codex]",
+      "delay": "0;h3m0",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "7d"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, agents = [\"codex\"], measure = \"tokens\";\nvar end = Math.floor(Date.now() / 86400000) * 86400, start = end - 86400, sum = 0;\nagents.forEach(function (a) {\n  var ds = d[a + '.' + measure];\n  if (!ds || ds.state !== 'available') { throw 'dataset ' + a + '.' + measure + ' unavailable'; }\n  ds.series.forEach(function (s) {\n    if (measure === 'tokens' && s.dimensions.category !== 'total') { return; }\n    s.points.forEach(function (p) { if (p[0] >= start && p[0] < end) { sum += p[1]; } });\n  });\n});\nreturn sum;"
+        ]
+       }
+      ],
+      "description": "Total of the previous UTC day, read daily at 03:00 server time. Accepts history.push, used to backfill past days.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1d"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
      }
     ],
     "discovery_rules": [
@@ -3710,6 +3968,11 @@
       "macro": "{$AI.USAGE.INTERVAL}",
       "value": "5m",
       "description": "Poll interval; the service caches its Prometheus reads."
+     },
+     {
+      "macro": "{$AI.PUSH.ALLOWED}",
+      "value": "127.0.0.1",
+      "description": "Addresses allowed to push history into the per-day items (backfill)."
      },
      {
       "macro": "{$AI.COST.24H.WARN}",

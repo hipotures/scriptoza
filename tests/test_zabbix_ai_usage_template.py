@@ -62,6 +62,27 @@ class AiUsageTemplateTests(unittest.TestCase):
         self.assertIn('"{#AGENT}.cost"', script)
         self.assertIn('{"model": "{#MODEL}"}', script)
 
+    def test_daily_items_accept_backfill(self):
+        for agent in ['all', *module.AGENTS]:
+            for measure in module.DAILY_MEASURES:
+                item = self.items[f'ai.daily.{measure}[{agent}]']
+                self.assertEqual(item['allow_traps'], 'YES')
+                self.assertEqual(item['allowed_hosts'], '{$AI.PUSH.ALLOWED}')
+                self.assertEqual(item['delay'], '0;h3m0')
+
+    def test_daily_total_sums_one_utc_day(self):
+        day = 86400 * 20000
+        datasets = {
+            'claude.cost': {'series': [{'dimensions': {'model': 'a'}, 'points': [[day - 3600, 5], [day, 1], [day + 82800, 2], [day + 86400, 7]]}]},
+            'codex.cost': {'series': [{'dimensions': {'model': 'b'}, 'points': [[day + 10800, 0.5]]}]},
+            'claude.tokens': {'series': [{'dimensions': {'category': 'total'}, 'points': [[day, 10]]},
+                                         {'dimensions': {'category': 'output'}, 'points': [[day, 3]]}]},
+            'codex.tokens': {'series': []},
+        }
+        self.assertEqual(module.daily_total(datasets, 'claude', 'cost', day, day + 86400), 3)
+        self.assertEqual(module.daily_total(datasets, 'all', 'cost', day, day + 86400), 3.5)
+        self.assertEqual(module.daily_total(datasets, 'all', 'tokens', day, day + 86400), 10)
+
     def test_no_private_address_in_template(self):
         text = json.dumps(self.export)
         self.assertNotIn('homestack.app', text)

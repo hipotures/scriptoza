@@ -42,14 +42,22 @@ estimated Codex cost, so the values match its dashboard.
 | Codex: the same plus reasoning tokens, turns, tool calls, turn/tool durations, time to first token/output | 1h, 24h |
 | LLD *Models*: cost, total and output tokens per agent and model | 24h |
 | LLD *Machines and projects*: cost and tokens per host and per repository | 24h |
+| Per day (UTC): cost and total tokens, all agents / Claude Code / Codex; read daily at 03:00 | 1d |
 
 A metric an agent does not report is skipped, not an error. Triggers: no data from the
 service for 30 minutes; all agents together over `{$AI.COST.24H.WARN}` USD (default 150)
-in 24 hours. Zabbix stores values from the import on; earlier history stays in the dashboard.
+in 24 hours.
+
+Zabbix stores values from the import on. Past days can be pushed into the per-day items
+(`history.push`, up to the 30 days the service returns); days already stored are skipped, so
+it can be re-run. Pushed numbers pass the items' JavaScript unchanged. The pushing address must match `{$AI.PUSH.ALLOWED}` on the host (default
+`127.0.0.1`; Zabbix sees API clients as IPv4-mapped, e.g. `::ffff:10.0.0.0/120`).
 
 ```bash
 python3 zabbix/build_ai_usage_template.py                                      # dry run
 python3 zabbix/build_ai_usage_template.py --import http://ZABBIX TOKENFILE --run  # write and import
+python3 zabbix/build_ai_usage_template.py --backfill http://ZABBIX TOKENFILE      # dry run: list past days
+python3 zabbix/build_ai_usage_template.py --backfill http://ZABBIX TOKENFILE --run  # push them
 ```
 
 Then create one host (no interface) with the template and set `{$AI.USAGE.URL}` on it.
