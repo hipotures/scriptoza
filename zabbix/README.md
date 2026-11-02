@@ -26,3 +26,30 @@ python3 zabbix/build_pve_templates.py --import http://ZABBIX TOKENFILE --run  # 
 
 Then create one host (no interface needed) with the *PVE cluster by Prometheus* template.
 `pve-templates.json` can also be imported by hand under Data collection → Templates → Import.
+
+## build_ai_usage_template.py
+
+Generates the template *AI coding agents by HTTP*: Claude Code and Codex usage from the
+homestack AI Usage service (hs-usage). Two HTTP agent items read
+`{$AI.USAGE.URL}/api/dashboard/snapshot?range=1h` and `range=24h` every 5 minutes; the
+service already handles per-session counters, the three collectors' delta gauges and the
+estimated Codex cost, so the values match its dashboard.
+
+| Items | Windows |
+| --- | --- |
+| All agents: cost, tokens (total, input, output, cache read/write, reasoning), cache hit ratio, sessions | 1h, 24h |
+| Claude Code: the same plus active time, commits, lines added/removed, API request duration and time to first token | 1h, 24h |
+| Codex: the same plus reasoning tokens, turns, tool calls, turn/tool durations, time to first token/output | 1h, 24h |
+| LLD *Models*: cost, total and output tokens per agent and model | 24h |
+| LLD *Machines and projects*: cost and tokens per host and per repository | 24h |
+
+A metric an agent does not report is skipped, not an error. Triggers: no data from the
+service for 30 minutes; all agents together over `{$AI.COST.24H.WARN}` USD (default 150)
+in 24 hours. Zabbix stores values from the import on; earlier history stays in the dashboard.
+
+```bash
+python3 zabbix/build_ai_usage_template.py                                      # dry run
+python3 zabbix/build_ai_usage_template.py --import http://ZABBIX TOKENFILE --run  # write and import
+```
+
+Then create one host (no interface) with the template and set `{$AI.USAGE.URL}` on it.

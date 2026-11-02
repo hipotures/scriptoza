@@ -1,0 +1,3723 @@
+{
+ "zabbix_export": {
+  "version": "7.0",
+  "template_groups": [
+   {
+    "uuid": "36a45f4c7ae440ad9dd9a408c8f9569e",
+    "name": "Templates/Applications"
+   }
+  ],
+  "templates": [
+   {
+    "uuid": "d3261542a1ce4bb481ec2aa76d9b23f8",
+    "template": "AI coding agents by HTTP",
+    "name": "AI coding agents by HTTP",
+    "description": "Claude Code and Codex usage (tokens, cost, sessions, timings) from the homestack AI Usage service, which reads the agents' OpenTelemetry metrics from Prometheus.",
+    "groups": [
+     {
+      "name": "Templates/Applications"
+     }
+    ],
+    "items": [
+     {
+      "uuid": "063be9234afa41228d33e91f841d6f28",
+      "name": "AI Usage snapshot (1h)",
+      "type": "HTTP_AGENT",
+      "key": "ai.snapshot[1h]",
+      "delay": "{$AI.USAGE.INTERVAL}",
+      "history": "0",
+      "value_type": "TEXT",
+      "trends": "0",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "description": "Dashboard data of the last 1h; every other item depends on it.",
+      "tags": [
+       {
+        "tag": "component",
+        "value": "raw"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "2e3b68c9ef964eb19994184839b0e5b8",
+        "expression": "nodata(/AI coding agents by HTTP/ai.snapshot[1h],30m)=1",
+        "name": "AI Usage API: no data for 30 minutes (1h)",
+        "priority": "AVERAGE",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "af2433b2154b40f9848d2dbcf6e854cd",
+      "name": "All agents: cost (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.cost[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.cost.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ]
+     },
+     {
+      "uuid": "94d3e845daf549dba1ace4fa1a9b21db",
+      "name": "All agents: tokens, total (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.total.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "d00de8a58eca4f18932c6581d0f7d446",
+      "name": "All agents: tokens, input (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens.input[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.input.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "df25290f032d473090bd5293f46168f9",
+      "name": "All agents: tokens, output (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens.output[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.output.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "ebcc73416e26435982e1c9f0f3af259c",
+      "name": "All agents: tokens, cache read (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens.cached[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.cached.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "4ae3b8fc187b492ea6473068bc6a8db5",
+      "name": "All agents: tokens, cache write (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens.written[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.written.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "129afd79daa342a28fdf26821d020668",
+      "name": "All agents: cache hit ratio (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.cache.hit[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.cacheHit.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "915a21e328844177babadbeefe510bd7",
+      "name": "All agents: sessions (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.sessions[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.sessions.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "35a62d2fd22b4a33be893f7478a98218",
+      "name": "All agents: tokens, reasoning (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens.reasoning[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.reasoning.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "02f2eac2551c4292840144025c63b5df",
+      "name": "Claude Code: cost (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.cost[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.cost.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ]
+     },
+     {
+      "uuid": "d28a6ecd39b1424680c7536587de9187",
+      "name": "Claude Code: tokens, total (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.tokens[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.total.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "030288d9751f44d58f8e7ba16d0c683f",
+      "name": "Claude Code: tokens, input (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.tokens.input[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.input.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "9ba8f670b73d47d79476c2bbcf976cd7",
+      "name": "Claude Code: tokens, output (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.tokens.output[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.output.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "4c6c280e88924dee9872ff029905e4ad",
+      "name": "Claude Code: tokens, cache read (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.tokens.cached[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.cached.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "592c0b56784847d784ad285cc6f4c1b5",
+      "name": "Claude Code: tokens, cache write (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.tokens.written[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.written.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "e91e370dd73a4f968d50b18ac361608c",
+      "name": "Claude Code: cache hit ratio (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.cache.hit[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.cacheHit.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "3d8f5b965e8e4c22ac96393f2374d91f",
+      "name": "Claude Code: sessions (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.sessions[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.sessions.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "3d7e63cf4ff7444abdf1b6fcaed7ed7e",
+      "name": "Claude Code: active time (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.active[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.active.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "ee4e1d8b24794ac79604b29e8afc71f3",
+      "name": "Claude Code: commits (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.commits[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.commits.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "44f68bb9771a4ba2afb8f1662ef72f09",
+      "name": "Claude Code: lines added (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.lines.added[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.added.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "f61b2917ebfa44fbb0807eca5f8bf4b5",
+      "name": "Claude Code: lines removed (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.lines.removed[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.removed.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "f303acbc69c14f5bb0bdd0f4835cfc87",
+      "name": "Claude Code: API request duration, avg (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.request.duration[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.requestDuration.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "484e06eb4abe442a871c88d5e5f6a6d2",
+      "name": "Claude Code: API request time to first token, avg (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.request.ttft[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.requestFirstToken.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "41a37239481042979442e08e8381816d",
+      "name": "Codex: cost (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.cost[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.cost.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ]
+     },
+     {
+      "uuid": "39a1a58823e34500b9eabbaf65028338",
+      "name": "Codex: tokens, total (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.total.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "2e75d5dc9e884abf98b9ef295ed9dce2",
+      "name": "Codex: tokens, input (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens.input[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.input.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "4dc8a54e824d43d5a30c7c6c38870bd5",
+      "name": "Codex: tokens, output (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens.output[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.output.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "2eee98f7bdc942caa1dea47fc34d7503",
+      "name": "Codex: tokens, cache read (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens.cached[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.cached.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "7125f119dec84350a7e8d93e743cf6b9",
+      "name": "Codex: tokens, cache write (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens.written[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.written.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "70baaca4f5e24257a634d8da42964c0c",
+      "name": "Codex: cache hit ratio (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.cache.hit[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.cacheHit.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "009ac8f5a5bd45d3b8b6e16cbfc7982c",
+      "name": "Codex: sessions (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.sessions[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.sessions.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "abe850e7b4d1431c80f087ce85131204",
+      "name": "Codex: tokens, reasoning (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens.reasoning[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.reasoning.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "9404e3fcee65488ebe9c5aa4b6e7459d",
+      "name": "Codex: turns (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.turns[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.turns.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "9c169b6be1fe4dad94dd433cf800ee32",
+      "name": "Codex: tool calls (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tools[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.tools.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "11f3b34407aa4871962bddde83ad4691",
+      "name": "Codex: turn duration, avg (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.turn.duration[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.turnDuration.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "200dad9f6d7f44d7a12a01bff04291fe",
+      "name": "Codex: turn time to first token, avg (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.turn.ttft[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.firstToken.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "347e831432a4468e95595b1890ccf6b1",
+      "name": "Codex: turn time to first output, avg (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.turn.ttfo[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.firstOutput.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "2720f9cfb85146839f9c4c46102a4758",
+      "name": "Codex: tool call duration, avg (1h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tool.duration[1h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.toolDuration.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[1h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "1h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "4708da76a74d4ff6805d65d7f33acbd6",
+      "name": "AI Usage snapshot (24h)",
+      "type": "HTTP_AGENT",
+      "key": "ai.snapshot[24h]",
+      "delay": "{$AI.USAGE.INTERVAL}",
+      "history": "0",
+      "value_type": "TEXT",
+      "trends": "0",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "24h"
+       }
+      ],
+      "description": "Dashboard data of the last 24h; every other item depends on it.",
+      "tags": [
+       {
+        "tag": "component",
+        "value": "raw"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "ab9ab0166c844dd7b9a19834891a4dc2",
+        "expression": "nodata(/AI coding agents by HTTP/ai.snapshot[24h],30m)=1",
+        "name": "AI Usage API: no data for 30 minutes (24h)",
+        "priority": "AVERAGE",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "42d52d938f7e44ce9ae55bdec863015a",
+      "name": "All agents: cost (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.cost[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.cost.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ],
+      "description": "Claude Code cost as it reports it; Codex cost estimated by hs-usage from list prices.",
+      "triggers": [
+       {
+        "uuid": "c0f1058c5720439791e79a9a2ca1f712",
+        "expression": "last(/AI coding agents by HTTP/ai.all.cost[24h])>{$AI.COST.24H.WARN}",
+        "name": "AI agents cost over {$AI.COST.24H.WARN} USD in the last 24h",
+        "priority": "WARNING",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "78d1e3f2e51445a991c77907a10a5287",
+      "name": "All agents: tokens, total (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.total.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "d6ec5cb0fef040d89d72b9a851114be2",
+      "name": "All agents: tokens, input (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens.input[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.input.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "c340b1aa035041369b0beb3172ea07be",
+      "name": "All agents: tokens, output (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens.output[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.output.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "e930ddb5cd8c4fc4af905002f615ee99",
+      "name": "All agents: tokens, cache read (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens.cached[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.cached.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "69bd22946aca4453a022ce3dc4d95674",
+      "name": "All agents: tokens, cache write (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens.written[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.written.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "075a2e78966e41f6aae3051763787bfc",
+      "name": "All agents: cache hit ratio (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.cache.hit[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.cacheHit.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "4dcf3a9d33a940cfb01c2e2a242cb894",
+      "name": "All agents: sessions (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.sessions[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.sessions.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "6db0e05460804bef90973ae46ab8153a",
+      "name": "All agents: tokens, reasoning (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.all.tokens.reasoning[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.totals.reasoning.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "1a13c5db363343daa74f9da60588a9f0",
+      "name": "Claude Code: cost (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.cost[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.cost.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ]
+     },
+     {
+      "uuid": "226b69933da3458b8541bd8f19368b82",
+      "name": "Claude Code: tokens, total (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.tokens[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.total.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "5e2078733081484b86eb981b901f9860",
+      "name": "Claude Code: tokens, input (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.tokens.input[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.input.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "a8bcf7f790ff47b6ab368fbdad92c4fe",
+      "name": "Claude Code: tokens, output (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.tokens.output[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.output.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "abd42ecae1784a7abefbf6fcff86106c",
+      "name": "Claude Code: tokens, cache read (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.tokens.cached[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.cached.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "1bc578f64277461180cafd0af945c7c2",
+      "name": "Claude Code: tokens, cache write (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.tokens.written[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.written.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "0eb526d8cc964efe9489fd33706e2262",
+      "name": "Claude Code: cache hit ratio (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.cache.hit[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.cacheHit.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "2379c4ded37647b99548af17a204b521",
+      "name": "Claude Code: sessions (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.sessions[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.sessions.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "d828a67136b34b34a6d5c2c268cea6a0",
+      "name": "Claude Code: active time (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.active[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.active.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "e13a15c4dd3445c78da6cd8fef098839",
+      "name": "Claude Code: commits (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.commits[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.commits.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "d7a2db671e394cfe80cb87af2a6d07e8",
+      "name": "Claude Code: lines added (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.lines.added[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.added.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "2701b2c6701f462aacb936ca6da83d33",
+      "name": "Claude Code: lines removed (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.lines.removed[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.removed.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "91a32d0973094a9a9222552438729f0c",
+      "name": "Claude Code: API request duration, avg (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.request.duration[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.requestDuration.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "61f17308213d46ee85f87e53cb70ef41",
+      "name": "Claude Code: API request time to first token, avg (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.claude.request.ttft[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.claude.requestFirstToken.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "aaebff12dabb43e1b265f35e32bff461",
+      "name": "Codex: cost (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.cost[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.cost.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ]
+     },
+     {
+      "uuid": "34355ec3c1e44ac0b3efa4be53cd622e",
+      "name": "Codex: tokens, total (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.total.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "f1b7348c3e1e42afa28891defc56fbd2",
+      "name": "Codex: tokens, input (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens.input[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.input.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "3cbe9a9b3c9e4925a9c7161e20390047",
+      "name": "Codex: tokens, output (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens.output[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.output.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "384bf8ca9b7d42fbb870082389cee159",
+      "name": "Codex: tokens, cache read (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens.cached[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.cached.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "e2758e87251542c996124cd2a7399b06",
+      "name": "Codex: tokens, cache write (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens.written[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.written.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "24eb38b2e26e484d81f771e894860475",
+      "name": "Codex: cache hit ratio (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.cache.hit[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.cacheHit.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "431b1afefea74237b1a395b52cf5fc74",
+      "name": "Codex: sessions (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.sessions[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.sessions.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "aacfadfb07b549a082b6216f2e48abe2",
+      "name": "Codex: tokens, reasoning (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tokens.reasoning[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.reasoning.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "0eb164b6a9c34f6fa705bfcc973d0852",
+      "name": "Codex: turns (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.turns[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.turns.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "514e8eceb9f245ca8d463bc54665c444",
+      "name": "Codex: tool calls (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tools[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.tools.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "e5f7705b559d4ea59fa11203c32af082",
+      "name": "Codex: turn duration, avg (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.turn.duration[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.turnDuration.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "ee7f041d3722450aa01491fb71d6eb3e",
+      "name": "Codex: turn time to first token, avg (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.turn.ttft[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.firstToken.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "4b5d19d968a54628b8cd48d0d8e9415c",
+      "name": "Codex: turn time to first output, avg (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.turn.ttfo[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.firstOutput.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "675139b4beb146e1a2afabe593908427",
+      "name": "Codex: tool call duration, avg (24h)",
+      "type": "DEPENDENT",
+      "key": "ai.codex.tool.duration[24h]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s",
+      "preprocessing": [
+       {
+        "type": "JSONPATH",
+        "parameters": [
+         "$.datasets['all.summary'].details.codex.toolDuration.value"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       },
+       {
+        "type": "MATCHES_REGEX",
+        "parameters": [
+         "^-?[0-9]"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "24h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     }
+    ],
+    "discovery_rules": [
+     {
+      "uuid": "8a7c3926c653459fb872bacc27dfb40c",
+      "name": "Models",
+      "type": "DEPENDENT",
+      "key": "ai.model.discovery",
+      "delay": "0",
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "description": "Models used by each agent in the last day.",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "var d = JSON.parse(value).datasets, out = [], seen = {};\n[[\"claude\", \"Claude Code\"], [\"codex\", \"Codex\"]].forEach(function (a) {\n  var ds = d[a[0] + '.tokens'];\n  if (!ds) { return; }\n  ds.series.forEach(function (s) {\n    var m = s.dimensions.model;\n    if (m && !seen[a[0] + '|' + m]) { seen[a[0] + '|' + m] = 1; out.push({'{#AGENT}': a[0], '{#AGENTNAME}': a[1], '{#MODEL}': m}); }\n  });\n});\nreturn JSON.stringify(out);"
+        ]
+       }
+      ],
+      "item_prototypes": [
+       {
+        "uuid": "b052a1b07afb4a5baddbc4c6a6484893",
+        "name": "{#AGENTNAME} {#MODEL}: cost (24h)",
+        "type": "DEPENDENT",
+        "key": "ai.model.cost[{#AGENT},{#MODEL},24h]",
+        "delay": "0",
+        "value_type": "FLOAT",
+        "units": "USD",
+        "master_item": {
+         "key": "ai.snapshot[24h]"
+        },
+        "preprocessing": [
+         {
+          "type": "JAVASCRIPT",
+          "parameters": [
+           "var d = JSON.parse(value).datasets[\"{#AGENT}.cost\"];\nif (!d || d.state !== 'available') { throw 'dataset ' + \"{#AGENT}.cost\" + ' unavailable'; }\nvar want = {\"model\": \"{#MODEL}\"}, sum = 0;\nd.series.forEach(function (s) {\n  for (var k in want) { if (s.dimensions[k] !== want[k]) { return; } }\n  s.points.forEach(function (p) { sum += p[1]; });\n});\nreturn sum;"
+          ],
+          "error_handler": "DISCARD_VALUE",
+          "error_handler_params": ""
+         }
+        ],
+        "tags": [
+         {
+          "tag": "agent",
+          "value": "{#AGENT}"
+         },
+         {
+          "tag": "model",
+          "value": "{#MODEL}"
+         },
+         {
+          "tag": "component",
+          "value": "cost"
+         }
+        ]
+       },
+       {
+        "uuid": "298ae126ea294a7d8b442cf6bd97cbe4",
+        "name": "{#AGENTNAME} {#MODEL}: tokens, total (24h)",
+        "type": "DEPENDENT",
+        "key": "ai.model.tokens[{#AGENT},{#MODEL},24h]",
+        "delay": "0",
+        "value_type": "FLOAT",
+        "units": "",
+        "master_item": {
+         "key": "ai.snapshot[24h]"
+        },
+        "preprocessing": [
+         {
+          "type": "JAVASCRIPT",
+          "parameters": [
+           "var d = JSON.parse(value).datasets[\"{#AGENT}.tokens\"];\nif (!d || d.state !== 'available') { throw 'dataset ' + \"{#AGENT}.tokens\" + ' unavailable'; }\nvar want = {\"model\": \"{#MODEL}\", \"category\": \"total\"}, sum = 0;\nd.series.forEach(function (s) {\n  for (var k in want) { if (s.dimensions[k] !== want[k]) { return; } }\n  s.points.forEach(function (p) { sum += p[1]; });\n});\nreturn sum;"
+          ],
+          "error_handler": "DISCARD_VALUE",
+          "error_handler_params": ""
+         }
+        ],
+        "tags": [
+         {
+          "tag": "agent",
+          "value": "{#AGENT}"
+         },
+         {
+          "tag": "model",
+          "value": "{#MODEL}"
+         },
+         {
+          "tag": "component",
+          "value": "usage"
+         }
+        ]
+       },
+       {
+        "uuid": "0a9dad2620ae4c83a1b027d755c7439e",
+        "name": "{#AGENTNAME} {#MODEL}: tokens, output (24h)",
+        "type": "DEPENDENT",
+        "key": "ai.model.output[{#AGENT},{#MODEL},24h]",
+        "delay": "0",
+        "value_type": "FLOAT",
+        "units": "",
+        "master_item": {
+         "key": "ai.snapshot[24h]"
+        },
+        "preprocessing": [
+         {
+          "type": "JAVASCRIPT",
+          "parameters": [
+           "var d = JSON.parse(value).datasets[\"{#AGENT}.tokens\"];\nif (!d || d.state !== 'available') { throw 'dataset ' + \"{#AGENT}.tokens\" + ' unavailable'; }\nvar want = {\"model\": \"{#MODEL}\", \"category\": \"output\"}, sum = 0;\nd.series.forEach(function (s) {\n  for (var k in want) { if (s.dimensions[k] !== want[k]) { return; } }\n  s.points.forEach(function (p) { sum += p[1]; });\n});\nreturn sum;"
+          ],
+          "error_handler": "DISCARD_VALUE",
+          "error_handler_params": ""
+         }
+        ],
+        "tags": [
+         {
+          "tag": "agent",
+          "value": "{#AGENT}"
+         },
+         {
+          "tag": "model",
+          "value": "{#MODEL}"
+         },
+         {
+          "tag": "component",
+          "value": "usage"
+         }
+        ]
+       }
+      ],
+      "lifetime_type": "DELETE_AFTER",
+      "lifetime": "30d",
+      "enabled_lifetime_type": "DISABLE_NEVER"
+     },
+     {
+      "uuid": "35bb829962b84bab99de0467e3e307ca",
+      "name": "Machines and projects",
+      "type": "DEPENDENT",
+      "key": "ai.scope.discovery",
+      "delay": "0",
+      "master_item": {
+       "key": "ai.snapshot[24h]"
+      },
+      "description": "Machines (host) and projects (repository) with usage in the last day, all agents together.",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "var d = JSON.parse(value).datasets['all.scopes'], out = [], seen = {};\nif (!d || d.state !== 'available') { throw 'dataset all.scopes unavailable'; }\nd.series.forEach(function (s) {\n  var k = s.dimensions.by + '|' + s.dimensions.scope;\n  if (!seen[k]) { seen[k] = 1; out.push({'{#BY}': s.dimensions.by, '{#SCOPE}': s.dimensions.scope}); }\n});\nreturn JSON.stringify(out);"
+        ]
+       }
+      ],
+      "item_prototypes": [
+       {
+        "uuid": "711cffd6030f4df7963a8703e64b38b4",
+        "name": "{#BY} {#SCOPE}: cost (24h)",
+        "type": "DEPENDENT",
+        "key": "ai.scope.cost[{#BY},{#SCOPE},24h]",
+        "delay": "0",
+        "value_type": "FLOAT",
+        "units": "USD",
+        "master_item": {
+         "key": "ai.snapshot[24h]"
+        },
+        "preprocessing": [
+         {
+          "type": "JAVASCRIPT",
+          "parameters": [
+           "var d = JSON.parse(value).datasets[\"all.scopes\"];\nif (!d || d.state !== 'available') { throw 'dataset ' + \"all.scopes\" + ' unavailable'; }\nvar want = {\"by\": \"{#BY}\", \"scope\": \"{#SCOPE}\", \"metric\": \"cost\"}, sum = 0;\nd.series.forEach(function (s) {\n  for (var k in want) { if (s.dimensions[k] !== want[k]) { return; } }\n  s.points.forEach(function (p) { sum += p[1]; });\n});\nreturn sum;"
+          ],
+          "error_handler": "DISCARD_VALUE",
+          "error_handler_params": ""
+         }
+        ],
+        "tags": [
+         {
+          "tag": "scope",
+          "value": "{#BY}:{#SCOPE}"
+         },
+         {
+          "tag": "component",
+          "value": "cost"
+         }
+        ]
+       },
+       {
+        "uuid": "3b0486080b654f0bb0963d03d43cbe14",
+        "name": "{#BY} {#SCOPE}: tokens, total (24h)",
+        "type": "DEPENDENT",
+        "key": "ai.scope.tokens[{#BY},{#SCOPE},24h]",
+        "delay": "0",
+        "value_type": "FLOAT",
+        "units": "",
+        "master_item": {
+         "key": "ai.snapshot[24h]"
+        },
+        "preprocessing": [
+         {
+          "type": "JAVASCRIPT",
+          "parameters": [
+           "var d = JSON.parse(value).datasets[\"all.scopes\"];\nif (!d || d.state !== 'available') { throw 'dataset ' + \"all.scopes\" + ' unavailable'; }\nvar want = {\"by\": \"{#BY}\", \"scope\": \"{#SCOPE}\", \"metric\": \"tokens\"}, sum = 0;\nd.series.forEach(function (s) {\n  for (var k in want) { if (s.dimensions[k] !== want[k]) { return; } }\n  s.points.forEach(function (p) { sum += p[1]; });\n});\nreturn sum;"
+          ],
+          "error_handler": "DISCARD_VALUE",
+          "error_handler_params": ""
+         }
+        ],
+        "tags": [
+         {
+          "tag": "scope",
+          "value": "{#BY}:{#SCOPE}"
+         },
+         {
+          "tag": "component",
+          "value": "usage"
+         }
+        ]
+       }
+      ],
+      "lifetime_type": "DELETE_AFTER",
+      "lifetime": "30d",
+      "enabled_lifetime_type": "DISABLE_NEVER"
+     }
+    ],
+    "macros": [
+     {
+      "macro": "{$AI.USAGE.URL}",
+      "value": "http://AI-USAGE",
+      "description": "Base URL of the AI Usage (hs-usage) service, set it on the host."
+     },
+     {
+      "macro": "{$AI.USAGE.INTERVAL}",
+      "value": "5m",
+      "description": "Poll interval; the service caches its Prometheus reads."
+     },
+     {
+      "macro": "{$AI.COST.24H.WARN}",
+      "value": "150",
+      "description": "Warn when all agents together cost more (USD) in the last 24h."
+     }
+    ]
+   }
+  ]
+ }
+}
