@@ -1,0 +1,1726 @@
+{
+ "zabbix_export": {
+  "version": "7.0",
+  "template_groups": [
+   {
+    "uuid": "140183871e914f5cbb3aae8e4987ba66",
+    "name": "Templates/Virtualization"
+   }
+  ],
+  "host_groups": [
+   {
+    "uuid": "6a3d728b39ef49888549a4bd203d828f",
+    "name": "PVE nodes"
+   },
+   {
+    "uuid": "6724811e35e2444487fbc479b359a283",
+    "name": "PVE guests"
+   }
+  ],
+  "templates": [
+   {
+    "uuid": "e88b28c1e7134fcc80e130d394da5abf",
+    "template": "PVE node by Prometheus",
+    "name": "PVE node by Prometheus",
+    "description": "Proxmox VE node from the built-in metric server via Prometheus.",
+    "groups": [
+     {
+      "name": "Templates/Virtualization"
+     }
+    ],
+    "items": [
+     {
+      "uuid": "0179270b48444ef6bdaf8b7b10e0983c",
+      "name": "Prometheus federate: PVE node",
+      "type": "HTTP_AGENT",
+      "key": "pve.federate",
+      "delay": "1m",
+      "history": "0",
+      "value_type": "TEXT",
+      "trends": "0",
+      "url": "{$PROM.URL}/federate",
+      "query_fields": [
+       {
+        "name": "match[]",
+        "value": "{job=\"proxmox-ve\",node=\"{$PVE.NODE}\",__name__=~\"proxmox_node_(cpustat|memory|network|uptime).*\"}"
+       }
+      ],
+      "description": "Proxmox metric-server samples of this node; every other item depends on it.",
+      "tags": [
+       {
+        "tag": "component",
+        "value": "raw"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "9cea92e61258496fb813aa6cd45c5e88",
+        "expression": "nodata(/PVE node by Prometheus/pve.federate,5m)=1",
+        "name": "No data from Prometheus for 5 minutes",
+        "priority": "AVERAGE",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "06943fba0d524af8a776f0612618a353",
+      "name": "Load average (1m avg)",
+      "type": "DEPENDENT",
+      "key": "pve.node.load1",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_cpustat_avg1_ratio",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "cpu"
+       }
+      ]
+     },
+     {
+      "uuid": "fefcffefe3d04b1c9203e04e92c26e29",
+      "name": "Load average (5m avg)",
+      "type": "DEPENDENT",
+      "key": "pve.node.load5",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_cpustat_avg5_ratio",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "cpu"
+       }
+      ]
+     },
+     {
+      "uuid": "a0df7d33c6e648e68267cf902201655d",
+      "name": "Load average (15m avg)",
+      "type": "DEPENDENT",
+      "key": "pve.node.load15",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_cpustat_avg15_ratio",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "cpu"
+       }
+      ]
+     },
+     {
+      "uuid": "c35bf0678b7042b5910ccf4f39bba34a",
+      "name": "Number of CPUs",
+      "type": "DEPENDENT",
+      "key": "pve.node.cpus",
+      "delay": "0",
+      "value_type": "UNSIGNED",
+      "units": "",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_cpustat_cpus_ratio",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "cpu"
+       }
+      ]
+     },
+     {
+      "uuid": "732eedb8b1e84848bb0e1a6e150b2ed4",
+      "name": "CPU utilization",
+      "type": "DEPENDENT",
+      "key": "pve.node.cpu",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_cpustat_cpu_percent",
+         "value",
+         ""
+        ]
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "cpu"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "148afc93fb17493f813f4379c1386c3d",
+        "expression": "min(/PVE node by Prometheus/pve.node.cpu,15m)>{$PVE.CPU.UTIL.WARN}",
+        "name": "High CPU utilization (over {$PVE.CPU.UTIL.WARN}% for 15m)",
+        "priority": "WARNING",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "b569ad17da1141498de406472c7f2cb5",
+      "name": "CPU iowait",
+      "type": "DEPENDENT",
+      "key": "pve.node.iowait",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s/s",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_cpustat_iowait_seconds_total",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       },
+       {
+        "type": "CHANGE_PER_SECOND",
+        "parameters": [
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "cpu"
+       }
+      ]
+     },
+     {
+      "uuid": "e6958cf831b14458b4edde6647a544b1",
+      "name": "Memory total",
+      "type": "DEPENDENT",
+      "key": "pve.node.mem.total",
+      "delay": "0",
+      "value_type": "UNSIGNED",
+      "units": "B",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_memory_memtotal_bytes",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "memory"
+       }
+      ]
+     },
+     {
+      "uuid": "151e362579f740babca08dd228eec4c2",
+      "name": "Memory available",
+      "type": "DEPENDENT",
+      "key": "pve.node.mem.avail",
+      "delay": "0",
+      "value_type": "UNSIGNED",
+      "units": "B",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_memory_memavailable_bytes",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "memory"
+       }
+      ]
+     },
+     {
+      "uuid": "f6cd5726130341bf9f8f0c58954a0e6c",
+      "name": "ZFS ARC size",
+      "type": "DEPENDENT",
+      "key": "pve.node.arc",
+      "delay": "0",
+      "value_type": "UNSIGNED",
+      "units": "B",
+      "description": "Counted as available memory in Memory utilization: the ARC shrinks on demand.",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_memory_arcsize_bytes",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "memory"
+       }
+      ]
+     },
+     {
+      "uuid": "bf4c5bd9fe9d44a0b46e346c33ce3bdc",
+      "name": "Swap used",
+      "type": "DEPENDENT",
+      "key": "pve.node.swap",
+      "delay": "0",
+      "value_type": "UNSIGNED",
+      "units": "B",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_memory_swapused_bytes",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "memory"
+       }
+      ]
+     },
+     {
+      "uuid": "3b40d6a0d2f14d1fa25f6f86ef0cf150",
+      "name": "Memory utilization",
+      "type": "CALCULATED",
+      "key": "pve.node.mem.util",
+      "delay": "1m",
+      "value_type": "FLOAT",
+      "units": "%",
+      "params": "100-100*(last(//pve.node.mem.avail)+last(//pve.node.arc))/last(//pve.node.mem.total)",
+      "tags": [
+       {
+        "tag": "component",
+        "value": "memory"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "62cb8a5eca2c4a119a8c46bac77353d0",
+        "expression": "min(/PVE node by Prometheus/pve.node.mem.util,10m)>{$PVE.MEM.UTIL.WARN}",
+        "name": "High memory utilization (over {$PVE.MEM.UTIL.WARN}%)",
+        "priority": "WARNING",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "f9547ac8efea4775b3456e1fee095df2",
+      "name": "Network: bits received",
+      "type": "DEPENDENT",
+      "key": "pve.node.net.in",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "bps",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_network_receive_bytes_total",
+         "function",
+         "sum"
+        ]
+       },
+       {
+        "type": "CHANGE_PER_SECOND",
+        "parameters": [
+         ""
+        ]
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "8"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "network"
+       }
+      ]
+     },
+     {
+      "uuid": "553342ced85f41249c20d3a5047aa94d",
+      "name": "Network: bits sent",
+      "type": "DEPENDENT",
+      "key": "pve.node.net.out",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "bps",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_network_transmit_bytes_total",
+         "function",
+         "sum"
+        ]
+       },
+       {
+        "type": "CHANGE_PER_SECOND",
+        "parameters": [
+         ""
+        ]
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "8"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "network"
+       }
+      ]
+     },
+     {
+      "uuid": "3e09b98cd23f426b858f39034aba3e08",
+      "name": "Uptime",
+      "type": "DEPENDENT",
+      "key": "pve.node.uptime",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "uptime",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_node_uptime_seconds",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "system"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "effea5b821fe4854972dcc153a64c8bb",
+        "expression": "last(/PVE node by Prometheus/pve.node.uptime)<600",
+        "name": "Node has been restarted (uptime < 10m)",
+        "priority": "WARNING",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "caa4fc4605924e93b6a3eb57bd4ec405",
+      "name": "Load average per CPU (5m)",
+      "type": "CALCULATED",
+      "key": "pve.node.load.percpu",
+      "delay": "1m",
+      "value_type": "FLOAT",
+      "units": "",
+      "params": "last(//pve.node.load5)/last(//pve.node.cpus)",
+      "tags": [
+       {
+        "tag": "component",
+        "value": "cpu"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "3fb89898886d4c41b52edb6fce4c58e0",
+        "expression": "min(/PVE node by Prometheus/pve.node.load.percpu,15m)>{$PVE.LOAD.PERCPU.WARN}",
+        "name": "Load average is too high (per CPU load over {$PVE.LOAD.PERCPU.WARN} for 15m)",
+        "priority": "AVERAGE",
+        "description": ""
+       }
+      ]
+     }
+    ],
+    "discovery_rules": [],
+    "macros": [
+     {
+      "macro": "{$PVE.NODE}",
+      "value": "",
+      "description": "Node name (set by the cluster host prototype)."
+     },
+     {
+      "macro": "{$PVE.CPU.UTIL.WARN}",
+      "value": "90",
+      "description": ""
+     },
+     {
+      "macro": "{$PVE.MEM.UTIL.WARN}",
+      "value": "90",
+      "description": ""
+     },
+     {
+      "macro": "{$PVE.LOAD.PERCPU.WARN}",
+      "value": "1.5",
+      "description": ""
+     }
+    ]
+   },
+   {
+    "uuid": "0a8d95741e0541ec8836b06406e5f16e",
+    "template": "PVE guest by Prometheus",
+    "name": "PVE guest by Prometheus",
+    "description": "Proxmox VE VM/LXC from the built-in metric server and homestack-pve-agent via Prometheus.",
+    "groups": [
+     {
+      "name": "Templates/Virtualization"
+     }
+    ],
+    "items": [
+     {
+      "uuid": "a234ff2a8b8545a99f3db1a8cf7ec00b",
+      "name": "Prometheus federate: PVE guest",
+      "type": "HTTP_AGENT",
+      "key": "pve.federate",
+      "delay": "1m",
+      "history": "0",
+      "value_type": "TEXT",
+      "trends": "0",
+      "url": "{$PROM.URL}/federate",
+      "query_fields": [
+       {
+        "name": "match[]",
+        "value": "{job=~\"proxmox-ve|homestack-pve-agent\",vmid=\"{$PVE.VMID}\"}"
+       }
+      ],
+      "description": "Proxmox and homestack-pve-agent samples of this guest; every other item depends on it.",
+      "tags": [
+       {
+        "tag": "component",
+        "value": "raw"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "c5a7606afadb4db0bc9c5b3087d197d6",
+        "expression": "nodata(/PVE guest by Prometheus/pve.federate,5m)=1",
+        "name": "No data from Prometheus for 5 minutes",
+        "priority": "AVERAGE",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "1ca653b7b8a046769ea9ce338537bc51",
+      "name": "CPU utilization",
+      "type": "DEPENDENT",
+      "key": "pve.guest.cpu",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "description": "As in the Proxmox GUI: share of the guest's configured CPUs.",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_vm_cpu_percent",
+         "value",
+         ""
+        ]
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "cpu"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "5ec5a2d30baf4906a5b06149975bd3d0",
+        "expression": "min(/PVE guest by Prometheus/pve.guest.cpu,15m)>{$PVE.CPU.UTIL.WARN}",
+        "name": "High CPU utilization (over {$PVE.CPU.UTIL.WARN}% for 15m)",
+        "priority": "WARNING",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "c3e2ba3890114666acffbf48d36c0233",
+      "name": "Number of CPUs",
+      "type": "DEPENDENT",
+      "key": "pve.guest.cpus",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_vm_cpus_ratio",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "cpu"
+       }
+      ]
+     },
+     {
+      "uuid": "58fb1acd4abe4d6da3d18d5f4d1d1964",
+      "name": "CPU used (cores, cgroup)",
+      "type": "DEPENDENT",
+      "key": "pve.guest.cpu.cores",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_cpu_usage_seconds_total",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       },
+       {
+        "type": "CHANGE_PER_SECOND",
+        "parameters": [
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "cpu"
+       }
+      ]
+     },
+     {
+      "uuid": "7c08521984cf49529e02d249f87758e3",
+      "name": "CPU throttled",
+      "type": "DEPENDENT",
+      "key": "pve.guest.cpu.throttled",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "s/s",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_cpu_throttled_seconds_total",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       },
+       {
+        "type": "CHANGE_PER_SECOND",
+        "parameters": [
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "cpu"
+       }
+      ]
+     },
+     {
+      "uuid": "459f3cec5dee4670b39b787a02ee5dfd",
+      "name": "Memory used",
+      "type": "DEPENDENT",
+      "key": "pve.guest.mem",
+      "delay": "0",
+      "value_type": "UNSIGNED",
+      "units": "B",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_vm_mem_bytes",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "memory"
+       }
+      ]
+     },
+     {
+      "uuid": "6bba05339a4641ecb21548a646cdd243",
+      "name": "Memory total",
+      "type": "DEPENDENT",
+      "key": "pve.guest.mem.max",
+      "delay": "0",
+      "value_type": "UNSIGNED",
+      "units": "B",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_vm_maxmem_bytes",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "memory"
+       }
+      ]
+     },
+     {
+      "uuid": "6a6ac28d6f6b45ffb84c9f1e39bcf327",
+      "name": "Memory utilization",
+      "type": "CALCULATED",
+      "key": "pve.guest.mem.util",
+      "delay": "1m",
+      "value_type": "FLOAT",
+      "units": "%",
+      "params": "100*last(//pve.guest.mem)/last(//pve.guest.mem.max)",
+      "tags": [
+       {
+        "tag": "component",
+        "value": "memory"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "ef10cb1c88754a61a9748fd16ef7319c",
+        "expression": "min(/PVE guest by Prometheus/pve.guest.mem.util,15m)>{$PVE.MEM.UTIL.WARN}",
+        "name": "High memory utilization (over {$PVE.MEM.UTIL.WARN}%)",
+        "priority": "WARNING",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "1b897eb738c9417db322546eafe362c0",
+      "name": "Swap used (cgroup)",
+      "type": "DEPENDENT",
+      "key": "pve.guest.swap",
+      "delay": "0",
+      "value_type": "UNSIGNED",
+      "units": "B",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_memory_swap_usage_bytes",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "memory"
+       }
+      ]
+     },
+     {
+      "uuid": "dc15c38c010d4cebbf18dbab2dffbc86",
+      "name": "OOM kills",
+      "type": "DEPENDENT",
+      "key": "pve.guest.oom",
+      "delay": "0",
+      "value_type": "UNSIGNED",
+      "units": "",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_memory_events_total{event=\"oom_kill\"}",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "memory"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "cd17a68e77c4445da1146b414b266723",
+        "expression": "change(/PVE guest by Prometheus/pve.guest.oom)>0",
+        "name": "Out-of-memory: a process was killed",
+        "priority": "HIGH",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "2bae5ecf2aa3447c989487287dea1db3",
+      "name": "Number of processes",
+      "type": "DEPENDENT",
+      "key": "pve.guest.pids",
+      "delay": "0",
+      "value_type": "UNSIGNED",
+      "units": "",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_pids_current",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "system"
+       }
+      ]
+     },
+     {
+      "uuid": "b555d8ad1f514c4fa6eb9dedb0935c6f",
+      "name": "Disk read",
+      "type": "DEPENDENT",
+      "key": "pve.guest.io.read",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "Bps",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_io_bytes_total{operation=\"read\"}",
+         "function",
+         "sum"
+        ],
+        "error_handler": "DISCARD_VALUE"
+       },
+       {
+        "type": "CHANGE_PER_SECOND",
+        "parameters": [
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "storage"
+       }
+      ]
+     },
+     {
+      "uuid": "f2707f21c3a04094a4218ddee5458459",
+      "name": "Disk write",
+      "type": "DEPENDENT",
+      "key": "pve.guest.io.write",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "Bps",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_io_bytes_total{operation=\"write\"}",
+         "function",
+         "sum"
+        ],
+        "error_handler": "DISCARD_VALUE"
+       },
+       {
+        "type": "CHANGE_PER_SECOND",
+        "parameters": [
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "storage"
+       }
+      ]
+     },
+     {
+      "uuid": "cc83f47c0b054bd3a47b8b881d855610",
+      "name": "Network: bits received",
+      "type": "DEPENDENT",
+      "key": "pve.guest.net.in",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "bps",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_vm_netin_bytes_total",
+         "value",
+         ""
+        ]
+       },
+       {
+        "type": "CHANGE_PER_SECOND",
+        "parameters": [
+         ""
+        ]
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "8"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "network"
+       }
+      ]
+     },
+     {
+      "uuid": "a895e611f12d43fe9fffb365e0b6d4bc",
+      "name": "Network: bits sent",
+      "type": "DEPENDENT",
+      "key": "pve.guest.net.out",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "bps",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_vm_netout_bytes_total",
+         "value",
+         ""
+        ]
+       },
+       {
+        "type": "CHANGE_PER_SECOND",
+        "parameters": [
+         ""
+        ]
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "8"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "network"
+       }
+      ]
+     },
+     {
+      "uuid": "02f13ac2f0554872967f1d94eb73bacc",
+      "name": "Uptime",
+      "type": "DEPENDENT",
+      "key": "pve.guest.uptime",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "uptime",
+      "description": "",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "proxmox_vm_uptime_seconds",
+         "value",
+         ""
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "system"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "137e0d8322b440fe8fd068d208b895d9",
+        "expression": "last(/PVE guest by Prometheus/pve.guest.uptime)<600",
+        "name": "Guest has been restarted (uptime < 10m)",
+        "priority": "INFO",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "4210d5fdb68c4053aac374d4a4e54666",
+      "name": "Pressure cpu some (60s)",
+      "type": "DEPENDENT",
+      "key": "pve.guest.psi[cpu,some]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "description": "Share of time some tasks waited for cpu.",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_pressure_stall_ratio{resource=\"cpu\",stall=\"some\",window=\"60s\"}",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "pressure"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "a1b6c57558844d88b8e8d2d73cbb5b1f",
+        "expression": "min(/PVE guest by Prometheus/pve.guest.psi[cpu,some],15m)>{$PVE.PSI.CPU.WARN}",
+        "name": "CPU pressure: tasks wait for CPU over {$PVE.PSI.CPU.WARN}% of the time",
+        "priority": "WARNING",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "51a3629f97a5403684cf9c3840aaa74b",
+      "name": "Pressure memory some (60s)",
+      "type": "DEPENDENT",
+      "key": "pve.guest.psi[memory,some]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "description": "Share of time some tasks waited for memory.",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_pressure_stall_ratio{resource=\"memory\",stall=\"some\",window=\"60s\"}",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "pressure"
+       }
+      ]
+     },
+     {
+      "uuid": "2d7c5a1d74d2454fb610efcf01b7d2be",
+      "name": "Pressure memory full (60s)",
+      "type": "DEPENDENT",
+      "key": "pve.guest.psi[memory,full]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "description": "Share of time all tasks waited for memory.",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_pressure_stall_ratio{resource=\"memory\",stall=\"full\",window=\"60s\"}",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "pressure"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "ec4f727f30794687bd2839b53afabfbf",
+        "expression": "min(/PVE guest by Prometheus/pve.guest.psi[memory,full],10m)>{$PVE.PSI.MEM.WARN}",
+        "name": "Memory pressure: all tasks stalled on memory over {$PVE.PSI.MEM.WARN}% of the time",
+        "priority": "HIGH",
+        "description": ""
+       }
+      ]
+     },
+     {
+      "uuid": "da2639e210504ce4b27228fdb09dce75",
+      "name": "Pressure io some (60s)",
+      "type": "DEPENDENT",
+      "key": "pve.guest.psi[io,some]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "description": "Share of time some tasks waited for io.",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_pressure_stall_ratio{resource=\"io\",stall=\"some\",window=\"60s\"}",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "pressure"
+       }
+      ]
+     },
+     {
+      "uuid": "741cd2e2205746fe9113b64ab80f4bae",
+      "name": "Pressure io full (60s)",
+      "type": "DEPENDENT",
+      "key": "pve.guest.psi[io,full]",
+      "delay": "0",
+      "value_type": "FLOAT",
+      "units": "%",
+      "description": "Share of time all tasks waited for io.",
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_PATTERN",
+        "parameters": [
+         "hs_pve_pressure_stall_ratio{resource=\"io\",stall=\"full\",window=\"60s\"}",
+         "value",
+         ""
+        ],
+        "error_handler": "DISCARD_VALUE"
+       },
+       {
+        "type": "MULTIPLIER",
+        "parameters": [
+         "100"
+        ]
+       }
+      ],
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "tags": [
+       {
+        "tag": "component",
+        "value": "pressure"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "79d8048d0c3045eca459bfba7f9bb085",
+        "expression": "min(/PVE guest by Prometheus/pve.guest.psi[io,full],15m)>{$PVE.PSI.IO.WARN}",
+        "name": "I/O pressure: all tasks stalled on I/O over {$PVE.PSI.IO.WARN}% of the time",
+        "priority": "WARNING",
+        "description": ""
+       }
+      ]
+     }
+    ],
+    "discovery_rules": [
+     {
+      "uuid": "20e8c8732bc94038a72b0328c419e189",
+      "name": "File systems",
+      "type": "DEPENDENT",
+      "key": "pve.guest.fs.discovery",
+      "delay": "0",
+      "lifetime_type": "DELETE_IMMEDIATELY",
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "filter": {
+       "evaltype": "AND",
+       "conditions": [
+        {
+         "macro": "{#FSTYPE}",
+         "value": "{$PVE.FS.TYPE.NOT_MATCHES}",
+         "operator": "NOT_MATCHES_REGEX",
+         "formulaid": "A"
+        },
+        {
+         "macro": "{#MOUNT}",
+         "value": "{$PVE.FS.MOUNT.NOT_MATCHES}",
+         "operator": "NOT_MATCHES_REGEX",
+         "formulaid": "B"
+        }
+       ]
+      },
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_TO_JSON",
+        "parameters": [
+         "hs_pve_filesystem_total_bytes"
+        ]
+       }
+      ],
+      "lld_macro_paths": [
+       {
+        "lld_macro": "{#MOUNT}",
+        "path": "$.labels.mount"
+       },
+       {
+        "lld_macro": "{#FSTYPE}",
+        "path": "$.labels.filesystem"
+       }
+      ],
+      "item_prototypes": [
+       {
+        "uuid": "6d0f55a99e944190bc205a8205a04383",
+        "name": "FS {#MOUNT}: total",
+        "type": "DEPENDENT",
+        "key": "pve.guest.fs.total[{#MOUNT}]",
+        "delay": "0",
+        "value_type": "UNSIGNED",
+        "units": "B",
+        "description": "",
+        "preprocessing": [
+         {
+          "type": "PROMETHEUS_PATTERN",
+          "parameters": [
+           "hs_pve_filesystem_total_bytes{mount=\"{#MOUNT}\"}",
+           "value",
+           ""
+          ],
+          "error_handler": "DISCARD_VALUE"
+         }
+        ],
+        "master_item": {
+         "key": "pve.federate"
+        },
+        "tags": [
+         {
+          "tag": "component",
+          "value": "storage"
+         }
+        ]
+       },
+       {
+        "uuid": "31d32e721e7344b98931d9f7206f8b7d",
+        "name": "FS {#MOUNT}: used",
+        "type": "DEPENDENT",
+        "key": "pve.guest.fs.used[{#MOUNT}]",
+        "delay": "0",
+        "value_type": "UNSIGNED",
+        "units": "B",
+        "description": "",
+        "preprocessing": [
+         {
+          "type": "PROMETHEUS_PATTERN",
+          "parameters": [
+           "hs_pve_filesystem_used_bytes{mount=\"{#MOUNT}\"}",
+           "value",
+           ""
+          ],
+          "error_handler": "DISCARD_VALUE"
+         }
+        ],
+        "master_item": {
+         "key": "pve.federate"
+        },
+        "tags": [
+         {
+          "tag": "component",
+          "value": "storage"
+         }
+        ]
+       },
+       {
+        "uuid": "6d4035fe34154e5c91fb0ff81231e2ce",
+        "name": "FS {#MOUNT}: used, %",
+        "type": "CALCULATED",
+        "key": "pve.guest.fs.pused[{#MOUNT}]",
+        "delay": "1m",
+        "value_type": "FLOAT",
+        "units": "%",
+        "params": "100*last(//pve.guest.fs.used[{#MOUNT}])/last(//pve.guest.fs.total[{#MOUNT}])",
+        "tags": [
+         {
+          "tag": "component",
+          "value": "storage"
+         }
+        ],
+        "trigger_prototypes": [
+         {
+          "uuid": "d0c68fc0054547dfbc621f084df5dc8e",
+          "expression": "last(/PVE guest by Prometheus/pve.guest.fs.pused[{#MOUNT}])>{$PVE.FS.PUSED.WARN}",
+          "name": "File system {#MOUNT} is over {$PVE.FS.PUSED.WARN}% full",
+          "priority": "WARNING",
+          "description": ""
+         },
+         {
+          "uuid": "f63ef0347db946ada453e87f8e489544",
+          "expression": "last(/PVE guest by Prometheus/pve.guest.fs.pused[{#MOUNT}])>{$PVE.FS.PUSED.CRIT}",
+          "name": "File system {#MOUNT} is over {$PVE.FS.PUSED.CRIT}% full",
+          "priority": "HIGH",
+          "description": ""
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "macros": [
+     {
+      "macro": "{$PVE.VMID}",
+      "value": "",
+      "description": "Guest ID (set by the cluster host prototype)."
+     },
+     {
+      "macro": "{$PVE.CPU.UTIL.WARN}",
+      "value": "90",
+      "description": ""
+     },
+     {
+      "macro": "{$PVE.MEM.UTIL.WARN}",
+      "value": "95",
+      "description": ""
+     },
+     {
+      "macro": "{$PVE.FS.PUSED.WARN}",
+      "value": "90",
+      "description": ""
+     },
+     {
+      "macro": "{$PVE.FS.PUSED.CRIT}",
+      "value": "95",
+      "description": ""
+     },
+     {
+      "macro": "{$PVE.FS.TYPE.NOT_MATCHES}",
+      "value": "^(squashfs|iso9660|udf)$",
+      "description": "Read-only image file systems (snap, ISO): always 100% full."
+     },
+     {
+      "macro": "{$PVE.FS.MOUNT.NOT_MATCHES}",
+      "value": "^/snap/",
+      "description": ""
+     },
+     {
+      "macro": "{$PVE.PSI.CPU.WARN}",
+      "value": "30",
+      "description": ""
+     },
+     {
+      "macro": "{$PVE.PSI.MEM.WARN}",
+      "value": "5",
+      "description": ""
+     },
+     {
+      "macro": "{$PVE.PSI.IO.WARN}",
+      "value": "20",
+      "description": ""
+     }
+    ]
+   },
+   {
+    "uuid": "e5f34d9b250d4eabba904de0a1265108",
+    "template": "PVE cluster by Prometheus",
+    "name": "PVE cluster by Prometheus",
+    "description": "Discovers Proxmox VE nodes and running guests from Prometheus and creates a host for each.",
+    "groups": [
+     {
+      "name": "Templates/Virtualization"
+     }
+    ],
+    "items": [
+     {
+      "uuid": "04034d9465df43c1bd3dc02957bbd472",
+      "name": "Prometheus federate: PVE inventory",
+      "type": "HTTP_AGENT",
+      "key": "pve.federate",
+      "delay": "1m",
+      "history": "0",
+      "value_type": "TEXT",
+      "trends": "0",
+      "url": "{$PROM.URL}/federate",
+      "query_fields": [
+       {
+        "name": "match[]",
+        "value": "{job=\"proxmox-ve\",__name__=\"proxmox_node_uptime_seconds\"}"
+       },
+       {
+        "name": "match[]",
+        "value": "{job=\"homestack-pve-agent\",__name__=\"hs_pve_cpu_capacity\"}"
+       }
+      ],
+      "description": "Lists running nodes and guests for discovery.",
+      "tags": [
+       {
+        "tag": "component",
+        "value": "raw"
+       }
+      ],
+      "triggers": [
+       {
+        "uuid": "ef47b8afa9f24fae8079782dd1e19a86",
+        "expression": "nodata(/PVE cluster by Prometheus/pve.federate,5m)=1",
+        "name": "No data from Prometheus for 5 minutes",
+        "priority": "AVERAGE",
+        "description": ""
+       }
+      ]
+     }
+    ],
+    "discovery_rules": [
+     {
+      "uuid": "453b75569f674d1fae3a239c82b429db",
+      "name": "PVE nodes",
+      "type": "DEPENDENT",
+      "key": "pve.node.discovery",
+      "delay": "0",
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_TO_JSON",
+        "parameters": [
+         "proxmox_node_uptime_seconds"
+        ]
+       }
+      ],
+      "lld_macro_paths": [
+       {
+        "lld_macro": "{#NODE}",
+        "path": "$.labels.node"
+       }
+      ],
+      "host_prototypes": [
+       {
+        "uuid": "e693b5b4dea54e4da8da4f0cd049fa0a",
+        "host": "pve-node-{#NODE}",
+        "name": "{#NODE}",
+        "group_links": [
+         {
+          "group": {
+           "name": "PVE nodes"
+          }
+         }
+        ],
+        "templates": [
+         {
+          "name": "PVE node by Prometheus"
+         }
+        ],
+        "macros": [
+         {
+          "macro": "{$PVE.NODE}",
+          "value": "{#NODE}"
+         }
+        ],
+        "tags": [
+         {
+          "tag": "pve-node",
+          "value": "{#NODE}"
+         }
+        ]
+       }
+      ],
+      "lifetime_type": "DELETE_AFTER",
+      "lifetime": "30d",
+      "enabled_lifetime_type": "DISABLE_IMMEDIATELY"
+     },
+     {
+      "uuid": "4c7889f3f3ac4900aa7418c06e8fa3d7",
+      "name": "PVE guests",
+      "type": "DEPENDENT",
+      "key": "pve.guest.discovery",
+      "delay": "0",
+      "master_item": {
+       "key": "pve.federate"
+      },
+      "preprocessing": [
+       {
+        "type": "PROMETHEUS_TO_JSON",
+        "parameters": [
+         "hs_pve_cpu_capacity"
+        ]
+       }
+      ],
+      "lld_macro_paths": [
+       {
+        "lld_macro": "{#VMID}",
+        "path": "$.labels.vmid"
+       },
+       {
+        "lld_macro": "{#NAME}",
+        "path": "$.labels.name"
+       },
+       {
+        "lld_macro": "{#TYPE}",
+        "path": "$.labels.type"
+       },
+       {
+        "lld_macro": "{#NODE}",
+        "path": "$.labels.node"
+       }
+      ],
+      "host_prototypes": [
+       {
+        "uuid": "cfae5396dcc2444cb8de91f02a11145f",
+        "host": "pve-guest-{#VMID}",
+        "name": "{#NAME} ({#TYPE} {#VMID})",
+        "group_links": [
+         {
+          "group": {
+           "name": "PVE guests"
+          }
+         }
+        ],
+        "templates": [
+         {
+          "name": "PVE guest by Prometheus"
+         }
+        ],
+        "macros": [
+         {
+          "macro": "{$PVE.VMID}",
+          "value": "{#VMID}"
+         }
+        ],
+        "tags": [
+         {
+          "tag": "pve-node",
+          "value": "{#NODE}"
+         },
+         {
+          "tag": "pve-type",
+          "value": "{#TYPE}"
+         }
+        ]
+       }
+      ],
+      "lifetime_type": "DELETE_AFTER",
+      "lifetime": "30d",
+      "enabled_lifetime_type": "DISABLE_IMMEDIATELY"
+     }
+    ],
+    "macros": []
+   }
+  ]
+ }
+}
