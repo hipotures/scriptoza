@@ -466,10 +466,12 @@ def value_widget(name, itemid, x, y, width=12, decimals=2, size=30, agg=SUM):
     """Sum or average of a per-3-hour item over the dashboard's time period.
 
     Header hidden: the description under the value already names it; no change arrow (red/green
-    would read a shorter request time as bad)."""
+    would read a shorter request time as bad). Value, decimals and units have separate sizes (percent
+    of the tile height); decimals and units default to 35, so they are set relative to the value."""
     return {'type': 'item', 'name': name, 'x': x, 'y': y, 'width': width, 'height': 3, 'view_mode': '1',
             'fields': [f(ITEM, 'itemid.0', itemid), f(INT, 'show.0', 1), f(INT, 'show.1', 2),
                        f(STR, 'description', name), f(INT, 'decimal_places', decimals), f(INT, 'value_size', size),
+                       f(INT, 'decimal_size', size * 3 // 4), f(INT, 'units_size', size * 3 // 4),
                        f(INT, 'desc_size', 12), f(INT, 'adv_conf', 1), f(INT, 'aggregate_function', agg),
                        f(STR, 'time_period._reference', 'DASHBOARD._timeperiod')]}
 
