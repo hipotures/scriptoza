@@ -462,7 +462,7 @@ def f(kind, name, value):
 SUM, AVG = 5, 3  # widget aggregation functions
 
 
-def value_widget(name, itemid, x, y, width=12, decimals=2, size=40, agg=SUM):
+def value_widget(name, itemid, x, y, width=12, decimals=2, size=30, agg=SUM):
     """Sum or average of a per-3-hour item over the dashboard's time period.
 
     Header hidden: the description under the value already names it; no change arrow (red/green
