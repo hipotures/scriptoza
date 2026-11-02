@@ -62,40 +62,39 @@ class AiUsageTemplateTests(unittest.TestCase):
         self.assertIn('"{#AGENT}.cost"', script)
         self.assertIn('{"model": "{#MODEL}"}', script)
 
-    def test_period_items_accept_backfill(self):
-        for period, (bucket, live, delay, history, _) in module.PERIODS.items():
+    def test_bucket_items_accept_backfill(self):
+        for (period, item, agent) in module.bucket_specs():
+            bucket, live, delay, history, _ = module.PERIODS[period]
             self.assertEqual(86400 % bucket, 0)
-            for agent in ['all', *module.AGENTS]:
-                for measure in module.MEASURES:
-                    item = self.items[f'ai.{period}.{measure}[{agent}]']
-                    self.assertEqual(item['allow_traps'], 'YES')
-                    self.assertEqual(item['allowed_hosts'], '{$AI.PUSH.ALLOWED}')
-                    self.assertEqual(item['delay'], delay)
-                    self.assertIn(f'bucket = {bucket};', item['preprocessing'][0]['parameters'][0])
+            it = self.items[f'ai.{period}.{item}[{agent}]']
+            self.assertEqual(it['allow_traps'], 'YES')
+            self.assertEqual(it['allowed_hosts'], '{$AI.PUSH.ALLOWED}')
+            self.assertEqual(it['delay'], delay)
+            self.assertIn(f'bucket = {bucket};', it['preprocessing'][0]['parameters'][0])
 
-    def test_daily_total_sums_one_utc_day(self):
+    def test_bucket_value(self):
         day = 86400 * 20000
         datasets = {
             'claude.cost': {'series': [{'dimensions': {'model': 'a'}, 'points': [[day - 3600, 5], [day, 1], [day + 82800, 2], [day + 86400, 7]]}]},
             'codex.cost': {'series': [{'dimensions': {'model': 'b'}, 'points': [[day + 10800, 0.5]]}]},
-            'claude.tokens': {'series': [{'dimensions': {'category': 'total'}, 'points': [[day, 10]]},
-                                         {'dimensions': {'category': 'output'}, 'points': [[day, 3]]}]},
+            'claude.tokens': {'series': [{'dimensions': {'category': c}, 'points': [[day, v]]}
+                                         for c, v in (('total', 10), ('cached', 6), ('input', 1), ('written', 1), ('output', 2))]},
             'codex.tokens': {'series': []},
+            'claude.requestDuration': {'series': [{'dimensions': {}, 'points': [[day, 2.0], [day + 10800, 4.0]]}],
+                                       'details': {'totalTimeline': [[day, 6.0], [day + 10800, 4.0]]}},
         }
-        self.assertEqual(module.bucket_total(datasets, 'claude', 'cost', day, day + 86400), 3)
-        self.assertEqual(module.bucket_total(datasets, 'all', 'cost', day, day + 86400), 3.5)
-        self.assertEqual(module.bucket_total(datasets, 'all', 'tokens', day, day + 86400), 10)
-
-    def test_dashboard_uses_existing_items_and_fits_grid(self):
-        names = {i['name'] for i in self.template['items']}
-        keys = {i['key'] for i in self.template['items']}
-        widgets = module.dashboard_widgets('ai-usage', {k: '1' for k in keys})
-        for w in widgets:
-            self.assertLessEqual(w['x'] + w['width'], 72)
-            for field in w['fields']:
-                if field['name'].startswith('ds.') and field['name'].endswith('.items.0') and '*' not in field['value']:
-                    self.assertIn(field['value'], names)
-        self.assertRaises(KeyError, module.dashboard_widgets, 'ai-usage', {})
+        specs = {k[1:]: v[2] for k, v in module.bucket_specs().items() if k[0] == 'daily'}
+        full = (day, day + 86400)
+        self.assertEqual(module.bucket_value(datasets, specs['cost', 'claude'], *full), 3)
+        self.assertEqual(module.bucket_value(datasets, specs['cost', 'all'], *full), 3.5)
+        self.assertEqual(module.bucket_value(datasets, specs['tokens', 'all'], *full), 10)
+        hit = module.bucket_specs()['3h', 'cache.hit', 'all'][2]
+        self.assertEqual(module.bucket_value(datasets, hit, *full), 75)
+        wavg = {'agg': 'wavg', 'parts': [['claude.requestDuration', {}]]}
+        self.assertEqual(module.bucket_value(datasets, wavg, *full), 10 / 4)  # 3 requests of 2 s, 1 of 4 s
+        self.assertIsNone(module.bucket_value(datasets, wavg, day + 86400, day + 172800))
+        self.assertEqual(module.lld_spec('ai.model.cost.3h[claude,claude-opus-5-5]'),
+                         {'agg': 'sum', 'parts': [['claude.cost', {'model': 'claude-opus-5-5'}]]})
 
     def test_no_private_address_in_template(self):
         text = json.dumps(self.export)

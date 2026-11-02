@@ -108,62 +108,164 @@ d.series.forEach(function (s) {
 return JSON.stringify(out);'''
 
 
-# Total of the last completed UTC bucket (day or 3 hours) from the snapshot's bucket points.
+# Bucket items: the value of one completed UTC bucket (a day or 3 hours), computed from the snapshot's
+# bucket points. A spec says what to compute:
+#   {'agg': 'sum',   'parts': [[dataset, filter], ...]}                 sum of matching points
+#   {'agg': 'ratio', 'parts': [...], 'den': [...], 'scale': 100}        sum(parts) / sum(den) * scale
+#   {'agg': 'wavg',  'parts': [[dataset, {}]]}                          average weighted by observations
+#                                                                       (details.totalTimeline / points)
+# A filter maps a dimension to a value or a list of allowed values. BUCKET_JS and bucket_value() are
+# twins: Zabbix runs the first live, the backfill runs the second, so both must agree.
 BUCKET_JS = '''if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number
-var d = JSON.parse(value).datasets, agents = AGENTS, measure = MEASURE, bucket = BUCKET;
-var end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket, sum = 0;
-agents.forEach(function (a) {
-  var ds = d[a + '.' + measure];
-  if (!ds || ds.state !== 'available') { throw 'dataset ' + a + '.' + measure + ' unavailable'; }
-  ds.series.forEach(function (s) {
-    if (measure === 'tokens' && s.dimensions.category !== 'total') { return; }
-    s.points.forEach(function (p) { if (p[0] >= start && p[0] < end) { sum += p[1]; } });
+var d = JSON.parse(value).datasets, spec = SPEC, bucket = BUCKET;
+var end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;
+function ds(id) {
+  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }
+  return d[id];
+}
+function match(dims, filter) {
+  for (var k in filter) {
+    var want = filter[k], have = dims[k];
+    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }
+  }
+  return true;
+}
+function total(parts) {
+  var sum = 0;
+  parts.forEach(function (part) {
+    ds(part[0]).series.forEach(function (s) {
+      if (!match(s.dimensions, part[1])) { return; }
+      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });
+    });
+  });
+  return sum;
+}
+if (spec.agg === 'sum') { return total(spec.parts); }
+if (spec.agg === 'ratio') {
+  var den = total(spec.den);
+  if (!den) { throw 'no data in bucket'; }
+  return total(spec.parts) / den * spec.scale;
+}
+var seconds = 0, count = 0;
+spec.parts.forEach(function (part) {
+  var x = ds(part[0]), avg = {};
+  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });
+  (x.details.totalTimeline || []).forEach(function (p) {
+    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }
   });
 });
-return sum;'''
-MEASURES = {'cost': ('cost', 'USD'), 'tokens': ('tokens, total', 'tok')}
+if (!count) { throw 'no data in bucket'; }
+return seconds / count;'''
 # key part: bucket seconds, snapshot range read live (its points must divide the bucket), poll schedule,
 # snapshot range for the backfill, item name suffix. Live polls come shortly after a bucket closes.
 PERIODS = {
     'daily': (86400, '7d', '0;h3m0', '30d', 'per day (UTC)'),
     '3h': (10800, '24h', '0;h/3m20', '7d', 'per 3 hours (UTC)'),
 }
+TOKENS_FOR_HIT = ['cached', 'input', 'written']  # as the dashboard: cache read / (cache read + input + cache write)
 
 
-def period_agents(agent):
+def agents_of(agent):
     return list(AGENTS) if agent == 'all' else [agent]
 
 
-def bucket_total(datasets, agent, measure, start, end):
-    """Python twin of BUCKET_JS for the backfill: sum of bucket points in [start, end)."""
-    total = 0.0
-    for a in period_agents(agent):
-        for s in datasets[f'{a}.{measure}']['series']:
-            if measure == 'tokens' and s['dimensions'].get('category') != 'total':
-                continue
-            total += sum(p[1] for p in s['points'] if start <= p[0] < end)
-    return total
+def bucket_specs():
+    """(period, item, agent) -> (name, units, spec). Cost and tokens per day and per 3 hours; the rest per 3 hours."""
+    out = {}
+    for agent in ['all', *AGENTS]:
+        for period in PERIODS:
+            out[period, 'cost', agent] = ('cost', 'USD', {'agg': 'sum', 'parts': [[f'{a}.cost', {}] for a in agents_of(agent)]})
+            out[period, 'tokens', agent] = ('tokens, total', 'tok', {'agg': 'sum', 'parts': [
+                [f'{a}.tokens', {'category': 'total'}] for a in agents_of(agent)]})
+    out['3h', 'sessions', 'all'] = ('sessions', '', {'agg': 'sum', 'parts': [[f'{a}.sessions', {}] for a in AGENTS]})
+    out['3h', 'cache.hit', 'all'] = ('cache hit ratio', '%', {
+        'agg': 'ratio', 'scale': 100, 'parts': [[f'{a}.tokens', {'category': 'cached'}] for a in AGENTS],
+        'den': [[f'{a}.tokens', {'category': TOKENS_FOR_HIT}] for a in AGENTS]})
+    out['3h', 'active', 'claude'] = ('active time', 's', {'agg': 'sum', 'parts': [['claude.active', {}]]})
+    out['3h', 'commits', 'claude'] = ('commits', '', {'agg': 'sum', 'parts': [['claude.commits', {}]]})
+    out['3h', 'lines.added', 'claude'] = ('lines added', '', {'agg': 'sum', 'parts': [['claude.lines', {'kind': 'added'}]]})
+    out['3h', 'request.duration', 'claude'] = ('API request duration, avg', 's', {'agg': 'wavg', 'parts': [['claude.requestDuration', {}]]})
+    out['3h', 'turns', 'codex'] = ('turns', '', {'agg': 'sum', 'parts': [['codex.turns', {}]]})
+    out['3h', 'tools', 'codex'] = ('tool calls', '', {'agg': 'sum', 'parts': [['codex.tools', {}]]})
+    out['3h', 'turn.duration', 'codex'] = ('turn duration, avg', 's', {'agg': 'wavg', 'parts': [['codex.turnDuration', {}]]})
+    out['3h', 'turn.ttft', 'codex'] = ('turn time to first token, avg', 's', {'agg': 'wavg', 'parts': [['codex.firstToken', {}]]})
+    return out
+
+
+def lld_spec(key):
+    """Spec of a discovered per-3-hour item from its resolved key, e.g. ai.model.cost.3h[claude,claude-opus-5-5]."""
+    kind, args = key[:-1].split('[', 1)
+    first, second = args.split(',', 1)
+    if kind == 'ai.model.cost.3h':
+        return {'agg': 'sum', 'parts': [[f'{first}.cost', {'model': second}]]}
+    if kind == 'ai.scope.cost.3h':
+        return {'agg': 'sum', 'parts': [['all.scopes', {'by': first, 'scope': second, 'metric': 'cost'}]]}
+    return None
+
+
+def bucket_value(datasets, spec, start, end):
+    """Python twin of BUCKET_JS; None when the bucket has nothing to average."""
+    def ok(dims, flt):
+        return all(dims.get(k) in v if isinstance(v, list) else dims.get(k) == v for k, v in flt.items())
+
+    def total(parts):
+        return sum(p[1] for ds_id, flt in parts for s in datasets[ds_id]['series'] if ok(s['dimensions'], flt)
+                   for p in s['points'] if start <= p[0] < end and p[1] is not None)
+
+    if spec['agg'] == 'sum':
+        return total(spec['parts'])
+    if spec['agg'] == 'ratio':
+        den = total(spec['den'])
+        return total(spec['parts']) / den * spec['scale'] if den else None
+    seconds = count = 0.0
+    for ds_id, _ in spec['parts']:
+        x = datasets[ds_id]
+        avg = {p[0]: p[1] for s in x['series'] for p in s['points']}
+        for t, sec in (x.get('details') or {}).get('totalTimeline', []):
+            if start <= t < end and avg.get(t):
+                seconds += sec
+                count += sec / avg[t]
+    return seconds / count if count else None
+
+
+def bucket_js(spec, bucket):
+    return BUCKET_JS.replace('SPEC', json.dumps(spec)).replace('BUCKET', str(bucket))
+
+
+def bucket_item(key, name, units, js, period, live, delay, **tag):
+    suffix = PERIODS[period][4]
+    return {'uuid': uid(TEMPLATE, 'proto' if '{#' in key else 'item', key), 'name': f'{name} {suffix}',
+            'type': 'HTTP_AGENT', 'key': key, 'delay': delay, 'history': '400d', 'value_type': 'FLOAT', 'units': units,
+            'url': '{$AI.USAGE.URL}/api/dashboard/snapshot', 'timeout': '30s',
+            'query_fields': [{'name': 'range', 'value': live}], 'allow_traps': 'YES',
+            'allowed_hosts': '{$AI.PUSH.ALLOWED}',
+            'preprocessing': [{'type': 'JAVASCRIPT', 'parameters': [js], 'error_handler': 'DISCARD_VALUE',
+                               'error_handler_params': ''}],
+            'description': f'Value of the last completed UTC bucket ({suffix[4:-6]}). '
+                           'Accepts history.push, used to backfill past buckets.',
+            'tags': tags(**tag)}
 
 
 def period_items():
     out = []
-    for period, (bucket, live, delay, _, suffix) in PERIODS.items():
-        for agent in ['all', *AGENTS]:
-            label = 'All agents' if agent == 'all' else AGENTS[agent][0]
-            for measure, (name, units) in MEASURES.items():
-                key = f'ai.{period}.{measure}[{agent}]'
-                js = (BUCKET_JS.replace('AGENTS', json.dumps(period_agents(agent)))
-                      .replace('MEASURE', json.dumps(measure)).replace('BUCKET', str(bucket)))
-                out.append({'uuid': uid(TEMPLATE, 'item', key), 'name': f'{label}: {name} {suffix}', 'type': 'HTTP_AGENT',
-                            'key': key, 'delay': delay, 'history': '400d', 'value_type': 'FLOAT', 'units': units,
-                            'url': '{$AI.USAGE.URL}/api/dashboard/snapshot', 'timeout': '30s',
-                            'query_fields': [{'name': 'range', 'value': live}], 'allow_traps': 'YES',
-                            'allowed_hosts': '{$AI.PUSH.ALLOWED}',
-                            'preprocessing': [{'type': 'JAVASCRIPT', 'parameters': [js]}],
-                            'description': f'Total of the last completed UTC bucket ({suffix[4:-6]}). '
-                                           'Accepts history.push, used to backfill past buckets.',
-                            'tags': tags(agent=agent, window=period, component='cost' if measure == 'cost' else 'usage')})
+    for (period, item, agent), (name, units, spec) in bucket_specs().items():
+        bucket, live, delay, _, _ = PERIODS[period]
+        label = 'All agents' if agent == 'all' else AGENTS[agent][0]
+        out.append(bucket_item(f'ai.{period}.{item}[{agent}]', f'{label}: {name}', units, bucket_js(spec, bucket),
+                               period, live, delay, agent=agent, window=period,
+                               component='cost' if item == 'cost' else 'usage'))
     return out
+
+
+def lld_bucket_protos(kind):
+    bucket, live, delay, _, _ = PERIODS['3h']
+    if kind == 'model':
+        spec = {'agg': 'sum', 'parts': [['{#AGENT}.cost', {'model': '{#MODEL}'}]]}
+        return [bucket_item('ai.model.cost.3h[{#AGENT},{#MODEL}]', '{#AGENTNAME} {#MODEL}: cost', 'USD',
+                            bucket_js(spec, bucket), '3h', live, delay, agent='{#AGENT}', model='{#MODEL}', component='cost')]
+    spec = {'agg': 'sum', 'parts': [['all.scopes', {'by': '{#BY}', 'scope': '{#SCOPE}', 'metric': 'cost'}]]}
+    return [bucket_item('ai.scope.cost.3h[{#BY},{#SCOPE}]', '{#BY} {#SCOPE}: cost', 'USD', bucket_js(spec, bucket),
+                        '3h', live, delay, scope='{#BY}:{#SCOPE}', component='cost')]
 
 
 def sum_js(dataset, **match):
@@ -245,6 +347,7 @@ def rules():
             proto(f'ai.model.output[{{#AGENT}},{{#MODEL}},{w}]', f'{{#AGENTNAME}} {{#MODEL}}: tokens, output ({w})', 'tok',
                   sum_js('{#AGENT}.tokens', model='{#MODEL}', category='output'), agent='{#AGENT}', model='{#MODEL}',
                   component='usage'),
+            *lld_bucket_protos('model'),
         ]}, **lost)
     scopes = dict({
         'uuid': uid(TEMPLATE, 'rule', 'scopes'), 'name': 'Machines and projects', 'type': 'DEPENDENT',
@@ -257,6 +360,7 @@ def rules():
             proto(f'ai.scope.tokens[{{#BY}},{{#SCOPE}},{w}]', f'{{#BY}} {{#SCOPE}}: tokens, total ({w})', 'tok',
                   sum_js('all.scopes', by='{#BY}', scope='{#SCOPE}', metric='tokens'), scope='{#BY}:{#SCOPE}',
                   component='usage'),
+            *lld_bucket_protos('scope'),
         ]}, **lost)
     return [models, scopes]
 
@@ -302,28 +406,33 @@ def backfill(url, token, host, run):
     if not source:
         raise SystemExit(f'{{$AI.USAGE.URL}} is not set on host {host}')
     pushes = []
+    specs = {f'ai.{period}.{item}[{agent}]': spec for (period, item, agent), (_, _, spec) in bucket_specs().items()}
+    found = api(url, token, 'item.get', {'hostids': hosts[0]['hostid'], 'output': ['itemid', 'key_'],
+                                         'search': {'key_': ['ai.daily.', 'ai.3h.', '.cost.3h[']}, 'searchByAny': True})
     for period, (bucket, _, _, history, _) in PERIODS.items():
-        items = api(url, token, 'item.get', {'hostids': hosts[0]['hostid'], 'search': {'key_': f'ai.{period}.'},
-                                             'output': ['itemid', 'key_']})
+        items = [(i, specs.get(i['key_']) or lld_spec(i['key_'])) for i in found
+                 if i['key_'].startswith(f'ai.{period}.') or (period == '3h' and '.cost.3h[' in i['key_'])]
         with urllib.request.urlopen(f"{source.rstrip('/')}/api/dashboard/snapshot?range={history}", timeout=120) as r:
             datasets = json.load(r)['datasets']
         now = int(time.time()) // bucket * bucket
-        points = [p[0] for a in AGENTS for m in MEASURES for s in datasets[f'{a}.{m}']['series'] for p in s['points']]
+        points = [p[0] for a in AGENTS for s in datasets[f'{a}.tokens']['series'] for p in s['points']]
         if not points:
             continue
         buckets = range(min(points) // bucket * bucket, now, bucket)
-        for item in items:
-            measure, agent = item['key_'][len(f'ai.{period}.'):-1].split('[')
+        for item, spec in items:
+            if spec is None:
+                continue
             stored = api(url, token, 'history.get', {'itemids': item['itemid'], 'history': 0, 'output': ['clock'],
                                                       'time_from': buckets[0] + bucket, 'time_till': now + bucket})
             have = {(int(h['clock']) - 1) // bucket * bucket - bucket for h in stored}
             for start in buckets:
                 if start in have:
                     continue
-                value = bucket_total(datasets, agent, measure, start, start + bucket)
+                value = bucket_value(datasets, spec, start, start + bucket)
+                if value is None:
+                    continue
                 pushes.append({'itemid': item['itemid'], 'clock': start + bucket + PUSH_OFFSETS[period], 'ns': 0,
                                'value': str(value)})
-                print(f"  {time.strftime('%Y-%m-%d %H:%M', time.gmtime(start))} {item['key_']:28} {value:,.4f}")
     print(f"{'pushing' if run else 'would push'} {len(pushes)} values into {host}")
     if run and pushes:
         result = api(url, token, 'history.push', pushes)
@@ -350,13 +459,19 @@ def f(kind, name, value):
     return {'type': kind, 'name': name, 'value': str(value)}
 
 
-def value_widget(name, itemid, x, y, width=12, decimals=2, size=40):
-    # header hidden: the description under the value already names it; no change arrow (red/green
-    # would read a shorter request time as bad)
+SUM, AVG = 5, 3  # widget aggregation functions
+
+
+def value_widget(name, itemid, x, y, width=12, decimals=2, size=40, agg=SUM):
+    """Sum or average of a per-3-hour item over the dashboard's time period.
+
+    Header hidden: the description under the value already names it; no change arrow (red/green
+    would read a shorter request time as bad)."""
     return {'type': 'item', 'name': name, 'x': x, 'y': y, 'width': width, 'height': 3, 'view_mode': '1',
             'fields': [f(ITEM, 'itemid.0', itemid), f(INT, 'show.0', 1), f(INT, 'show.1', 2),
                        f(STR, 'description', name), f(INT, 'decimal_places', decimals), f(INT, 'value_size', size),
-                       f(INT, 'desc_size', 14), f(INT, 'adv_conf', 1)]}
+                       f(INT, 'desc_size', 12), f(INT, 'adv_conf', 1), f(INT, 'aggregate_function', agg),
+                       f(STR, 'time_period._reference', 'DASHBOARD._timeperiod')]}
 
 
 def graph_widget(name, host, series, x, y, width=36, height=5, bars=False, period=None):
@@ -374,21 +489,24 @@ def graph_widget(name, host, series, x, y, width=36, height=5, bars=False, perio
 
 
 def pie_widget(name, host, patterns, x, y, width=24, height=6):
-    fields = [f(INT, 'legend', 1), f(INT, 'draw_type', 1), f(INT, 'legend_lines', 6)]
+    # one legend column: entries carry the host name and would be cut in several columns
+    fields = [f(INT, 'legend', 1), f(INT, 'draw_type', 1), f(INT, 'legend_lines', 8), f(INT, 'legend_columns', 1)]
     for n, (pattern, color) in enumerate(patterns):
-        fields += [f(STR, f'ds.{n}.hosts.0', host), f(STR, f'ds.{n}.items.0', pattern), f(STR, f'ds.{n}.color', color)]
+        fields += [f(STR, f'ds.{n}.hosts.0', host), f(STR, f'ds.{n}.items.0', pattern), f(STR, f'ds.{n}.color', color),
+                   f(INT, f'ds.{n}.aggregate_function', SUM)]
+    fields.append(f(STR, 'time_period._reference', 'DASHBOARD._timeperiod'))
     return {'type': 'piechart', 'name': name, 'x': x, 'y': y, 'width': width, 'height': height, 'view_mode': '0',
             'fields': fields}
 
 
 def dashboard_widgets(host, ids):
     """Widgets of the global dashboard; ids maps item keys to item IDs on host."""
-    w = [value_widget('Cost, 24h', ids['ai.all.cost[24h]'], 0, 0),
-         value_widget('Claude Code cost, 24h', ids['ai.claude.cost[24h]'], 12, 0),
-         value_widget('Codex cost, 24h', ids['ai.codex.cost[24h]'], 24, 0),
-         value_widget('Tokens, 24h', ids['ai.all.tokens[24h]'], 36, 0, decimals=1),
-         value_widget('Sessions, 24h', ids['ai.all.sessions[24h]'], 48, 0, decimals=0),
-         value_widget('Cache hit, 24h', ids['ai.all.cache.hit[24h]'], 60, 0, decimals=1),
+    w = [value_widget('Cost', ids['ai.3h.cost[all]'], 0, 0),
+         value_widget('Claude Code cost', ids['ai.3h.cost[claude]'], 12, 0),
+         value_widget('Codex cost', ids['ai.3h.cost[codex]'], 24, 0),
+         value_widget('Tokens', ids['ai.3h.tokens[all]'], 36, 0, decimals=1),
+         value_widget('Sessions', ids['ai.3h.sessions[all]'], 48, 0, decimals=0),
+         value_widget('Cache hit, avg', ids['ai.3h.cache.hit[all]'], 60, 0, decimals=1, agg=AVG),
          graph_widget('Cost per 3 hours (UTC)', host,
                       [('Claude Code: cost per 3 hours (UTC)', CLAUDE_COLOR), ('Codex: cost per 3 hours (UTC)', CODEX_COLOR)],
                       0, 3, bars=True),
@@ -397,20 +515,24 @@ def dashboard_widgets(host, ids):
                        ('Codex: tokens, total per 3 hours (UTC)', CODEX_COLOR)], 36, 3, bars=True),
          graph_widget('Cost per day (UTC)', host,
                       [('Claude Code: cost per day (UTC)', CLAUDE_COLOR), ('Codex: cost per day (UTC)', CODEX_COLOR)],
-                      0, 8, bars=True, period='now-30d'),
+                      0, 8, bars=True),
          graph_widget('Tokens per day (UTC)', host,
                       [('Claude Code: tokens, total per day (UTC)', CLAUDE_COLOR),
-                       ('Codex: tokens, total per day (UTC)', CODEX_COLOR)], 36, 8, bars=True, period='now-30d'),
-         pie_widget('Cost by model, 24h', host, [('Claude Code *: cost (24h)', CLAUDE_COLOR), ('Codex *: cost (24h)', CODEX_COLOR)], 0, 13),
-         pie_widget('Cost by project, 24h', host, [('project *: cost (24h)', ALL_COLOR)], 24, 13),
-         pie_widget('Cost by machine, 24h', host, [('host *: cost (24h)', ALL_COLOR)], 48, 13)]
-    details = [('Claude Code active time, 24h', 'ai.claude.active[24h]', 0), ('Claude Code commits, 24h', 'ai.claude.commits[24h]', 0),
-               ('Claude Code lines added, 24h', 'ai.claude.lines.added[24h]', 0),
-               ('Claude Code API request, avg', 'ai.claude.request.duration[24h]', 1),
-               ('Codex turns, 24h', 'ai.codex.turns[24h]', 0), ('Codex tool calls, 24h', 'ai.codex.tools[24h]', 0),
-               ('Codex turn duration, avg', 'ai.codex.turn.duration[24h]', 1),
-               ('Codex time to first token, avg', 'ai.codex.turn.ttft[24h]', 1)]
-    w += [value_widget(name, ids[key], 9 * n, 19, width=9, decimals=d, size=28) for n, (name, key, d) in enumerate(details)]
+                       ('Codex: tokens, total per day (UTC)', CODEX_COLOR)], 36, 8, bars=True),
+         pie_widget('Cost by model', host, [('Claude Code *: cost per 3 hours (UTC)', CLAUDE_COLOR),
+                                            ('Codex *: cost per 3 hours (UTC)', CODEX_COLOR)], 0, 13),
+         pie_widget('Cost by project', host, [('project *: cost per 3 hours (UTC)', ALL_COLOR)], 24, 13),
+         pie_widget('Cost by machine', host, [('host *: cost per 3 hours (UTC)', ALL_COLOR)], 48, 13)]
+    details = [('Claude Code active time', 'ai.3h.active[claude]', 0, SUM),
+               ('Claude Code commits', 'ai.3h.commits[claude]', 0, SUM),
+               ('Claude Code lines added', 'ai.3h.lines.added[claude]', 0, SUM),
+               ('Claude Code API request, avg', 'ai.3h.request.duration[claude]', 1, AVG),
+               ('Codex turns', 'ai.3h.turns[codex]', 0, SUM), ('Codex tool calls', 'ai.3h.tools[codex]', 0, SUM),
+               ('Codex turn duration, avg', 'ai.3h.turn.duration[codex]', 1, AVG),
+               ('Codex time to first token, avg', 'ai.3h.turn.ttft[codex]', 1, AVG)]
+    # two rows of four (Claude Code, Codex): eight tiles in one row are too narrow for their descriptions
+    w += [value_widget(name, ids[key], 18 * (n % 4), 19 + 3 * (n // 4), width=18, decimals=d, agg=agg)
+          for n, (name, key, d, agg) in enumerate(details)]
     return w
 
 
