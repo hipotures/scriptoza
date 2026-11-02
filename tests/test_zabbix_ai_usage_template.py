@@ -62,13 +62,16 @@ class AiUsageTemplateTests(unittest.TestCase):
         self.assertIn('"{#AGENT}.cost"', script)
         self.assertIn('{"model": "{#MODEL}"}', script)
 
-    def test_daily_items_accept_backfill(self):
-        for agent in ['all', *module.AGENTS]:
-            for measure in module.DAILY_MEASURES:
-                item = self.items[f'ai.daily.{measure}[{agent}]']
-                self.assertEqual(item['allow_traps'], 'YES')
-                self.assertEqual(item['allowed_hosts'], '{$AI.PUSH.ALLOWED}')
-                self.assertEqual(item['delay'], '0;h3m0')
+    def test_period_items_accept_backfill(self):
+        for period, (bucket, live, delay, history, _) in module.PERIODS.items():
+            self.assertEqual(86400 % bucket, 0)
+            for agent in ['all', *module.AGENTS]:
+                for measure in module.MEASURES:
+                    item = self.items[f'ai.{period}.{measure}[{agent}]']
+                    self.assertEqual(item['allow_traps'], 'YES')
+                    self.assertEqual(item['allowed_hosts'], '{$AI.PUSH.ALLOWED}')
+                    self.assertEqual(item['delay'], delay)
+                    self.assertIn(f'bucket = {bucket};', item['preprocessing'][0]['parameters'][0])
 
     def test_daily_total_sums_one_utc_day(self):
         day = 86400 * 20000
@@ -79,9 +82,9 @@ class AiUsageTemplateTests(unittest.TestCase):
                                          {'dimensions': {'category': 'output'}, 'points': [[day, 3]]}]},
             'codex.tokens': {'series': []},
         }
-        self.assertEqual(module.daily_total(datasets, 'claude', 'cost', day, day + 86400), 3)
-        self.assertEqual(module.daily_total(datasets, 'all', 'cost', day, day + 86400), 3.5)
-        self.assertEqual(module.daily_total(datasets, 'all', 'tokens', day, day + 86400), 10)
+        self.assertEqual(module.bucket_total(datasets, 'claude', 'cost', day, day + 86400), 3)
+        self.assertEqual(module.bucket_total(datasets, 'all', 'cost', day, day + 86400), 3.5)
+        self.assertEqual(module.bucket_total(datasets, 'all', 'tokens', day, day + 86400), 10)
 
     def test_dashboard_uses_existing_items_and_fits_grid(self):
         names = {i['name'] for i in self.template['items']}

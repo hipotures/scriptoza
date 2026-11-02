@@ -42,14 +42,15 @@ estimated Codex cost, so the values match its dashboard.
 | Codex: the same plus reasoning tokens, turns, tool calls, turn/tool durations, time to first token/output | 1h, 24h |
 | LLD *Models*: cost, total and output tokens per agent and model | 24h |
 | LLD *Machines and projects*: cost and tokens per host and per repository | 24h |
-| Per day (UTC): cost and total tokens, all agents / Claude Code / Codex; read daily at 03:00 | 1d |
+| Per day and per 3 hours (UTC buckets): cost and total tokens, all agents / Claude Code / Codex | 1d, 3h |
 
 A metric an agent does not report is skipped, not an error. Triggers: no data from the
 service for 30 minutes; all agents together over `{$AI.COST.24H.WARN}` USD (default 150)
 in 24 hours.
 
-Zabbix stores values from the import on. Past days can be pushed into the per-day items
-(`history.push`, up to the 30 days the service returns); days already stored are skipped, so
+Zabbix stores values from the import on. Past buckets can be pushed into the per-day and
+per-3-hour items (`history.push`; 30 days of days and 7 days of 3-hour buckets, the finest the
+service returns); days already stored are skipped, so
 it can be re-run. Pushed numbers pass the items' JavaScript unchanged. The pushing address must match `{$AI.PUSH.ALLOWED}` on the host (default
 `127.0.0.1`; Zabbix sees API clients as IPv4-mapped, e.g. `::ffff:10.0.0.0/120`).
 
@@ -65,5 +66,5 @@ Then create one host (no interface) with the template and set `{$AI.USAGE.URL}` 
 
 `--dashboard URL TOKENFILE --run` creates (or updates) the global dashboard *AI agents* for
 that host (`--host`, default `ai-usage`): cost, tokens, sessions and cache hit of the last day,
-rolling hourly cost and tokens, cost and tokens per day (30 days, bars), cost by model, project
+cost and tokens per 3 hours (bars, following the dashboard time period), per day (30 days), cost by model, project
 and machine, and the main Claude Code and Codex activity figures.

@@ -15,8 +15,8 @@ Agent metrics are listed in AGENTS; a new agent in hs-usage needs one entry ther
   build_ai_usage_template.py --run                             write ai-usage-template.json
   build_ai_usage_template.py --import URL TOKENFILE --run      write and import (create/update)
   build_ai_usage_template.py --dashboard URL TOKENFILE --run   create/update the global dashboard "AI agents"
-  build_ai_usage_template.py --backfill URL TOKENFILE --run    push past daily totals (up to 30 days) into
-                                                               the per-day items of host --host (default ai-usage)
+  build_ai_usage_template.py --backfill URL TOKENFILE --run    push past per-day (30 days) and per-3-hour (7 days)
+                                                               totals into host --host (default ai-usage)
 """
 from __future__ import annotations
 
@@ -108,10 +108,10 @@ d.series.forEach(function (s) {
 return JSON.stringify(out);'''
 
 
-# Total of the previous UTC day (completed buckets only); 7d buckets are 3h, aligned to UTC days.
-DAILY_JS = '''if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number
-var d = JSON.parse(value).datasets, agents = AGENTS, measure = MEASURE;
-var end = Math.floor(Date.now() / 86400000) * 86400, start = end - 86400, sum = 0;
+# Total of the last completed UTC bucket (day or 3 hours) from the snapshot's bucket points.
+BUCKET_JS = '''if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number
+var d = JSON.parse(value).datasets, agents = AGENTS, measure = MEASURE, bucket = BUCKET;
+var end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket, sum = 0;
 agents.forEach(function (a) {
   var ds = d[a + '.' + measure];
   if (!ds || ds.state !== 'available') { throw 'dataset ' + a + '.' + measure + ' unavailable'; }
@@ -121,18 +121,23 @@ agents.forEach(function (a) {
   });
 });
 return sum;'''
-DAILY_WINDOW = '7d'
-DAILY_MEASURES = {'cost': ('cost', 'USD'), 'tokens': ('tokens, total', 'tok')}
+MEASURES = {'cost': ('cost', 'USD'), 'tokens': ('tokens, total', 'tok')}
+# key part: bucket seconds, snapshot range read live (its points must divide the bucket), poll schedule,
+# snapshot range for the backfill, item name suffix. Live polls come shortly after a bucket closes.
+PERIODS = {
+    'daily': (86400, '7d', '0;h3m0', '30d', 'per day (UTC)'),
+    '3h': (10800, '24h', '0;h/3m20', '7d', 'per 3 hours (UTC)'),
+}
 
 
-def daily_agents(agent):
+def period_agents(agent):
     return list(AGENTS) if agent == 'all' else [agent]
 
 
-def daily_total(datasets, agent, measure, start, end):
-    """Python twin of DAILY_JS for the backfill: sum of bucket points in [start, end)."""
+def bucket_total(datasets, agent, measure, start, end):
+    """Python twin of BUCKET_JS for the backfill: sum of bucket points in [start, end)."""
     total = 0.0
-    for a in daily_agents(agent):
+    for a in period_agents(agent):
         for s in datasets[f'{a}.{measure}']['series']:
             if measure == 'tokens' and s['dimensions'].get('category') != 'total':
                 continue
@@ -140,22 +145,24 @@ def daily_total(datasets, agent, measure, start, end):
     return total
 
 
-def daily_items():
+def period_items():
     out = []
-    for agent in ['all', *AGENTS]:
-        label = 'All agents' if agent == 'all' else AGENTS[agent][0]
-        for measure, (name, units) in DAILY_MEASURES.items():
-            key = f'ai.daily.{measure}[{agent}]'
-            js = DAILY_JS.replace('AGENTS', json.dumps(daily_agents(agent))).replace('MEASURE', json.dumps(measure))
-            out.append({'uuid': uid(TEMPLATE, 'item', key), 'name': f'{label}: {name} per day (UTC)', 'type': 'HTTP_AGENT',
-                        'key': key, 'delay': '0;h3m0', 'history': '400d', 'value_type': 'FLOAT', 'units': units,
-                        'url': '{$AI.USAGE.URL}/api/dashboard/snapshot', 'timeout': '30s',
-                        'query_fields': [{'name': 'range', 'value': DAILY_WINDOW}], 'allow_traps': 'YES',
-                        'allowed_hosts': '{$AI.PUSH.ALLOWED}',
-                        'preprocessing': [{'type': 'JAVASCRIPT', 'parameters': [js]}],
-                        'description': 'Total of the previous UTC day, read daily at 03:00 server time. '
-                                       'Accepts history.push, used to backfill past days.',
-                        'tags': tags(agent=agent, window='1d', component='cost' if measure == 'cost' else 'usage')})
+    for period, (bucket, live, delay, _, suffix) in PERIODS.items():
+        for agent in ['all', *AGENTS]:
+            label = 'All agents' if agent == 'all' else AGENTS[agent][0]
+            for measure, (name, units) in MEASURES.items():
+                key = f'ai.{period}.{measure}[{agent}]'
+                js = (BUCKET_JS.replace('AGENTS', json.dumps(period_agents(agent)))
+                      .replace('MEASURE', json.dumps(measure)).replace('BUCKET', str(bucket)))
+                out.append({'uuid': uid(TEMPLATE, 'item', key), 'name': f'{label}: {name} {suffix}', 'type': 'HTTP_AGENT',
+                            'key': key, 'delay': delay, 'history': '400d', 'value_type': 'FLOAT', 'units': units,
+                            'url': '{$AI.USAGE.URL}/api/dashboard/snapshot', 'timeout': '30s',
+                            'query_fields': [{'name': 'range', 'value': live}], 'allow_traps': 'YES',
+                            'allowed_hosts': '{$AI.PUSH.ALLOWED}',
+                            'preprocessing': [{'type': 'JAVASCRIPT', 'parameters': [js]}],
+                            'description': f'Total of the last completed UTC bucket ({suffix[4:-6]}). '
+                                           'Accepts history.push, used to backfill past buckets.',
+                            'tags': tags(agent=agent, window=period, component='cost' if measure == 'cost' else 'usage')})
     return out
 
 
@@ -209,7 +216,7 @@ def items():
     cost['description'] = 'Claude Code cost as it reports it; Codex cost estimated by hs-usage from list prices.'
     cost['triggers'] = [trigger(cost['key'], f'last(/{TEMPLATE}/ai.all.cost[24h])>{{$AI.COST.24H.WARN}}',
                                 'AI agents cost over {$AI.COST.24H.WARN} USD in the last 24h', 'WARNING')]
-    return out + daily_items()
+    return out + period_items()
 
 
 def proto(key, name, units, js, **tag):
@@ -282,8 +289,7 @@ def api(url, token, method, params):
     return reply['result']
 
 
-BACKFILL_RANGE = '30d'
-PUSH_OFFSET = 3 * 3600  # a past day is stored at 03:00 UTC of the next day, near the daily poll
+PUSH_OFFSETS = {'daily': 3 * 3600, '3h': 20 * 60}  # stored this long after the bucket closes, near the live poll
 
 
 def backfill(url, token, host, run):
@@ -295,28 +301,29 @@ def backfill(url, token, host, run):
     source = macros.get('{$AI.USAGE.URL}')
     if not source:
         raise SystemExit(f'{{$AI.USAGE.URL}} is not set on host {host}')
-    items = api(url, token, 'item.get', {'hostids': hosts[0]['hostid'], 'search': {'key_': 'ai.daily.'},
-                                         'output': ['itemid', 'key_']})
-    with urllib.request.urlopen(f"{source.rstrip('/')}/api/dashboard/snapshot?range={BACKFILL_RANGE}", timeout=120) as r:
-        datasets = json.load(r)['datasets']
-    today = int(time.time()) // 86400 * 86400
-    points = [p[0] for a in AGENTS for m in DAILY_MEASURES for s in datasets[f'{a}.{m}']['series'] for p in s['points']]
-    if not points:
-        print('no usage data to backfill')
-        return
-    days = range(min(points) // 86400 * 86400, today, 86400)
     pushes = []
-    for item in items:
-        measure, agent = item['key_'][len('ai.daily.'):-1].split('[')
-        stored = api(url, token, 'history.get', {'itemids': item['itemid'], 'history': 0, 'output': ['clock'],
-                                                  'time_from': days[0] + 86400, 'time_till': today + 86400})
-        have = {(int(h['clock']) - 1) // 86400 * 86400 - 86400 for h in stored}
-        for day in days:
-            if day in have:
-                continue
-            value = daily_total(datasets, agent, measure, day, day + 86400)
-            pushes.append({'itemid': item['itemid'], 'clock': day + 86400 + PUSH_OFFSET, 'ns': 0, 'value': str(value)})
-            print(f"  {time.strftime('%Y-%m-%d', time.gmtime(day))} {item['key_']:28} {value:,.4f}")
+    for period, (bucket, _, _, history, _) in PERIODS.items():
+        items = api(url, token, 'item.get', {'hostids': hosts[0]['hostid'], 'search': {'key_': f'ai.{period}.'},
+                                             'output': ['itemid', 'key_']})
+        with urllib.request.urlopen(f"{source.rstrip('/')}/api/dashboard/snapshot?range={history}", timeout=120) as r:
+            datasets = json.load(r)['datasets']
+        now = int(time.time()) // bucket * bucket
+        points = [p[0] for a in AGENTS for m in MEASURES for s in datasets[f'{a}.{m}']['series'] for p in s['points']]
+        if not points:
+            continue
+        buckets = range(min(points) // bucket * bucket, now, bucket)
+        for item in items:
+            measure, agent = item['key_'][len(f'ai.{period}.'):-1].split('[')
+            stored = api(url, token, 'history.get', {'itemids': item['itemid'], 'history': 0, 'output': ['clock'],
+                                                      'time_from': buckets[0] + bucket, 'time_till': now + bucket})
+            have = {(int(h['clock']) - 1) // bucket * bucket - bucket for h in stored}
+            for start in buckets:
+                if start in have:
+                    continue
+                value = bucket_total(datasets, agent, measure, start, start + bucket)
+                pushes.append({'itemid': item['itemid'], 'clock': start + bucket + PUSH_OFFSETS[period], 'ns': 0,
+                               'value': str(value)})
+                print(f"  {time.strftime('%Y-%m-%d %H:%M', time.gmtime(start))} {item['key_']:28} {value:,.4f}")
     print(f"{'pushing' if run else 'would push'} {len(pushes)} values into {host}")
     if run and pushes:
         result = api(url, token, 'history.push', pushes)
@@ -380,10 +387,12 @@ def dashboard_widgets(host, ids):
          value_widget('Tokens, 24h', ids['ai.all.tokens[24h]'], 36, 0, decimals=1),
          value_widget('Sessions, 24h', ids['ai.all.sessions[24h]'], 48, 0, decimals=0),
          value_widget('Cache hit, 24h', ids['ai.all.cache.hit[24h]'], 60, 0, decimals=1),
-         graph_widget('Cost in the last hour (rolling)', host,
-                      [('Claude Code: cost (1h)', CLAUDE_COLOR), ('Codex: cost (1h)', CODEX_COLOR)], 0, 3),
-         graph_widget('Tokens in the last hour (rolling)', host,
-                      [('Claude Code: tokens, total (1h)', CLAUDE_COLOR), ('Codex: tokens, total (1h)', CODEX_COLOR)], 36, 3),
+         graph_widget('Cost per 3 hours (UTC)', host,
+                      [('Claude Code: cost per 3 hours (UTC)', CLAUDE_COLOR), ('Codex: cost per 3 hours (UTC)', CODEX_COLOR)],
+                      0, 3, bars=True),
+         graph_widget('Tokens per 3 hours (UTC)', host,
+                      [('Claude Code: tokens, total per 3 hours (UTC)', CLAUDE_COLOR),
+                       ('Codex: tokens, total per 3 hours (UTC)', CODEX_COLOR)], 36, 3, bars=True),
          graph_widget('Cost per day (UTC)', host,
                       [('Claude Code: cost per day (UTC)', CLAUDE_COLOR), ('Codex: cost per day (UTC)', CODEX_COLOR)],
                       0, 8, bars=True, period='now-30d'),
