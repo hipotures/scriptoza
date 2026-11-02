@@ -83,6 +83,17 @@ class AiUsageTemplateTests(unittest.TestCase):
         self.assertEqual(module.daily_total(datasets, 'all', 'cost', day, day + 86400), 3.5)
         self.assertEqual(module.daily_total(datasets, 'all', 'tokens', day, day + 86400), 10)
 
+    def test_dashboard_uses_existing_items_and_fits_grid(self):
+        names = {i['name'] for i in self.template['items']}
+        keys = {i['key'] for i in self.template['items']}
+        widgets = module.dashboard_widgets('ai-usage', {k: '1' for k in keys})
+        for w in widgets:
+            self.assertLessEqual(w['x'] + w['width'], 72)
+            for field in w['fields']:
+                if field['name'].startswith('ds.') and field['name'].endswith('.items.0') and '*' not in field['value']:
+                    self.assertIn(field['value'], names)
+        self.assertRaises(KeyError, module.dashboard_widgets, 'ai-usage', {})
+
     def test_no_private_address_in_template(self):
         text = json.dumps(self.export)
         self.assertNotIn('homestack.app', text)

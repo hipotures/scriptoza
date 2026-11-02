@@ -104,7 +104,7 @@
       "key": "ai.all.tokens[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -148,7 +148,7 @@
       "key": "ai.all.tokens.input[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -192,7 +192,7 @@
       "key": "ai.all.tokens.output[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -236,7 +236,7 @@
       "key": "ai.all.tokens.cached[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -280,7 +280,7 @@
       "key": "ai.all.tokens.written[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -418,7 +418,7 @@
       "key": "ai.all.tokens.reasoning[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -506,7 +506,7 @@
       "key": "ai.claude.tokens[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -550,7 +550,7 @@
       "key": "ai.claude.tokens.input[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -594,7 +594,7 @@
       "key": "ai.claude.tokens.output[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -638,7 +638,7 @@
       "key": "ai.claude.tokens.cached[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -682,7 +682,7 @@
       "key": "ai.claude.tokens.written[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -1128,7 +1128,7 @@
       "key": "ai.codex.tokens[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -1172,7 +1172,7 @@
       "key": "ai.codex.tokens.input[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -1216,7 +1216,7 @@
       "key": "ai.codex.tokens.output[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -1260,7 +1260,7 @@
       "key": "ai.codex.tokens.cached[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -1304,7 +1304,7 @@
       "key": "ai.codex.tokens.written[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -1442,7 +1442,7 @@
       "key": "ai.codex.tokens.reasoning[1h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -1838,7 +1838,7 @@
       "key": "ai.all.tokens[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -1882,7 +1882,7 @@
       "key": "ai.all.tokens.input[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -1926,7 +1926,7 @@
       "key": "ai.all.tokens.output[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -1970,7 +1970,7 @@
       "key": "ai.all.tokens.cached[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -2014,7 +2014,7 @@
       "key": "ai.all.tokens.written[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -2152,7 +2152,7 @@
       "key": "ai.all.tokens.reasoning[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -2240,7 +2240,7 @@
       "key": "ai.claude.tokens[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -2284,7 +2284,7 @@
       "key": "ai.claude.tokens.input[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -2328,7 +2328,7 @@
       "key": "ai.claude.tokens.output[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -2372,7 +2372,7 @@
       "key": "ai.claude.tokens.cached[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -2416,7 +2416,7 @@
       "key": "ai.claude.tokens.written[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -2862,7 +2862,7 @@
       "key": "ai.codex.tokens[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -2906,7 +2906,7 @@
       "key": "ai.codex.tokens.input[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -2950,7 +2950,7 @@
       "key": "ai.codex.tokens.output[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -2994,7 +2994,7 @@
       "key": "ai.codex.tokens.cached[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -3038,7 +3038,7 @@
       "key": "ai.codex.tokens.written[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -3176,7 +3176,7 @@
       "key": "ai.codex.tokens.reasoning[24h]",
       "delay": "0",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "preprocessing": [
        {
         "type": "JSONPATH",
@@ -3528,7 +3528,7 @@
       "delay": "0;h3m0",
       "history": "400d",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
       "timeout": "30s",
       "query_fields": [
@@ -3614,7 +3614,7 @@
       "delay": "0;h3m0",
       "history": "400d",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
       "timeout": "30s",
       "query_fields": [
@@ -3700,7 +3700,7 @@
       "delay": "0;h3m0",
       "history": "400d",
       "value_type": "FLOAT",
-      "units": "",
+      "units": "tok",
       "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
       "timeout": "30s",
       "query_fields": [
@@ -3799,7 +3799,7 @@
         "key": "ai.model.tokens[{#AGENT},{#MODEL},24h]",
         "delay": "0",
         "value_type": "FLOAT",
-        "units": "",
+        "units": "tok",
         "master_item": {
          "key": "ai.snapshot[24h]"
         },
@@ -3835,7 +3835,7 @@
         "key": "ai.model.output[{#AGENT},{#MODEL},24h]",
         "delay": "0",
         "value_type": "FLOAT",
-        "units": "",
+        "units": "tok",
         "master_item": {
          "key": "ai.snapshot[24h]"
         },
@@ -3927,7 +3927,7 @@
         "key": "ai.scope.tokens[{#BY},{#SCOPE},24h]",
         "delay": "0",
         "value_type": "FLOAT",
-        "units": "",
+        "units": "tok",
         "master_item": {
          "key": "ai.snapshot[24h]"
         },

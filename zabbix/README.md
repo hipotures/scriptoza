@@ -56,8 +56,14 @@ it can be re-run. Pushed numbers pass the items' JavaScript unchanged. The pushi
 ```bash
 python3 zabbix/build_ai_usage_template.py                                      # dry run
 python3 zabbix/build_ai_usage_template.py --import http://ZABBIX TOKENFILE --run  # write and import
+python3 zabbix/build_ai_usage_template.py --dashboard http://ZABBIX TOKENFILE --run  # global dashboard
 python3 zabbix/build_ai_usage_template.py --backfill http://ZABBIX TOKENFILE      # dry run: list past days
 python3 zabbix/build_ai_usage_template.py --backfill http://ZABBIX TOKENFILE --run  # push them
 ```
 
 Then create one host (no interface) with the template and set `{$AI.USAGE.URL}` on it.
+
+`--dashboard URL TOKENFILE --run` creates (or updates) the global dashboard *AI agents* for
+that host (`--host`, default `ai-usage`): cost, tokens, sessions and cache hit of the last day,
+rolling hourly cost and tokens, cost and tokens per day (30 days, bars), cost by model, project
+and machine, and the main Claude Code and Codex activity figures.

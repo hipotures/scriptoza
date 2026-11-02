@@ -14,6 +14,7 @@ Agent metrics are listed in AGENTS; a new agent in hs-usage needs one entry ther
   build_ai_usage_template.py                                   dry run: show what would be written/imported
   build_ai_usage_template.py --run                             write ai-usage-template.json
   build_ai_usage_template.py --import URL TOKENFILE --run      write and import (create/update)
+  build_ai_usage_template.py --dashboard URL TOKENFILE --run   create/update the global dashboard "AI agents"
   build_ai_usage_template.py --backfill URL TOKENFILE --run    push past daily totals (up to 30 days) into
                                                                the per-day items of host --host (default ai-usage)
 """
@@ -45,11 +46,11 @@ def master_key(window):
 # (summary field, item suffix, label, units, multiplier)
 COMMON = [
     ('cost', 'cost', 'cost', 'USD', None),
-    ('total', 'tokens', 'tokens, total', '', None),
-    ('input', 'tokens.input', 'tokens, input', '', None),
-    ('output', 'tokens.output', 'tokens, output', '', None),
-    ('cached', 'tokens.cached', 'tokens, cache read', '', None),
-    ('written', 'tokens.written', 'tokens, cache write', '', None),
+    ('total', 'tokens', 'tokens, total', 'tok', None),
+    ('input', 'tokens.input', 'tokens, input', 'tok', None),
+    ('output', 'tokens.output', 'tokens, output', 'tok', None),
+    ('cached', 'tokens.cached', 'tokens, cache read', 'tok', None),
+    ('written', 'tokens.written', 'tokens, cache write', 'tok', None),
     ('cacheHit', 'cache.hit', 'cache hit ratio', '%', '100'),
     ('sessions', 'sessions', 'sessions', '', None),
 ]
@@ -63,7 +64,7 @@ AGENTS = {
         ('requestFirstToken', 'request.ttft', 'API request time to first token, avg', 's', None),
     ]),
     'codex': ('Codex', COMMON + [
-        ('reasoning', 'tokens.reasoning', 'tokens, reasoning', '', None),
+        ('reasoning', 'tokens.reasoning', 'tokens, reasoning', 'tok', None),
         ('turns', 'turns', 'turns', '', None),
         ('tools', 'tools', 'tool calls', '', None),
         ('turnDuration', 'turn.duration', 'turn duration, avg', 's', None),
@@ -72,7 +73,7 @@ AGENTS = {
         ('toolDuration', 'tool.duration', 'tool call duration, avg', 's', None),
     ]),
 }
-TOTALS = [m for m in COMMON] + [('reasoning', 'tokens.reasoning', 'tokens, reasoning', '', None)]
+TOTALS = [m for m in COMMON] + [('reasoning', 'tokens.reasoning', 'tokens, reasoning', 'tok', None)]
 
 # A metric an agent does not report has value null: such samples are discarded, not errors.
 NUMBER = {'type': 'MATCHES_REGEX', 'parameters': [r'^-?[0-9]'], 'error_handler': 'DISCARD_VALUE', 'error_handler_params': ''}
@@ -121,7 +122,7 @@ agents.forEach(function (a) {
 });
 return sum;'''
 DAILY_WINDOW = '7d'
-DAILY_MEASURES = {'cost': ('cost', 'USD'), 'tokens': ('tokens, total', '')}
+DAILY_MEASURES = {'cost': ('cost', 'USD'), 'tokens': ('tokens, total', 'tok')}
 
 
 def daily_agents(agent):
@@ -231,10 +232,10 @@ def rules():
         'item_prototypes': [
             proto(f'ai.model.cost[{{#AGENT}},{{#MODEL}},{w}]', f'{{#AGENTNAME}} {{#MODEL}}: cost ({w})', 'USD',
                   sum_js('{#AGENT}.cost', model='{#MODEL}'), agent='{#AGENT}', model='{#MODEL}', component='cost'),
-            proto(f'ai.model.tokens[{{#AGENT}},{{#MODEL}},{w}]', f'{{#AGENTNAME}} {{#MODEL}}: tokens, total ({w})', '',
+            proto(f'ai.model.tokens[{{#AGENT}},{{#MODEL}},{w}]', f'{{#AGENTNAME}} {{#MODEL}}: tokens, total ({w})', 'tok',
                   sum_js('{#AGENT}.tokens', model='{#MODEL}', category='total'), agent='{#AGENT}', model='{#MODEL}',
                   component='usage'),
-            proto(f'ai.model.output[{{#AGENT}},{{#MODEL}},{w}]', f'{{#AGENTNAME}} {{#MODEL}}: tokens, output ({w})', '',
+            proto(f'ai.model.output[{{#AGENT}},{{#MODEL}},{w}]', f'{{#AGENTNAME}} {{#MODEL}}: tokens, output ({w})', 'tok',
                   sum_js('{#AGENT}.tokens', model='{#MODEL}', category='output'), agent='{#AGENT}', model='{#MODEL}',
                   component='usage'),
         ]}, **lost)
@@ -246,7 +247,7 @@ def rules():
         'item_prototypes': [
             proto(f'ai.scope.cost[{{#BY}},{{#SCOPE}},{w}]', f'{{#BY}} {{#SCOPE}}: cost ({w})', 'USD',
                   sum_js('all.scopes', by='{#BY}', scope='{#SCOPE}', metric='cost'), scope='{#BY}:{#SCOPE}', component='cost'),
-            proto(f'ai.scope.tokens[{{#BY}},{{#SCOPE}},{w}]', f'{{#BY}} {{#SCOPE}}: tokens, total ({w})', '',
+            proto(f'ai.scope.tokens[{{#BY}},{{#SCOPE}},{w}]', f'{{#BY}} {{#SCOPE}}: tokens, total ({w})', 'tok',
                   sum_js('all.scopes', by='{#BY}', scope='{#SCOPE}', metric='tokens'), scope='{#BY}:{#SCOPE}',
                   component='usage'),
         ]}, **lost)
@@ -333,14 +334,111 @@ def backfill(url, token, host, run):
             print(f"  {item['key_']} not supported: {item['error'].splitlines()[0]}")
 
 
+DASHBOARD = 'AI agents'
+CLAUDE_COLOR, CODEX_COLOR, ALL_COLOR = 'D97757', '10A37F', '4A90D9'
+INT, STR, ITEM = '0', '1', '4'
+
+
+def f(kind, name, value):
+    return {'type': kind, 'name': name, 'value': str(value)}
+
+
+def value_widget(name, itemid, x, y, width=12, decimals=2):
+    return {'type': 'item', 'name': name, 'x': x, 'y': y, 'width': width, 'height': 3, 'view_mode': '0',
+            'fields': [f(ITEM, 'itemid.0', itemid), f(INT, 'show.0', 1), f(INT, 'show.1', 2), f(INT, 'show.2', 4),
+                       f(STR, 'description', name), f(INT, 'decimal_places', decimals), f(INT, 'value_size', 40),
+                       f(INT, 'desc_size', 12), f(INT, 'adv_conf', 1)]}
+
+
+def graph_widget(name, host, series, x, y, width=36, height=5, bars=False, period=None):
+    fields = [f(INT, 'legend', 1), f(INT, 'righty', 0), f(STR, 'lefty_min', 0)]
+    for n, (pattern, color) in enumerate(series):
+        fields += [f(STR, f'ds.{n}.hosts.0', host), f(STR, f'ds.{n}.items.0', pattern), f(STR, f'ds.{n}.color', color),
+                   f(INT, f'ds.{n}.type', 3 if bars else 0), f(INT, f'ds.{n}.width', 2),
+                   f(INT, f'ds.{n}.transparency', 2 if bars else 5), f(INT, f'ds.{n}.fill', 3)]
+        if bars:
+            fields.append(f(INT, f'ds.{n}.stacked', 1))
+    if period:
+        fields += [f(STR, 'time_period.from', period), f(STR, 'time_period.to', 'now')]
+    return {'type': 'svggraph', 'name': name, 'x': x, 'y': y, 'width': width, 'height': height, 'view_mode': '0',
+            'fields': fields}
+
+
+def pie_widget(name, host, patterns, x, y, width=24, height=6):
+    fields = [f(INT, 'legend', 1), f(INT, 'draw_type', 1), f(INT, 'legend_lines', 6)]
+    for n, (pattern, color) in enumerate(patterns):
+        fields += [f(STR, f'ds.{n}.hosts.0', host), f(STR, f'ds.{n}.items.0', pattern), f(STR, f'ds.{n}.color', color)]
+    return {'type': 'piechart', 'name': name, 'x': x, 'y': y, 'width': width, 'height': height, 'view_mode': '0',
+            'fields': fields}
+
+
+def dashboard_widgets(host, ids):
+    """Widgets of the global dashboard; ids maps item keys to item IDs on host."""
+    w = [value_widget('Cost, 24h', ids['ai.all.cost[24h]'], 0, 0),
+         value_widget('Claude Code cost, 24h', ids['ai.claude.cost[24h]'], 12, 0),
+         value_widget('Codex cost, 24h', ids['ai.codex.cost[24h]'], 24, 0),
+         value_widget('Tokens, 24h', ids['ai.all.tokens[24h]'], 36, 0, decimals=1),
+         value_widget('Sessions, 24h', ids['ai.all.sessions[24h]'], 48, 0, decimals=0),
+         value_widget('Cache hit, 24h', ids['ai.all.cache.hit[24h]'], 60, 0, decimals=1),
+         graph_widget('Cost in the last hour (rolling)', host,
+                      [('Claude Code: cost (1h)', CLAUDE_COLOR), ('Codex: cost (1h)', CODEX_COLOR)], 0, 3),
+         graph_widget('Tokens in the last hour (rolling)', host,
+                      [('Claude Code: tokens, total (1h)', CLAUDE_COLOR), ('Codex: tokens, total (1h)', CODEX_COLOR)], 36, 3),
+         graph_widget('Cost per day (UTC)', host,
+                      [('Claude Code: cost per day (UTC)', CLAUDE_COLOR), ('Codex: cost per day (UTC)', CODEX_COLOR)],
+                      0, 8, bars=True, period='now-30d'),
+         graph_widget('Tokens per day (UTC)', host,
+                      [('Claude Code: tokens, total per day (UTC)', CLAUDE_COLOR),
+                       ('Codex: tokens, total per day (UTC)', CODEX_COLOR)], 36, 8, bars=True, period='now-30d'),
+         pie_widget('Cost by model, 24h', host, [('Claude Code *: cost (24h)', CLAUDE_COLOR), ('Codex *: cost (24h)', CODEX_COLOR)], 0, 13),
+         pie_widget('Cost by project, 24h', host, [('project *: cost (24h)', ALL_COLOR)], 24, 13),
+         pie_widget('Cost by machine, 24h', host, [('host *: cost (24h)', ALL_COLOR)], 48, 13)]
+    details = [('Claude Code active time, 24h', 'ai.claude.active[24h]', 0), ('Claude Code commits, 24h', 'ai.claude.commits[24h]', 0),
+               ('Claude Code lines added, 24h', 'ai.claude.lines.added[24h]', 0),
+               ('Claude Code API request, avg', 'ai.claude.request.duration[24h]', 1),
+               ('Codex turns, 24h', 'ai.codex.turns[24h]', 0), ('Codex tool calls, 24h', 'ai.codex.tools[24h]', 0),
+               ('Codex turn duration, avg', 'ai.codex.turn.duration[24h]', 1),
+               ('Codex time to first token, avg', 'ai.codex.turn.ttft[24h]', 1)]
+    w += [value_widget(name, ids[key], 9 * n, 19, width=9, decimals=d) for n, (name, key, d) in enumerate(details)]
+    return w
+
+
+def dashboard(url, token, host, run):
+    hosts = api(url, token, 'host.get', {'filter': {'host': [host]}, 'output': ['hostid']})
+    if not hosts:
+        raise SystemExit(f'host {host} not found')
+    items = api(url, token, 'item.get', {'hostids': hosts[0]['hostid'], 'output': ['itemid', 'key_']})
+    ids = {i['key_']: i['itemid'] for i in items}
+    page = {'name': 'Overview', 'widgets': dashboard_widgets(host, ids)}
+    existing = api(url, token, 'dashboard.get', {'filter': {'name': [DASHBOARD]}, 'output': ['dashboardid']})
+    action = 'update' if existing else 'create'
+    print(f"{'would ' if not run else ''}{action} dashboard {DASHBOARD!r} ({len(page['widgets'])} widgets) for host {host}")
+    if not run:
+        return
+    params = {'pages': [page], 'auto_start': '0'}
+    if existing:
+        api(url, token, 'dashboard.update', dict(params, dashboardid=existing[0]['dashboardid']))
+    else:
+        api(url, token, 'dashboard.create', dict(params, name=DASHBOARD, display_period=60))
+    print('done')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--import', dest='target', nargs=2, metavar=('URL', 'TOKENFILE'))
     parser.add_argument('--backfill', nargs=2, metavar=('URL', 'TOKENFILE'))
-    parser.add_argument('--host', default='ai-usage', help='host for --backfill')
+    parser.add_argument('--dashboard', nargs=2, metavar=('URL', 'TOKENFILE'),
+                        help='create/update the global dashboard "AI agents" for --host')
+    parser.add_argument('--host', default='ai-usage', help='host for --backfill and --dashboard')
     parser.add_argument('--out', default=str(Path(__file__).with_name('ai-usage-template.json')))
     parser.add_argument('--run', action='store_true', help='write the file and import; without it nothing changes')
     args = parser.parse_args()
+    if args.dashboard:
+        url, tokenfile = args.dashboard
+        if not args.run:
+            print('DRY RUN: nothing is changed. Add --run to apply.')
+        dashboard(url, Path(tokenfile).expanduser().read_text().strip(), args.host, args.run)
+        return 0
     if args.backfill:
         url, tokenfile = args.backfill
         if not args.run:
