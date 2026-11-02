@@ -3500,7 +3500,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.cost\", {}], [\"codex.cost\", {}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.cost\", {}], [\"codex.cost\", {}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -3545,7 +3545,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.tokens\", {\"category\": \"total\"}], [\"codex.tokens\", {\"category\": \"total\"}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.tokens\", {\"category\": \"total\"}], [\"codex.tokens\", {\"category\": \"total\"}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -3590,7 +3590,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.cost\", {}], [\"codex.cost\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.cost\", {}], [\"codex.cost\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -3635,7 +3635,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.tokens\", {\"category\": \"total\"}], [\"codex.tokens\", {\"category\": \"total\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.tokens\", {\"category\": \"total\"}], [\"codex.tokens\", {\"category\": \"total\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -3650,6 +3650,96 @@
        {
         "tag": "window",
         "value": "3h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "0820b92cb46f468ea97de2b5d07240cd",
+      "name": "All agents: cost per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.cost[all]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.cost\", {}], [\"codex.cost\", {}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ]
+     },
+     {
+      "uuid": "dabb6e674dcf46298f327feb2bd7bdab",
+      "name": "All agents: tokens, total per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.tokens[all]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "tok",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.tokens\", {\"category\": \"total\"}], [\"codex.tokens\", {\"category\": \"total\"}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
        },
        {
         "tag": "component",
@@ -3680,7 +3770,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.cost\", {}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.cost\", {}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -3725,7 +3815,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.tokens\", {\"category\": \"total\"}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.tokens\", {\"category\": \"total\"}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -3770,7 +3860,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.cost\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.cost\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -3815,7 +3905,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.tokens\", {\"category\": \"total\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.tokens\", {\"category\": \"total\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -3830,6 +3920,96 @@
        {
         "tag": "window",
         "value": "3h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "725acad8f4ac430b83b3fb2b872e88ee",
+      "name": "Claude Code: cost per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.cost[claude]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.cost\", {}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ]
+     },
+     {
+      "uuid": "06d62532c84645e0bb0a285825f1bd82",
+      "name": "Claude Code: tokens, total per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.tokens[claude]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "tok",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.tokens\", {\"category\": \"total\"}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
        },
        {
         "tag": "component",
@@ -3860,7 +4040,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.cost\", {}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.cost\", {}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -3905,7 +4085,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.tokens\", {\"category\": \"total\"}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.tokens\", {\"category\": \"total\"}]]}, bucket = 86400;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -3950,7 +4130,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.cost\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.cost\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -3995,7 +4175,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.tokens\", {\"category\": \"total\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.tokens\", {\"category\": \"total\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -4010,6 +4190,96 @@
        {
         "tag": "window",
         "value": "3h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "6863a4f7daf74e1da48549e641d1dffd",
+      "name": "Codex: cost per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.cost[codex]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "USD",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.cost\", {}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "cost"
+       }
+      ]
+     },
+     {
+      "uuid": "98e7569acb6e4a60b5ea76dfdfc37c3d",
+      "name": "Codex: tokens, total per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.tokens[codex]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "tok",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.tokens\", {\"category\": \"total\"}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
        },
        {
         "tag": "component",
@@ -4040,7 +4310,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.sessions\", {}], [\"codex.sessions\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.sessions\", {}], [\"codex.sessions\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -4085,7 +4355,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"ratio\", \"scale\": 100, \"parts\": [[\"claude.tokens\", {\"category\": \"cached\"}], [\"codex.tokens\", {\"category\": \"cached\"}]], \"den\": [[\"claude.tokens\", {\"category\": [\"cached\", \"input\", \"written\"]}], [\"codex.tokens\", {\"category\": [\"cached\", \"input\", \"written\"]}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"ratio\", \"scale\": 100, \"parts\": [[\"claude.tokens\", {\"category\": \"cached\"}], [\"codex.tokens\", {\"category\": \"cached\"}]], \"den\": [[\"claude.tokens\", {\"category\": [\"cached\", \"input\", \"written\"]}], [\"codex.tokens\", {\"category\": [\"cached\", \"input\", \"written\"]}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -4130,7 +4400,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.active\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.active\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -4175,7 +4445,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.commits\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.commits\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -4220,7 +4490,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.lines\", {\"kind\": \"added\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.lines\", {\"kind\": \"added\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -4265,7 +4535,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"wavg\", \"parts\": [[\"claude.requestDuration\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"wavg\", \"parts\": [[\"claude.requestDuration\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -4310,7 +4580,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.turns\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.turns\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -4355,7 +4625,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.tools\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.tools\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -4400,7 +4670,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"wavg\", \"parts\": [[\"codex.turnDuration\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"wavg\", \"parts\": [[\"codex.turnDuration\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -4445,7 +4715,7 @@
        {
         "type": "JAVASCRIPT",
         "parameters": [
-         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"wavg\", \"parts\": [[\"codex.firstToken\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"wavg\", \"parts\": [[\"codex.firstToken\", {}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
         ],
         "error_handler": "DISCARD_VALUE",
         "error_handler_params": ""
@@ -4460,6 +4730,456 @@
        {
         "tag": "window",
         "value": "3h"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "79dc6aed163546d9bfafcb687ec2989b",
+      "name": "All agents: sessions per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.sessions[all]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.sessions\", {}], [\"codex.sessions\", {}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "6a73e8ad509b4c668dad416f5882af44",
+      "name": "All agents: cache hit ratio per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.cache.hit[all]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "%",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"ratio\", \"scale\": 100, \"parts\": [[\"claude.tokens\", {\"category\": \"cached\"}], [\"codex.tokens\", {\"category\": \"cached\"}]], \"den\": [[\"claude.tokens\", {\"category\": [\"cached\", \"input\", \"written\"]}], [\"codex.tokens\", {\"category\": [\"cached\", \"input\", \"written\"]}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "all"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "202a33efcf8d4f7bb95181a21b56c138",
+      "name": "Claude Code: active time per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.active[claude]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "s",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.active\", {}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "f26bea03bd284cca91cc6be26d85962e",
+      "name": "Claude Code: commits per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.commits[claude]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.commits\", {}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "6c8751efd92846eab00ca0d19c727dd0",
+      "name": "Claude Code: lines added per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.lines.added[claude]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"claude.lines\", {\"kind\": \"added\"}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "dce0393b1286481cab6795e947e0593b",
+      "name": "Claude Code: API request duration, avg per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.request.duration[claude]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "s",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"wavg\", \"parts\": [[\"claude.requestDuration\", {}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "claude"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "6b992248dead49b8b12e10d3bb95cbc9",
+      "name": "Codex: turns per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.turns[codex]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.turns\", {}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "d059adffef8945abad9c9ce406221851",
+      "name": "Codex: tool calls per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.tools[codex]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"codex.tools\", {}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "88e714d1450343a9a8383678511039a1",
+      "name": "Codex: turn duration, avg per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.turn.duration[codex]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "s",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"wavg\", \"parts\": [[\"codex.turnDuration\", {}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
+       },
+       {
+        "tag": "component",
+        "value": "usage"
+       }
+      ]
+     },
+     {
+      "uuid": "c37ab952cc234fffa6c00fa16111b6d5",
+      "name": "Codex: turn time to first token, avg per 10 minutes (UTC)",
+      "type": "HTTP_AGENT",
+      "key": "ai.10m.turn.ttft[codex]",
+      "delay": "0;m3-59/10",
+      "history": "400d",
+      "value_type": "FLOAT",
+      "units": "s",
+      "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+      "timeout": "30s",
+      "query_fields": [
+       {
+        "name": "range",
+        "value": "1h"
+       }
+      ],
+      "allow_traps": "YES",
+      "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+      "preprocessing": [
+       {
+        "type": "JAVASCRIPT",
+        "parameters": [
+         "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"wavg\", \"parts\": [[\"codex.firstToken\", {}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+        ],
+        "error_handler": "DISCARD_VALUE",
+        "error_handler_params": ""
+       }
+      ],
+      "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
+      "tags": [
+       {
+        "tag": "agent",
+        "value": "codex"
+       },
+       {
+        "tag": "window",
+        "value": "10m"
        },
        {
         "tag": "component",
@@ -4619,13 +5339,58 @@
          {
           "type": "JAVASCRIPT",
           "parameters": [
-           "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"{#AGENT}.cost\", {\"model\": \"{#MODEL}\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+           "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"{#AGENT}.cost\", {\"model\": \"{#MODEL}\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
           ],
           "error_handler": "DISCARD_VALUE",
           "error_handler_params": ""
          }
         ],
         "description": "Value of the last completed UTC bucket (3 hours). Accepts history.push, used to backfill past buckets.",
+        "tags": [
+         {
+          "tag": "agent",
+          "value": "{#AGENT}"
+         },
+         {
+          "tag": "model",
+          "value": "{#MODEL}"
+         },
+         {
+          "tag": "component",
+          "value": "cost"
+         }
+        ]
+       },
+       {
+        "uuid": "d28143fa62b44256bf1c16fc1dc3a70c",
+        "name": "{#AGENTNAME} {#MODEL}: cost per 10 minutes (UTC)",
+        "type": "HTTP_AGENT",
+        "key": "ai.model.cost.10m[{#AGENT},{#MODEL}]",
+        "delay": "0;m3-59/10",
+        "history": "400d",
+        "value_type": "FLOAT",
+        "units": "USD",
+        "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+        "timeout": "30s",
+        "query_fields": [
+         {
+          "name": "range",
+          "value": "1h"
+         }
+        ],
+        "allow_traps": "YES",
+        "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+        "preprocessing": [
+         {
+          "type": "JAVASCRIPT",
+          "parameters": [
+           "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"{#AGENT}.cost\", {\"model\": \"{#MODEL}\"}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+          ],
+          "error_handler": "DISCARD_VALUE",
+          "error_handler_params": ""
+         }
+        ],
+        "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
         "tags": [
          {
           "tag": "agent",
@@ -4752,13 +5517,54 @@
          {
           "type": "JAVASCRIPT",
           "parameters": [
-           "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"all.scopes\", {\"by\": \"{#BY}\", \"scope\": \"{#SCOPE}\", \"metric\": \"cost\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+           "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"all.scopes\", {\"by\": \"{#BY}\", \"scope\": \"{#SCOPE}\", \"metric\": \"cost\"}]]}, bucket = 10800;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
           ],
           "error_handler": "DISCARD_VALUE",
           "error_handler_params": ""
          }
         ],
         "description": "Value of the last completed UTC bucket (3 hours). Accepts history.push, used to backfill past buckets.",
+        "tags": [
+         {
+          "tag": "scope",
+          "value": "{#BY}:{#SCOPE}"
+         },
+         {
+          "tag": "component",
+          "value": "cost"
+         }
+        ]
+       },
+       {
+        "uuid": "8311f703211843349264a6ca5a1b9c58",
+        "name": "{#BY} {#SCOPE}: cost per 10 minutes (UTC)",
+        "type": "HTTP_AGENT",
+        "key": "ai.scope.cost.10m[{#BY},{#SCOPE}]",
+        "delay": "0;m3-59/10",
+        "history": "400d",
+        "value_type": "FLOAT",
+        "units": "USD",
+        "url": "{$AI.USAGE.URL}/api/dashboard/snapshot",
+        "timeout": "30s",
+        "query_fields": [
+         {
+          "name": "range",
+          "value": "1h"
+         }
+        ],
+        "allow_traps": "YES",
+        "allowed_hosts": "{$AI.PUSH.ALLOWED}",
+        "preprocessing": [
+         {
+          "type": "JAVASCRIPT",
+          "parameters": [
+           "if (/^-?[0-9.]+(e[-+]?[0-9]+)?$/i.test(value)) { return value; }  // a pushed (backfilled) number\nvar d = JSON.parse(value).datasets, spec = {\"agg\": \"sum\", \"parts\": [[\"all.scopes\", {\"by\": \"{#BY}\", \"scope\": \"{#SCOPE}\", \"metric\": \"cost\"}]]}, bucket = 600;\nvar end = Math.floor(Date.now() / 1000 / bucket) * bucket, start = end - bucket;\nfunction ds(id) {  // 'missing': no usage in the range, counts as empty\n  if (d[id] && d[id].state === 'missing') { return {series: [], details: {}}; }\n  if (!d[id] || d[id].state !== 'available') { throw 'dataset ' + id + ' unavailable'; }\n  return d[id];\n}\nfunction match(dims, filter) {\n  for (var k in filter) {\n    var want = filter[k], have = dims[k];\n    if (Object.prototype.toString.call(want) === '[object Array]' ? want.indexOf(have) < 0 : have !== want) { return false; }\n  }\n  return true;\n}\nfunction total(parts) {\n  var sum = 0;\n  parts.forEach(function (part) {\n    ds(part[0]).series.forEach(function (s) {\n      if (!match(s.dimensions, part[1])) { return; }\n      s.points.forEach(function (p) { if (p[0] >= start && p[0] < end && p[1] !== null) { sum += p[1]; } });\n    });\n  });\n  return sum;\n}\nif (spec.agg === 'sum') { return total(spec.parts); }\nif (spec.agg === 'ratio') {\n  var den = total(spec.den);\n  if (!den) { throw 'no data in bucket'; }\n  return total(spec.parts) / den * spec.scale;\n}\nvar seconds = 0, count = 0;\nspec.parts.forEach(function (part) {\n  var x = ds(part[0]), avg = {};\n  x.series.forEach(function (s) { s.points.forEach(function (p) { avg[p[0]] = p[1]; }); });\n  (x.details.totalTimeline || []).forEach(function (p) {\n    if (p[0] >= start && p[0] < end && avg[p[0]]) { seconds += p[1]; count += p[1] / avg[p[0]]; }\n  });\n});\nif (!count) { throw 'no data in bucket'; }\nreturn seconds / count;"
+          ],
+          "error_handler": "DISCARD_VALUE",
+          "error_handler_params": ""
+         }
+        ],
+        "description": "Value of the last completed UTC bucket (10 minutes). Accepts history.push, used to backfill past buckets.",
         "tags": [
          {
           "tag": "scope",

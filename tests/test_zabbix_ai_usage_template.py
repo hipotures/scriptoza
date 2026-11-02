@@ -96,6 +96,21 @@ class AiUsageTemplateTests(unittest.TestCase):
         self.assertEqual(module.lld_spec('ai.model.cost.3h[claude,claude-opus-5-5]'),
                          {'agg': 'sum', 'parts': [['claude.cost', {'model': 'claude-opus-5-5'}]]})
 
+    def test_chunks_cover_range_coarse_to_fine(self):
+        day = 86400 * 20000
+        coverage = {'30d': day - 86400 * 20, '7d': day + 86400, '24h': day + 86400 + 10800, '1h': day + 86400 + 18000}
+        until = day + 86400 + 18000 + 1200
+        parts, lost = module.chunks(day, until, coverage)
+        self.assertEqual(lost, 0)
+        self.assertEqual([(r, e - s) for r, s, e in parts],
+                         [('30d', 86400), ('7d', 10800)] + [('24h', 1800)] * 4 + [('1h', 600)] * 2)
+        self.assertEqual(parts[0][1], day)
+        self.assertEqual(parts[-1][2], until)
+        late = {r: day + 1200 for r in coverage}  # nothing covers the first 20 minutes any more
+        parts, lost = module.chunks(day, day + 3600, late)
+        self.assertEqual(lost, 1200)
+        self.assertEqual([(r, s - day, e - s) for r, s, e in parts], [('1h', 1200, 600), ('24h', 1800, 1800)])
+
     def test_no_private_address_in_template(self):
         text = json.dumps(self.export)
         self.assertNotIn('homestack.app', text)
