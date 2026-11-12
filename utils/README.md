@@ -141,8 +141,10 @@ The README must contain these marker pairs; only the text between them is replac
 <!-- FORKS:END -->
 ```
 
-- Projects: public, non-fork, non-archived repositories (name, description, last push date).
-- Modified forks: forks that are ahead of their upstream default branch (name, description, upstream). Forks not detected this way can be forced with `forks`.
+- Projects: public, non-fork, non-archived repositories with name, description and an Activity badge.
+- Modified forks: forks with commits authored by the user that are not in the upstream default branch (name, description, upstream). Forks not detected this way can be forced with `forks`; copies of projects hosted outside GitHub are listed in `external_forks` with their upstream URL.
+
+Activity is the newest month with real work: at least `min_commits` commits and `min_lines` changed lines (additions plus deletions from `/stats/code_frequency`), so small later fixes do not move it. If no month qualifies, the busiest month is shown. The badge shows the month (with the year when it is not the current one); its color is the age: up to 1 month bright green, 3 green, 6 yellow, 12 orange, older blue. The tooltip lists the commits and lines of that month. Repository names and upstreams use non-breaking characters, and the name headers of both tables are padded to a common width.
 
 ```bash
 python3 utils/github_profile_readme.py README.md --user LOGIN
@@ -152,10 +154,17 @@ python3 utils/github_profile_readme.py README.md --user LOGIN --config profile.j
 The default is a dry run; add `--run` to write. Set `GITHUB_TOKEN` to avoid API rate limits. Optional JSON config:
 
 ```json
-{"hide": ["experiment"], "forks": ["tweaked-fork"], "descriptions": {"tweaked-fork": "What I changed"}, "sort": "pushed"}
+{
+  "hide": ["experiment"],
+  "forks": ["tweaked-fork"],
+  "external_forks": {"copied-project": "https://gitlab.example.org/owner/project"},
+  "descriptions": {"tweaked-fork": "What I changed"},
+  "sort": "activity",
+  "activity": {"min_commits": 3, "min_lines": 100}
+}
 ```
 
-`sort` is `pushed` (default) or `name`. Daily update from GitHub Actions in the profile repository:
+`sort` is `activity` (default), `pushed` or `name`. GitHub computes statistics on demand, so a run requests them for all repositories first and retries while they are not ready. Daily update from GitHub Actions in the profile repository:
 
 ```yaml
 on:
