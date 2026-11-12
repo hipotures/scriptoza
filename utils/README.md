@@ -144,14 +144,16 @@ The README must contain these marker pairs; only the text between them is replac
 - Projects: public, non-fork, non-archived repositories with name, description and an Activity badge.
 - Modified forks: forks with commits authored by the user that are not in the upstream default branch (name, description, upstream). Forks not detected this way can be forced with `forks`; copies of projects hosted outside GitHub are listed in `external_forks` with their upstream URL.
 
-Activity is the newest month with real work: at least `min_commits` commits and `min_lines` changed lines (additions plus deletions from `/stats/code_frequency`), so small later fixes do not move it. If no month qualifies, the busiest month is shown. The badge shows the month (with the year when it is not the current one); its color is the age: up to 1 month bright green, 3 green, 6 yellow, 12 orange, older blue. The tooltip lists the commits and lines of that month. Repository names and upstreams use non-breaking characters, and the name headers of both tables are padded to a common width.
+Activity is the newest month with real work: at least `min_commits` commits and `min_lines` changed lines (additions plus deletions from `/stats/contributors`), so small later fixes do not move it. If no month qualifies, the busiest month is shown. The badge shows the month (with the year when it is not the current one); its color is the age: up to 1 month bright green, 3 green, 6 yellow, 12 orange, older blue. The tooltip lists the commits and lines of that month. Repository names and upstreams use non-breaking characters, and the name headers of both tables are padded to a common width.
+
+Collecting and rendering are separate. With `--data`, raw API data (all public repositories, monthly commits and lines for the whole history, languages, fork upstreams and whether forks contain the user's commits) is saved to a JSON file, and later runs render from it without API calls. Config, thresholds and layout can therefore be changed and previewed instantly; `--refresh` fetches again. Without `--data`, every run fetches.
 
 ```bash
-python3 utils/github_profile_readme.py README.md --user LOGIN
-python3 utils/github_profile_readme.py README.md --user LOGIN --config profile.json --run
+python3 utils/github_profile_readme.py README.md --user LOGIN --data profile-data.json --refresh --run
+python3 utils/github_profile_readme.py README.md --config profile.json --data profile-data.json
 ```
 
-The default is a dry run; add `--run` to write. Set `GITHUB_TOKEN` to avoid API rate limits. Optional JSON config:
+The default is a dry run; add `--run` to write the README and the data file. Set `GITHUB_TOKEN` to avoid API rate limits. Optional JSON config:
 
 ```json
 {
@@ -160,11 +162,12 @@ The default is a dry run; add `--run` to write. Set `GITHUB_TOKEN` to avoid API 
   "external_forks": {"copied-project": "https://gitlab.example.org/owner/project"},
   "descriptions": {"tweaked-fork": "What I changed"},
   "sort": "activity",
-  "activity": {"min_commits": 3, "min_lines": 100}
+  "activity": {"min_commits": 3, "min_lines": 100},
+  "layout": {"name_char_em": 0.51}
 }
 ```
 
-`sort` is `activity` (default), `pushed` or `name`. GitHub computes statistics on demand, so a run requests them for all repositories first and retries while they are not ready. Daily update from GitHub Actions in the profile repository:
+`sort` is `activity` (default), `pushed` or `name`. `layout.name_char_em` is the estimated width of one name character used to pad the name headers; lower it if the name column is too wide. GitHub computes statistics on demand, so a refresh requests them for all repositories first and retries while they are not ready; a repository whose statistics are still not ready keeps its previously saved data. Daily update from GitHub Actions in the profile repository:
 
 ```yaml
 on:
@@ -176,14 +179,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 github_profile_readme.py README.md --config profile.json --run
+      - run: python3 github_profile_readme.py README.md --config profile.json --data profile-data.json --refresh --run
         env: {GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"}
       - run: |
-          git diff --quiet || (git config user.name github-actions && git config user.email github-actions@users.noreply.github.com \
-            && git commit -am "Update profile README" && git push)
+          test -z "$(git status --porcelain)" && exit 0
+          git config user.name github-actions && git config user.email github-actions@users.noreply.github.com
+          git add -A && git commit -m "Update profile README" && git push
 ```
 
-Copy the script into the profile repository next to `README.md`.
+Copy the script into the profile repository next to `README.md`. The workflow commits `profile-data.json` too, so after `git pull` the layout can be tuned locally without fetching.
 
 ## Notes
 
