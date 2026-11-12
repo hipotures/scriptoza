@@ -66,13 +66,6 @@ tests/data/
 !firefox-yt/native/*.py
 !firefox-yt/native/*.json
 firefox-yt/*.xpi
-# Allow deprecated directory and its contents
-!deprecated/
-!deprecated/README.md
-!deprecated/**/
-!deprecated/**/*.py
-!deprecated/**/*.md
-!deprecated/**/*.yaml
 
 # Allow the new modular package
 !vbc/

@@ -4,14 +4,7 @@ Collection of generic helper scripts.
 
 ## Current Scope
 
-The `utils/` directory now contains only non-pipeline helpers.
-
-The event workflow pipeline was moved out of the active utility set:
-
-- compatibility copy: `deprecated/pipeline/`
-- migration target: the `vocatio` repository
-
-If you still need the old event workflow scripts, run them from `deprecated/pipeline/`.
+The `utils/` directory contains only non-pipeline helpers. The event workflow pipeline lives in the `vocatio` repository.
 
 ## Active Scripts
 
@@ -129,8 +122,7 @@ Use `--url` to target a specific conversation, `--env PATH` to load rules from a
 
 ## Notes
 
-- Event workflow and review tools are no longer active under `utils/`
-- Historical pipeline scripts remain available only under `deprecated/pipeline/`
+- Event workflow and review tools live in the `vocatio` repository
 
 ## YubiKey Touch Sounds
 

@@ -50,11 +50,6 @@ Collection of small utility scripts organized by category. Each category has its
 
 - `firefox-yt` - Minimal Firefox toolbar extension and native `yt-dlp` downloader
 
-### Deprecated (deprecated/)
-
-- `video/rename_video.py` - Deprecated legacy video renamer kept for reference and excluded from installation
-- `pipeline/*` - Legacy event pipeline snapshot kept only for backward compatibility after migration to `vocatio`
-
 ## Notes
 
 - Follow each category README for dependencies and usage details.
