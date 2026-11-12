@@ -25,6 +25,7 @@ If you still need the old event workflow scripts, run them from `deprecated/pipe
 - `delete-google-chat-messages.js` - Controlled Google Chat message cleanup through a browser CDP session and private match rules
 - `musescore_export_mp3_with_tags.py` - Exports MuseScore `.mscz` files to tagged MP3s named from `workTitle`
 - `wav_to_mp3.py` - Recursively converts WAV files to high-quality VBR MP3 next to the originals without overwriting or deleting anything
+- `github_profile_readme.py` - Fills the project and modified-fork tables of a GitHub profile README from the GitHub API
 - `srm_cert_renew.py` - Keeps a Let's Encrypt certificate current on a Synology SRM router
 - `install.py` - Installs selected utility scripts into a local bin directory
   and copies the optional `codex-resume` systemd user unit to
@@ -126,6 +127,54 @@ node utils/delete-google-chat-messages.js --delete --reg DELETE_EXAMPLE --limit 
 ```
 
 Use `--url` to target a specific conversation, `--env PATH` to load rules from another file, and `--regex` only when the env value should be interpreted as a JavaScript regular expression.
+
+## GitHub Profile README
+
+`github_profile_readme.py` fills two Markdown tables in a profile README (the `USERNAME/USERNAME` repository) using only the standard library. Nothing is hardcoded: the login comes from `--user` or `$GITHUB_REPOSITORY_OWNER`.
+
+The README must contain these marker pairs; only the text between them is replaced:
+
+```markdown
+<!-- PROJECTS:START -->
+<!-- PROJECTS:END -->
+<!-- FORKS:START -->
+<!-- FORKS:END -->
+```
+
+- Projects: public, non-fork, non-archived repositories (name, description, last push date).
+- Modified forks: forks that are ahead of their upstream default branch (name, description, upstream). Forks not detected this way can be forced with `forks`.
+
+```bash
+python3 utils/github_profile_readme.py README.md --user LOGIN
+python3 utils/github_profile_readme.py README.md --user LOGIN --config profile.json --run
+```
+
+The default is a dry run; add `--run` to write. Set `GITHUB_TOKEN` to avoid API rate limits. Optional JSON config:
+
+```json
+{"hide": ["experiment"], "forks": ["tweaked-fork"], "descriptions": {"tweaked-fork": "What I changed"}, "sort": "pushed"}
+```
+
+`sort` is `pushed` (default) or `name`. Daily update from GitHub Actions in the profile repository:
+
+```yaml
+on:
+  schedule: [{cron: "15 3 * * *"}]
+  workflow_dispatch:
+permissions: {contents: write}
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 github_profile_readme.py README.md --config profile.json --run
+        env: {GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"}
+      - run: |
+          git diff --quiet || (git config user.name github-actions && git config user.email github-actions@users.noreply.github.com \
+            && git commit -am "Update profile README" && git push)
+```
+
+Copy the script into the profile repository next to `README.md`.
 
 ## Notes
 
