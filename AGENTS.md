@@ -29,7 +29,7 @@ For multi-file operations, use `rich.progress` with the repository's compact, no
 
 ## Testing Guidelines
 
-Tests use the standard-library `unittest` framework. Add focused `TestCase` classes and `test_*` methods under `tests/`. Run the full suite before committing. There is no configured coverage threshold, formatter, or linter; manually exercise changed CLIs with representative inputs and the default dry-run mode of scripts that change files.
+Do not create or add new tests unless the user explicitly asks for them. When tests are requested, use the standard-library `unittest` framework with focused `TestCase` classes and `test_*` methods under `tests/`. There is no configured coverage threshold, formatter, or linter; manually exercise changed CLIs with representative inputs and the default dry-run mode of scripts that change files.
 
 ## Commit & Pull Request Guidelines
 
