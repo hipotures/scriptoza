@@ -42,11 +42,11 @@ export function formatEta(remainingBytes, downRate) {
 }
 
 export function classifyState({isActive, complete, hashing, message}) {
-    const isTrackerNotice = typeof message === 'string' && message.startsWith('Tracker:');
-    if (message && (!isTrackerNotice || isActive === 0))
-        return 'error';
     if (hashing > 0)
         return 'hashing';
+    const isTrackerNotice = typeof message === 'string' && message.startsWith('Tracker:');
+    if (message && !isTrackerNotice)
+        return 'error';
     if (isActive === 1 && complete === 0)
         return 'downloading';
     if (isActive === 1 && complete === 1)
