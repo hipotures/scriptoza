@@ -142,9 +142,15 @@ export default class CodexStatus extends Extension {
             }
         } else if (sorted.length > 0) {
             const dot = new St.Bin({
-                style: 'width: 10px; height: 10px; border: 1.5px solid #b0b0b0; border-radius: 99px;',
+                width: 11,
+                height: 11,
+                style: 'border: 1.5px solid #b0b0b0; border-radius: 99px;',
                 child: new St.Widget({
-                    style: 'width: 5px; height: 5px; background-color: #b0b0b0; border-radius: 99px;',
+                    width: 3,
+                    height: 3,
+                    style: 'background-color: #b0b0b0; border-radius: 99px;',
+                    x_expand: false,
+                    y_expand: false,
                     x_align: Clutter.ActorAlign.CENTER,
                     y_align: Clutter.ActorAlign.CENTER,
                 }),
