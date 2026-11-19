@@ -11,6 +11,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 const WIDGET_VERSION = '0.0.32';
+const PANEL_TOOLTIP_TEXT = 'herdr';
 
 const {Collector} = await import(`./collector.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {Navigator} = await import(`./navigation.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -24,6 +25,9 @@ export default class CodexStatus extends Extension {
         this._collector = new StatusProcess(this.dir.get_child('status-worker.js').get_path());
         this._navigationCollector = new Collector();
         this._blinkSource = 0;
+        this._panelAlignIdle = 0;
+        this._rightBoxSignal = 0;
+        this._destroyed = false;
         this._indicator = new PanelMenu.Button(0.0, 'Herdr agent status', false);
         this._panelBox = new St.BoxLayout({style_class: 'codex-status-panel'});
         this._panelDots = [];
@@ -37,6 +41,7 @@ export default class CodexStatus extends Extension {
         this._icons = Object.fromEntries(['openai.svg', 'openai-light.svg', 'anthropic.svg'].map(name =>
             [name, new Gio.FileIcon({file: this.dir.resolve_relative_path(`assets/icons/${name}`)})]));
         this._indicator.add_child(this._panelBox);
+        this._setupPanelTooltip();
         this._navigator = new Navigator({
             collector: this._navigationCollector,
             getWindowActors: () => global.get_window_actors(),
@@ -45,7 +50,8 @@ export default class CodexStatus extends Extension {
             notifyError: (message, error) => Main.notifyError(message, error?.message ?? String(error)),
         });
         this._indicator.menu.addMenuItem(new PopupMenu.PopupMenuItem('Checking agents…', {reactive: false}));
-        Main.panel.addToStatusArea(this.uuid, this._indicator);
+        Main.panel.addToStatusArea(this.uuid, this._indicator, 0, 'right');
+        this._setupPanelOrder();
         this._indicator.visible = false;
         const collector = this._collector;
         collector.start(result => {
@@ -60,14 +66,24 @@ export default class CodexStatus extends Extension {
     }
 
     disable() {
+        this._destroyed = true;
         if (this._blinkSource)
             GLib.Source.remove(this._blinkSource);
         this._blinkSource = 0;
+        if (this._panelAlignIdle)
+            GLib.Source.remove(this._panelAlignIdle);
+        this._panelAlignIdle = 0;
+        if (this._rightBoxSignal && Main.panel._rightBox)
+            Main.panel._rightBox.disconnect(this._rightBoxSignal);
+        this._rightBoxSignal = 0;
         this._navigator?.close();
         this._navigator = null;
         this._collector?.close();
         this._collector = null;
         this._navigationCollector = null;
+        const panelTooltip = this._panelTooltip;
+        this._panelTooltip = null;
+        panelTooltip?.destroy();
         this._indicator?.destroy();
         this._indicator = null;
         this._panelBox = null;
@@ -133,9 +149,7 @@ export default class CodexStatus extends Extension {
 
         const profile = PROFILES[this._density];
         const usageSection = new PopupMenu.PopupMenuSection();
-        const usageContainer = new PopupMenu.PopupBaseMenuItem({reactive: false});
-        usageContainer.set_style('padding-bottom: 0;');
-        usageContainer.add_child(usageSection.actor);
+        this._indicator.menu.addMenuItem(usageSection);
         for (const agentType of ['claude', 'codex']) {
             const row = new PopupMenu.PopupBaseMenuItem({reactive: false, style_class: 'codex-status-usage-row'});
             row.set_style(`spacing: 8px; padding-top: ${profile.usagePadY}px; padding-bottom: ${profile.usagePadY}px; min-height: 0;`);
@@ -150,7 +164,6 @@ export default class CodexStatus extends Extension {
             usageSection.addMenuItem(row);
             this._usageRows.push({agentType, row, label});
         }
-        this._indicator.menu.addMenuItem(usageContainer);
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         const section = new PopupMenu.PopupMenuSection();
@@ -159,8 +172,8 @@ export default class CodexStatus extends Extension {
         scroll.x_expand = true;
         section.actor.x_expand = true;
         scroll.add_child(section.actor);
-        const container = new PopupMenu.PopupBaseMenuItem({reactive: false});
-        container.add_child(scroll);
+        const container = new PopupMenu.PopupMenuSection();
+        container.actor.add_child(scroll);
         this._indicator.menu.addMenuItem(container);
         for (const agent of sorted) {
             const row = new PopupMenu.PopupBaseMenuItem({
@@ -270,6 +283,72 @@ export default class CodexStatus extends Extension {
             this._setDensity(DENSITIES[(DENSITIES.indexOf(this._density) + 1) % DENSITIES.length]);
         });
         return button;
+    }
+
+    _setupPanelTooltip() {
+        const tooltip = new St.Label({text: PANEL_TOOLTIP_TEXT, style_class: 'dash-label', visible: false});
+        Main.uiGroup.add_child(tooltip);
+        this._panelTooltip = tooltip;
+        const syncTooltip = () => {
+            if (!this._indicator || !this._panelTooltip)
+                return;
+            const show = this._indicator.hover && this._indicator.visible && !this._indicator.menu.isOpen;
+            tooltip.visible = show;
+            if (show) {
+                const [x, y] = this._indicator.get_transformed_position();
+                const monitor = Main.layoutManager.findMonitorForActor(this._indicator);
+                const [, natWidth] = tooltip.get_preferred_width(-1);
+                const width = Math.max(tooltip.width, natWidth);
+                const targetX = Math.round(x + (this._indicator.width - width) / 2);
+                tooltip.set_position(
+                    Math.max(monitor.x, Math.min(targetX, monitor.x + monitor.width - width)),
+                    Math.round(y + this._indicator.height + 4)
+                );
+            }
+        };
+        this._indicator.connect('notify::hover', syncTooltip);
+        this._indicator.connect('notify::mapped', () => tooltip.hide());
+        this._indicator.menu.connect('open-state-changed', (_menu, isOpen) => {
+            if (isOpen)
+                tooltip.hide();
+        });
+        this._indicator.connect('destroy', () => {
+            if (this._panelTooltip === tooltip) {
+                this._panelTooltip = null;
+                tooltip.destroy();
+            }
+        });
+    }
+
+    _setupPanelOrder() {
+        this._alignPanelOrder();
+        if (Main.panel._rightBox) {
+            this._rightBoxSignal = Main.panel._rightBox.connect('child-added', () => {
+                if (this._panelAlignIdle || this._destroyed)
+                    return;
+                this._panelAlignIdle = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                    this._panelAlignIdle = 0;
+                    if (!this._destroyed)
+                        this._alignPanelOrder();
+                    return GLib.SOURCE_REMOVE;
+                });
+            });
+        }
+    }
+
+    _alignPanelOrder() {
+        const box = Main.panel._rightBox;
+        if (!box)
+            return;
+        let index = 0;
+        for (const role of ['rtorrent-status@scriptoza', 'codex-status@scriptoza']) {
+            const container = Main.panel.statusArea[role]?.container;
+            if (!container || container.get_parent() !== box)
+                continue;
+            if (box.get_child_at_index(index) !== container)
+                box.set_child_at_index(container, index);
+            index++;
+        }
     }
 
     _setDensity(density) {
