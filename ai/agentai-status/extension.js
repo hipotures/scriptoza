@@ -38,7 +38,7 @@ export default class CodexStatus extends Extension {
         this._usage = null;
         this._density = loadDensity();
         this._lastData = null;
-        this._icons = Object.fromEntries(['openai.svg', 'openai-light.svg', 'anthropic.svg'].map(name =>
+        this._icons = Object.fromEntries(['openai.svg', 'openai-light.svg', 'anthropic.svg', 'antigravity.svg'].map(name =>
             [name, new Gio.FileIcon({file: this.dir.resolve_relative_path(`assets/icons/${name}`)})]));
         this._indicator.add_child(this._panelBox);
         this._setupPanelTooltip();
@@ -132,14 +132,38 @@ export default class CodexStatus extends Extension {
             return;
         }
         const active = sorted.filter(agent => agent.state !== 'idle');
-        for (const agent of active.length ? active : sorted) {
-            const dot = new St.Label({text: '●', style: `color: ${STATES[agent.state].color};`,
-                accessible_name: `${AGENT_TYPES[agent.agentType].label}: ${agent.location}: ${STATES[agent.state].label}`,
-                y_align: Clutter.ActorAlign.CENTER});
+        if (active.length > 0) {
+            for (const agent of active) {
+                const dot = new St.Label({text: '●', style: `color: ${STATES[agent.state].color};`,
+                    accessible_name: `${AGENT_TYPES[agent.agentType].label}: ${agent.location}: ${STATES[agent.state].label}`,
+                    y_align: Clutter.ActorAlign.CENTER});
+                this._panelBox.add_child(dot);
+                this._panelDots.push({state: agent.state, dot});
+            }
+        } else if (sorted.length > 0) {
+            const dot = new St.Bin({
+                style: 'width: 10px; height: 10px; border: 1.5px solid #b0b0b0; border-radius: 99px;',
+                child: new St.Widget({
+                    style: 'width: 5px; height: 5px; background-color: #b0b0b0; border-radius: 99px;',
+                    x_align: Clutter.ActorAlign.CENTER,
+                    y_align: Clutter.ActorAlign.CENTER,
+                }),
+                accessible_name: `${sorted.length} ${STATES.idle.label}`,
+                y_align: Clutter.ActorAlign.CENTER,
+            });
             this._panelBox.add_child(dot);
-            this._panelDots.push({state: agent.state, dot});
+            this._panelDots.push({state: 'idle', dot});
+        } else {
+            const dot = new St.Label({
+                text: '○',
+                style: 'color: #b0b0b0;',
+                accessible_name: 'No agents',
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            this._panelBox.add_child(dot);
+            this._panelDots.push({state: 'idle', dot});
         }
-        this._indicator.visible = this._panelDots.length > 0;
+        this._indicator.visible = true;
         this._indicator.accessible_name = `Agents: ${Object.entries(summary.counts)
             .filter(([, count]) => count > 0).map(([state, count]) => `${count} ${STATES[state].label}`).join(', ') || 'No agents'}`;
         this._indicator.menu.removeAll();
@@ -215,17 +239,38 @@ export default class CodexStatus extends Extension {
             row.add_child(textBox);
             const tooltip = new St.Label({text: agent.location, style_class: 'dash-label', visible: false});
             Main.uiGroup.add_child(tooltip);
+            let tooltipTimeout = 0;
+            const cancelTooltip = () => {
+                if (tooltipTimeout) {
+                    GLib.Source.remove(tooltipTimeout);
+                    tooltipTimeout = 0;
+                }
+                tooltip.hide();
+            };
             row.connect('notify::hover', () => {
-                tooltip.visible = row.hover && this._indicator.menu.isOpen;
-                if (tooltip.visible) {
+                cancelTooltip();
+                if (!row.hover || !this._indicator?.menu.isOpen)
+                    return;
+                tooltipTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 600, () => {
+                    tooltipTimeout = 0;
+                    if (!row.hover || !this._indicator?.menu.isOpen)
+                        return GLib.SOURCE_REMOVE;
+                    tooltip.visible = true;
+                    Main.uiGroup.set_child_above_sibling(tooltip, null);
                     const [x, y] = row.get_transformed_position();
                     const monitor = Main.layoutManager.findMonitorForActor(row);
+                    const [, natWidth] = tooltip.get_preferred_width(-1);
+                    const width = Math.max(tooltip.width, natWidth);
                     tooltip.set_position(Math.max(monitor.x, Math.min(x,
-                        monitor.x + monitor.width - tooltip.width)), y + row.height);
-                }
+                        monitor.x + monitor.width - width)), y + row.height);
+                    return GLib.SOURCE_REMOVE;
+                });
             });
-            row.connect('notify::mapped', () => { tooltip.hide(); });
-            row.connect('destroy', () => tooltip.destroy());
+            row.connect('notify::mapped', cancelTooltip);
+            row.connect('destroy', () => {
+                cancelTooltip();
+                tooltip.destroy();
+            });
             const statusLabel = new St.Icon({
                 icon_name: STATES[agent.state].icon,
                 icon_size: 16,
@@ -266,6 +311,8 @@ export default class CodexStatus extends Extension {
                 const color = row.get_theme_node().get_foreground_color();
                 const brightness = 0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue;
                 name = brightness > 128 ? 'openai-light.svg' : 'openai.svg';
+            } else if (agentType === 'agy') {
+                name = 'antigravity.svg';
             }
             icon.gicon = this._icons[name];
         };
@@ -295,6 +342,7 @@ export default class CodexStatus extends Extension {
             const show = this._indicator.hover && this._indicator.visible && !this._indicator.menu.isOpen;
             tooltip.visible = show;
             if (show) {
+                Main.uiGroup.set_child_above_sibling(tooltip, null);
                 const [x, y] = this._indicator.get_transformed_position();
                 const monitor = Main.layoutManager.findMonitorForActor(this._indicator);
                 const [, natWidth] = tooltip.get_preferred_width(-1);

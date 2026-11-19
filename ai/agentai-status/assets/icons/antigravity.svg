@@ -1,0 +1,10 @@
+<svg width="248" height="248" viewBox="0 0 248 248" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="agy-grad" x1="24" y1="24" x2="224" y2="224" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4285F4"/>
+      <stop offset="55%" stop-color="#8AB4F8"/>
+      <stop offset="100%" stop-color="#C58AF9"/>
+    </linearGradient>
+  </defs>
+  <path d="M124 16C128.5 76 172 119.5 232 124C172 128.5 128.5 172 124 232C119.5 172 76 128.5 16 124C76 119.5 119.5 76 124 16Z" fill="url(#agy-grad)"/>
+</svg>

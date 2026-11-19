@@ -12,6 +12,7 @@ export const STATES = {
 export const AGENT_TYPES = {
     codex: {label: 'Codex'},
     claude: {label: 'Claude Code'},
+    agy: {label: 'Antigravity'},
 };
 
 export function cleanText(value) {
