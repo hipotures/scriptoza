@@ -127,3 +127,12 @@ universfield-new-notification-066-494545.mp3
 !zabbix/README.md
 !zabbix/*.py
 !zabbix/*.json
+
+# Allow GNOME extensions
+!gnome/
+!gnome/README.md
+!gnome/*.sh
+!gnome/rtorrent-status/
+!gnome/rtorrent-status/*.js
+!gnome/rtorrent-status/*.json
+!gnome/rtorrent-status/*.css

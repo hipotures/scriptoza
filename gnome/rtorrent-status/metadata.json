@@ -1,0 +1,8 @@
+{
+    "uuid": "rtorrent-status@scriptoza",
+    "name": "rTorrent Status",
+    "description": "Show local or remote rTorrent states and transfer rates in the top panel.",
+    "shell-version": ["50", "51"],
+    "version": 1,
+    "url": "https://github.com/hipotures/scriptoza"
+}

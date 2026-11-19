@@ -1,0 +1,29 @@
+.rtorrent-status-panel {
+    spacing: 5px;
+}
+
+.rtorrent-status-scroll {
+    max-height: 420px;
+    min-width: 400px;
+}
+
+.rtorrent-status-row {
+    spacing: 12px;
+}
+
+.rtorrent-status-row:hover,
+.rtorrent-status-row:focus,
+.rtorrent-status-row:selected,
+.rtorrent-status-row:active {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+}
+
+.rtorrent-status-footer {
+    font-size: 0.85em;
+    color: #b0b0b0;
+}
+
+.rtorrent-status-error {
+    color: #f8e45c;
+}
