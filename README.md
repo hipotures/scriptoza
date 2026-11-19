@@ -44,7 +44,11 @@ Collection of small utility scripts organized by category. Each category has its
 ### AI (ai/)
 
 - `codex_resume.py` - Monitors visible Codex panes through Herdr, resumes capacity errors, and dismisses the extra-thought wait menu
-- `codex-status/` - GNOME top panel indicator for local and remote Herdr Codex agent states
+- `agentai-status/` - GNOME top panel indicator for local and remote Herdr Codex, Claude Code, and Antigravity agent states
+
+### GNOME (gnome/)
+
+- `rtorrent-status/` - GNOME top panel indicator for local and remote `rtorrent` states, transfer rates, sorting, anonymization, and multi-server switching
 
 ### Firefox (firefox-yt/)
 

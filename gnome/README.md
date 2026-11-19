@@ -55,14 +55,22 @@ Log out and log back in after installing for the first time. For an already load
 await (await import('file:///home/user/.local/share/gnome-shell/extensions/rtorrent-status@scriptoza/reload.js')).reload()
 ```
 
-### States
+### Panel & Menu
+
+The panel indicator is pinned on the far left of the right panel box (before `codex-status` and other tray icons) using uniform Cairo-drawn circles:
+
+- One solid colored dot per active (non-paused) torrent.
+- When all torrents are paused, a single gray ring with a center dot.
+- When the queue is empty, an empty gray ring; when the server is unreachable, a blinking yellow ring.
+
+Hovering over the panel indicator shows a tooltip with the configured `name`. Clicking opens the torrent list; hovering over a row for 600 ms displays peers (seeders/leechers), current transfer rates, total uploaded bytes, and ratio.
 
 | State | Color | Meaning |
 | --- | --- | --- |
-| `error` | Blinking red | Non-empty `d.message` (tracker or disk error) |
+| `error` | Blinking red | Non-tracker `d.message` (storage or hash error) |
 | `hashing` | Yellow | Checking file hashes (`d.hashing > 0`) |
 | `downloading` | Blue | Active incomplete torrent |
 | `seeding` | Green | Active completed torrent |
 | `paused` | Gray | Inactive / paused torrent |
 
-The footer displays total download and upload rates, the last update timestamp, the widget version, and a density toggle (`large`, `medium`, `compact`).
+The footer displays total download and upload rates, the last update timestamp, the widget version, and a gear icon (`⚙`) that toggles the inline settings panel (Server, Size, Sort, and Anonymize).

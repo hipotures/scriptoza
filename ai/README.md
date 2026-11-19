@@ -7,7 +7,7 @@ inside a new Herdr pane, see the
 [incident record](../docs/HERDR_GPU_HANDOFF_INCIDENT.md).
 
 `agentai-status/` is a GNOME Shell 50/51 extension written in JavaScript/GJS. It
-shows Codex and Claude Code agents locally and on every enabled saved Herdr machine.
+shows Codex, Claude Code, and Antigravity (`agy`) agents locally and on every enabled saved Herdr machine.
 It subscribes to agent changes directly from Herdr and runs independently of
 `codex-resume`; status monitoring never sends input, marks completions as seen, or
 controls services.
@@ -42,23 +42,26 @@ The source directory is `agentai-status`; the installed extension ID remains
 `codex-status@scriptoza`, so the existing registration and enable/disable commands
 continue to identify this widget.
 
-The panel shows one colored dot per non-idle agent, with no icon or counters.
+The panel shows one colored Cairo-drawn dot per non-idle agent, with no icon or counters,
+pinned directly after `rtorrent-status` on the left side of the right panel box.
 Agents sharing a state have separate dots. Idle agents are hidden from the panel
-while any other state is present. If all agents are idle, every idle agent has
-its own gray dot so the full list remains accessible.
+while any other state is present. If all agents are idle, the panel shows a single
+gray ring with a center dot so the full list remains accessible without taking extra space;
+when no agents are connected, it shows an empty gray ring.
+Hovering over the panel indicator shows a `"herdr"` tooltip.
 Click it to see the complete list, including idle agents, with each agent's
 workspace and agent type, such as **homestack · Codex**. Remote workspaces
 include the machine name, such as **gpu/research · Claude Code**. A smaller
 second line shows the automatic terminal session title when available; a title
 that only repeats the workspace is hidden. A trailing ` | workspace` is removed
-from session titles. Hover over a row to see its full machine/workspace/tab/pane
+from session titles. Hover over a row (for 600 ms) to see its full machine/workspace/tab/pane
 location. Names are automatic and require no manual pane renaming. The top of the menu shows one
 line per agent type that has usage data: its icon, then the remaining percentage and time
 to reset of the 5-hour and weekly windows, such as `5h 99% · 3h12m  wk 36% · 2d`. A
 separator sits above the rows as well as above the footer.
 Each row contains a type icon, a workspace name colored by its status, and a matching
 status icon on the right (its label is the accessible name), without a duplicate dot.
-SVG files in `agentai-status/assets/icons/` identify Codex and Claude Code.
+SVG files in `agentai-status/assets/icons/` identify Codex, Claude Code, and Antigravity.
 Screen readers announce the agent type, name, and status.
 The OpenAI icon switches between the supplied light and dark variants when the
 GNOME menu's text color changes, including live theme changes. Herdr's theme
