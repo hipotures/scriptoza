@@ -11,6 +11,42 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 const WIDGET_VERSION = '0.0.1';
 
+function createStatusDot({color, kind, accessibleName}) {
+    const r = parseInt(color.slice(1, 3), 16) / 255;
+    const g = parseInt(color.slice(3, 5), 16) / 255;
+    const b = parseInt(color.slice(5, 7), 16) / 255;
+    const area = new St.DrawingArea({
+        width: 12,
+        height: 12,
+        accessible_name: accessibleName,
+        y_align: Clutter.ActorAlign.CENTER,
+    });
+    area.connect('repaint', () => {
+        const cr = area.get_context();
+        const [w, h] = area.get_surface_size();
+        const unit = Math.min(w, h);
+        const cx = w / 2;
+        const cy = h / 2;
+        const stroke = unit * 0.11;
+        const ringRadius = unit * 0.40;
+        cr.setSourceRGBA(r, g, b, 1);
+        if (kind === 'solid') {
+            cr.arc(cx, cy, ringRadius + stroke / 2, 0, 2 * Math.PI);
+            cr.fill();
+        } else {
+            cr.setLineWidth(stroke);
+            cr.arc(cx, cy, ringRadius, 0, 2 * Math.PI);
+            cr.stroke();
+            if (kind === 'ring-dot') {
+                cr.arc(cx, cy, unit * 0.16, 0, 2 * Math.PI);
+                cr.fill();
+            }
+        }
+        cr.$dispose();
+    });
+    return area;
+}
+
 const {DENSITIES, PROFILES, SORT_DIRS, SORT_FIELDS, SORT_LABELS, loadConfig, parseServerSpec, saveAnonymize, saveDensity, saveServers, saveSort} = await import(`./config.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {STATES, anonymizeTorrent, formatRate, formatTorrentSubtitle, formatTorrentTooltip, normalizeTorrent, sortTorrents, summarizeTorrents} = await import(`./model.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {fetchTorrents} = await import(`./scgi.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
@@ -162,12 +198,7 @@ export default class RTorrentStatus extends Extension {
 
         if (error) {
             const message = `${host}:${port} unavailable`;
-            const dot = new St.Label({
-                text: '○',
-                style: 'color: #f8e45c;',
-                accessible_name: message,
-                y_align: Clutter.ActorAlign.CENTER,
-            });
+            const dot = createStatusDot({color: '#f8e45c', kind: 'ring', accessibleName: message});
             this._panelBox.add_child(dot);
             this._panelDots.push({state: 'waiting', dot});
             this._indicator.visible = true;
@@ -189,40 +220,27 @@ export default class RTorrentStatus extends Extension {
         if (active.length > 0) {
             for (const torrent of active) {
                 const displayName = this._anonymize ? anonymizeTorrent(torrent, this._anonSalt).name : torrent.name;
-                const dot = new St.Label({
-                    text: '●',
-                    style: `color: ${STATES[torrent.state].color};`,
-                    accessible_name: `${displayName}: ${STATES[torrent.state].label}`,
-                    y_align: Clutter.ActorAlign.CENTER,
+                const dot = createStatusDot({
+                    color: STATES[torrent.state].color,
+                    kind: 'solid',
+                    accessibleName: `${displayName}: ${STATES[torrent.state].label}`,
                 });
                 this._panelBox.add_child(dot);
                 this._panelDots.push({state: torrent.state, dot});
             }
         } else if (sorted.length > 0) {
-            const dot = new St.Bin({
-                width: 11,
-                height: 11,
-                style: 'border: 1.5px solid #9a9996; border-radius: 99px;',
-                child: new St.Widget({
-                    width: 3,
-                    height: 3,
-                    style: 'background-color: #9a9996; border-radius: 99px;',
-                    x_expand: false,
-                    y_expand: false,
-                    x_align: Clutter.ActorAlign.CENTER,
-                    y_align: Clutter.ActorAlign.CENTER,
-                }),
-                accessible_name: `${sorted.length} ${STATES.paused.label}`,
-                y_align: Clutter.ActorAlign.CENTER,
+            const dot = createStatusDot({
+                color: '#9a9996',
+                kind: 'ring-dot',
+                accessibleName: `${sorted.length} ${STATES.paused.label}`,
             });
             this._panelBox.add_child(dot);
             this._panelDots.push({state: 'paused', dot});
         } else {
-            const dot = new St.Label({
-                text: '○',
-                style: 'color: #9a9996;',
-                accessible_name: 'No torrents',
-                y_align: Clutter.ActorAlign.CENTER,
+            const dot = createStatusDot({
+                color: '#9a9996',
+                kind: 'ring',
+                accessibleName: 'No torrents',
             });
             this._panelBox.add_child(dot);
             this._panelDots.push({state: 'paused', dot});
