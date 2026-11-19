@@ -11,8 +11,8 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 const WIDGET_VERSION = '0.0.1';
 
-const {DENSITIES, PROFILES, loadConfig, saveDensity} = await import(`./config.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
-const {STATES, formatRate, formatTorrentSubtitle, normalizeTorrent, sortTorrents, summarizeTorrents} = await import(`./model.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
+const {DENSITIES, PROFILES, SORT_DIRS, SORT_FIELDS, SORT_LABELS, loadConfig, parseServerSpec, saveAnonymize, saveDensity, saveServers, saveSort} = await import(`./config.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
+const {STATES, anonymizeTorrent, formatRate, formatTorrentSubtitle, formatTorrentTooltip, normalizeTorrent, sortTorrents, summarizeTorrents} = await import(`./model.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 const {fetchTorrents} = await import(`./scgi.js${import.meta.url.match(/\?.*$/)?.[0] ?? ''}`);
 
 export default class RTorrentStatus extends Extension {
@@ -25,6 +25,14 @@ export default class RTorrentStatus extends Extension {
         this._polling = false;
         this._config = loadConfig();
         this._density = this._config.density;
+        this._sortBy = this._config.sortBy;
+        this._sortDir = this._config.sortDir;
+        this._anonymize = this._config.anonymize;
+        this._servers = this._config.servers;
+        this._activeServer = this._config.activeServer;
+        this._settingsOpen = false;
+        this._serverEditor = null;
+        this._anonSalt = Math.floor(Math.random() * 0x7fffffff);
         this._lastData = null;
         this._renderKey = null;
         this._panelDots = [];
@@ -89,6 +97,11 @@ export default class RTorrentStatus extends Extension {
             const intervalChanged = latestConfig.pollSeconds !== this._config.pollSeconds;
             this._config = latestConfig;
             this._density = latestConfig.density;
+            this._sortBy = latestConfig.sortBy;
+            this._sortDir = latestConfig.sortDir;
+            this._anonymize = latestConfig.anonymize;
+            this._servers = latestConfig.servers;
+            this._activeServer = latestConfig.activeServer;
             if (this._panelTooltip)
                 this._panelTooltip.text = latestConfig.name;
             if (intervalChanged && !this._destroyed)
@@ -101,7 +114,7 @@ export default class RTorrentStatus extends Extension {
             });
             if (this._destroyed)
                 return;
-            const torrents = rawRows.map(normalizeTorrent);
+            const torrents = rawRows.map((row, index) => normalizeTorrent(row, index));
             this._render({
                 torrents,
                 error: null,
@@ -124,11 +137,19 @@ export default class RTorrentStatus extends Extension {
         }
     }
 
-    _render({torrents, error, host, port, updatedAt}) {
+    _render({torrents, error, host, port, updatedAt}, force = false) {
         this._lastData = {torrents, error, host, port, updatedAt};
-        const sorted = sortTorrents(torrents);
+        const sorted = sortTorrents(torrents, this._sortBy, this._sortDir);
         const summary = summarizeTorrents(sorted);
-        const renderKey = JSON.stringify([sorted, error, host, port, this._density]);
+        if (this._serverEditor && !force) {
+            this._updateFooter(summary, updatedAt);
+            return;
+        }
+        const renderKey = JSON.stringify([
+            sorted, error, host, port,
+            this._density, this._sortBy, this._sortDir, this._anonymize,
+            this._settingsOpen, this._serverEditor, this._servers, this._activeServer,
+        ]);
         if (renderKey === this._renderKey) {
             this._updateFooter(summary, updatedAt);
             return;
@@ -155,6 +176,8 @@ export default class RTorrentStatus extends Extension {
             const errorItem = new PopupMenu.PopupMenuItem(`${host}:${port}: ${error}`, {reactive: false});
             errorItem.label.add_style_class_name('rtorrent-status-error');
             this._indicator.menu.addMenuItem(errorItem);
+            if (this._settingsOpen)
+                this._addSettingsSection();
             this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             this._addFooter(summary, updatedAt);
             this._updateAnimation();
@@ -163,8 +186,32 @@ export default class RTorrentStatus extends Extension {
         }
 
         const active = sorted.filter(torrent => torrent.state !== 'paused');
-        const panelTorrents = active.length ? active : sorted;
-        if (panelTorrents.length === 0) {
+        if (active.length > 0) {
+            for (const torrent of active) {
+                const displayName = this._anonymize ? anonymizeTorrent(torrent, this._anonSalt).name : torrent.name;
+                const dot = new St.Label({
+                    text: '●',
+                    style: `color: ${STATES[torrent.state].color};`,
+                    accessible_name: `${displayName}: ${STATES[torrent.state].label}`,
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+                this._panelBox.add_child(dot);
+                this._panelDots.push({state: torrent.state, dot});
+            }
+        } else if (sorted.length > 0) {
+            const dot = new St.Bin({
+                style: 'width: 10px; height: 10px; border: 1.5px solid #9a9996; border-radius: 99px;',
+                child: new St.Widget({
+                    style: 'width: 5px; height: 5px; background-color: #9a9996; border-radius: 99px;',
+                    x_align: Clutter.ActorAlign.CENTER,
+                    y_align: Clutter.ActorAlign.CENTER,
+                }),
+                accessible_name: `${sorted.length} ${STATES.paused.label}`,
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            this._panelBox.add_child(dot);
+            this._panelDots.push({state: 'paused', dot});
+        } else {
             const dot = new St.Label({
                 text: '○',
                 style: 'color: #9a9996;',
@@ -173,17 +220,6 @@ export default class RTorrentStatus extends Extension {
             });
             this._panelBox.add_child(dot);
             this._panelDots.push({state: 'paused', dot});
-        } else {
-            for (const torrent of panelTorrents) {
-                const dot = new St.Label({
-                    text: '●',
-                    style: `color: ${STATES[torrent.state].color};`,
-                    accessible_name: `${torrent.name}: ${STATES[torrent.state].label}`,
-                    y_align: Clutter.ActorAlign.CENTER,
-                });
-                this._panelBox.add_child(dot);
-                this._panelDots.push({state: torrent.state, dot});
-            }
         }
         this._indicator.visible = true;
         this._indicator.accessible_name = `rTorrent (${host}:${port}): ${Object.entries(summary.counts)
@@ -204,6 +240,8 @@ export default class RTorrentStatus extends Extension {
         this._indicator.menu.addMenuItem(container);
 
         for (const torrent of sorted) {
+            const anon = this._anonymize ? anonymizeTorrent(torrent, this._anonSalt) : null;
+            const displayName = anon ? anon.name : torrent.name;
             const row = new PopupMenu.PopupBaseMenuItem({
                 reactive: true,
                 activate: false,
@@ -218,15 +256,7 @@ export default class RTorrentStatus extends Extension {
             ].join(' ').trim();
             if (rowStyle)
                 row.set_style(rowStyle);
-            row.accessible_name = `${torrent.name}: ${STATES[torrent.state].label}`;
-
-            const leftIcon = new St.Icon({
-                icon_name: 'folder-download-symbolic',
-                icon_size: 16,
-                y_align: Clutter.ActorAlign.CENTER,
-                style: 'opacity: 0.75;',
-            });
-            row.add_child(leftIcon);
+            row.accessible_name = `${displayName}: ${STATES[torrent.state].label}`;
 
             const textBox = new St.BoxLayout({
                 orientation: Clutter.Orientation.VERTICAL,
@@ -234,7 +264,7 @@ export default class RTorrentStatus extends Extension {
                 y_align: Clutter.ActorAlign.CENTER,
             });
             const nameLabel = new St.Label({
-                text: torrent.name,
+                text: displayName,
                 style: `color: ${STATES[torrent.state].color}; font-weight: bold; max-width: ${profile.titleMax}px;${profile.font ? ` font-size: ${profile.font};` : ''}`,
                 x_expand: true,
                 y_align: Clutter.ActorAlign.CENTER,
@@ -257,24 +287,42 @@ export default class RTorrentStatus extends Extension {
             });
             row.add_child(statusIcon);
 
-            const tooltipText = torrent.message
-                ? `${host}:${port} · ${torrent.hash}\n${torrent.message}`
-                : `${host}:${port} · ${torrent.hash}`;
-            const tooltip = new St.Label({text: tooltipText, style_class: 'dash-label', visible: false});
+            const tooltip = new St.Label({text: formatTorrentTooltip(torrent), style_class: 'dash-label', visible: false});
             Main.uiGroup.add_child(tooltip);
+            let tooltipTimeout = 0;
+            const cancelTooltip = () => {
+                if (tooltipTimeout) {
+                    GLib.Source.remove(tooltipTimeout);
+                    tooltipTimeout = 0;
+                }
+                tooltip.hide();
+            };
             row.connect('notify::hover', () => {
-                tooltip.visible = row.hover && this._indicator.menu.isOpen;
-                if (tooltip.visible) {
+                cancelTooltip();
+                if (!row.hover || !this._indicator?.menu.isOpen)
+                    return;
+                tooltipTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 600, () => {
+                    tooltipTimeout = 0;
+                    if (!row.hover || !this._indicator?.menu.isOpen)
+                        return GLib.SOURCE_REMOVE;
+                    tooltip.visible = true;
+                    Main.uiGroup.set_child_above_sibling(tooltip, null);
                     const [x, y] = row.get_transformed_position();
                     const monitor = Main.layoutManager.findMonitorForActor(row);
+                    const [, natWidth] = tooltip.get_preferred_width(-1);
+                    const width = Math.max(tooltip.width, natWidth);
                     tooltip.set_position(
-                        Math.max(monitor.x, Math.min(x, monitor.x + monitor.width - tooltip.width)),
-                        y + row.height
+                        Math.max(monitor.x, Math.min(x, monitor.x + monitor.width - width)),
+                        Math.round(y + row.height + 2)
                     );
-                }
+                    return GLib.SOURCE_REMOVE;
+                });
             });
-            row.connect('notify::mapped', () => { tooltip.hide(); });
-            row.connect('destroy', () => tooltip.destroy());
+            row.connect('notify::mapped', cancelTooltip);
+            row.connect('destroy', () => {
+                cancelTooltip();
+                tooltip.destroy();
+            });
 
             section.addMenuItem(row);
             if (torrent.state === 'error')
@@ -284,22 +332,239 @@ export default class RTorrentStatus extends Extension {
         if (!sorted.length)
             section.addMenuItem(new PopupMenu.PopupMenuItem('No torrents', {reactive: false}));
 
+        if (this._settingsOpen)
+            this._addSettingsSection();
+
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._addFooter(summary, updatedAt);
         this._updateAnimation();
         this._renderKey = renderKey;
     }
 
+    _addSettingsSection() {
+        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const settingsSection = new PopupMenu.PopupMenuSection();
+        this._indicator.menu.addMenuItem(settingsSection);
+
+        const pillBase = 'padding: 2px 8px; margin-left: 4px; font-size: 0.85em; border-radius: 4px;';
+        const pillInactive = `${pillBase} background-color: rgba(255, 255, 255, 0.08);`;
+        const pillActive = `${pillBase} background-color: rgba(53, 132, 228, 0.4); color: #ffffff; font-weight: bold;`;
+
+        const currentServer = this._servers[this._activeServer] ?? {host: this._config.host, port: this._config.port};
+        const serverRow = new PopupMenu.PopupBaseMenuItem({reactive: false});
+        serverRow.add_child(new St.Label({text: 'Server', x_expand: true, y_align: Clutter.ActorAlign.CENTER}));
+        if (this._servers.length > 1) {
+            const prevServerBtn = new St.Button({
+                child: new St.Label({text: '‹', y_align: Clutter.ActorAlign.CENTER}),
+                can_focus: true,
+                reactive: true,
+                style: pillInactive,
+                accessible_name: 'Previous server',
+            });
+            prevServerBtn.connect('clicked', () => {
+                const idx = (this._activeServer - 1 + this._servers.length) % this._servers.length;
+                this._setServers(this._servers, idx);
+            });
+            serverRow.add_child(prevServerBtn);
+        }
+        const serverBtn = new St.Button({
+            child: new St.Label({
+                text: `${currentServer.host}:${currentServer.port}`,
+                y_align: Clutter.ActorAlign.CENTER,
+                style: 'max-width: 190px;',
+            }),
+            can_focus: true,
+            reactive: true,
+            style: this._serverEditor === 'edit' ? pillActive : pillInactive,
+            accessible_name: `Edit server ${currentServer.host}:${currentServer.port}`,
+        });
+        serverBtn.connect('clicked', () => {
+            this._serverEditor = this._serverEditor === 'edit' ? null : 'edit';
+            this._scheduleRender(true);
+        });
+        serverRow.add_child(serverBtn);
+        if (this._servers.length > 1) {
+            const nextServerBtn = new St.Button({
+                child: new St.Label({text: '›', y_align: Clutter.ActorAlign.CENTER}),
+                can_focus: true,
+                reactive: true,
+                style: pillInactive,
+                accessible_name: 'Next server',
+            });
+            nextServerBtn.connect('clicked', () => {
+                const idx = (this._activeServer + 1) % this._servers.length;
+                this._setServers(this._servers, idx);
+            });
+            serverRow.add_child(nextServerBtn);
+        }
+        const addServerBtn = new St.Button({
+            child: new St.Label({text: '+', y_align: Clutter.ActorAlign.CENTER}),
+            can_focus: true,
+            reactive: true,
+            style: this._serverEditor === 'add' ? pillActive : pillInactive,
+            accessible_name: 'Add server',
+        });
+        addServerBtn.connect('clicked', () => {
+            this._serverEditor = this._serverEditor === 'add' ? null : 'add';
+            this._scheduleRender(true);
+        });
+        serverRow.add_child(addServerBtn);
+        if (this._servers.length > 1) {
+            const removeServerBtn = new St.Button({
+                child: new St.Label({text: '✕', y_align: Clutter.ActorAlign.CENTER}),
+                can_focus: true,
+                reactive: true,
+                style: pillInactive,
+                accessible_name: 'Remove server',
+            });
+            removeServerBtn.connect('clicked', () => {
+                const nextServers = this._servers.filter((_s, i) => i !== this._activeServer);
+                const nextIdx = Math.min(this._activeServer, nextServers.length - 1);
+                this._serverEditor = null;
+                this._setServers(nextServers, nextIdx);
+            });
+            serverRow.add_child(removeServerBtn);
+        }
+        settingsSection.addMenuItem(serverRow);
+
+        if (this._serverEditor) {
+            const editorRow = new PopupMenu.PopupBaseMenuItem({reactive: false});
+            const entry = new St.Entry({
+                text: this._serverEditor === 'edit' ? `${currentServer.host}:${currentServer.port}` : '',
+                hint_text: 'host:port',
+                can_focus: true,
+                x_expand: true,
+                style: 'min-width: 180px; font-size: 0.9em;',
+            });
+            const submit = () => {
+                const parsed = parseServerSpec(entry.text);
+                if (!parsed)
+                    return;
+                const nextServers = [...this._servers];
+                let nextIdx = this._activeServer;
+                if (this._serverEditor === 'add') {
+                    nextServers.push(parsed);
+                    nextIdx = nextServers.length - 1;
+                } else {
+                    nextServers[this._activeServer] = parsed;
+                }
+                this._serverEditor = null;
+                this._setServers(nextServers, nextIdx);
+            };
+            entry.clutter_text.connect('activate', submit);
+            const saveBtn = new St.Button({
+                child: new St.Label({text: 'Save', y_align: Clutter.ActorAlign.CENTER}),
+                can_focus: true,
+                reactive: true,
+                style: pillActive,
+                accessible_name: 'Save server',
+            });
+            saveBtn.connect('clicked', submit);
+            const cancelBtn = new St.Button({
+                child: new St.Label({text: '✕', y_align: Clutter.ActorAlign.CENTER}),
+                can_focus: true,
+                reactive: true,
+                style: pillInactive,
+                accessible_name: 'Cancel',
+            });
+            cancelBtn.connect('clicked', () => {
+                this._serverEditor = null;
+                this._scheduleRender(true);
+            });
+            editorRow.add_child(entry);
+            editorRow.add_child(saveBtn);
+            editorRow.add_child(cancelBtn);
+            settingsSection.addMenuItem(editorRow);
+            GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                if (entry.mapped)
+                    entry.grab_key_focus();
+                return GLib.SOURCE_REMOVE;
+            });
+        }
+
+        const sizeRow = new PopupMenu.PopupBaseMenuItem({reactive: false});
+        sizeRow.add_child(new St.Label({text: 'Size', x_expand: true, y_align: Clutter.ActorAlign.CENTER}));
+        const densityLabels = {large: 'Large', medium: 'Medium', compact: 'Compact'};
+        for (const density of DENSITIES) {
+            const btn = new St.Button({
+                child: new St.Label({text: densityLabels[density], y_align: Clutter.ActorAlign.CENTER}),
+                can_focus: true,
+                reactive: true,
+                style: density === this._density ? pillActive : pillInactive,
+                accessible_name: `Size: ${densityLabels[density]}`,
+            });
+            btn.connect('clicked', () => this._setDensity(density));
+            sizeRow.add_child(btn);
+        }
+        settingsSection.addMenuItem(sizeRow);
+
+        const sortRow = new PopupMenu.PopupBaseMenuItem({reactive: false});
+        sortRow.add_child(new St.Label({text: 'Sort', x_expand: true, y_align: Clutter.ActorAlign.CENTER}));
+        const prevBtn = new St.Button({
+            child: new St.Label({text: '‹', y_align: Clutter.ActorAlign.CENTER}),
+            can_focus: true,
+            reactive: true,
+            style: pillInactive,
+            accessible_name: 'Previous sort field',
+        });
+        prevBtn.connect('clicked', () => {
+            const idx = SORT_FIELDS.indexOf(this._sortBy);
+            const prev = SORT_FIELDS[(idx - 1 + SORT_FIELDS.length) % SORT_FIELDS.length];
+            this._setSort(prev, this._sortDir);
+        });
+        const fieldBtn = new St.Button({
+            child: new St.Label({text: SORT_LABELS[this._sortBy] ?? this._sortBy, y_align: Clutter.ActorAlign.CENTER}),
+            can_focus: true,
+            reactive: true,
+            style: pillActive,
+            accessible_name: `Sort by: ${SORT_LABELS[this._sortBy] ?? this._sortBy}`,
+        });
+        fieldBtn.connect('clicked', () => {
+            const next = SORT_FIELDS[(SORT_FIELDS.indexOf(this._sortBy) + 1) % SORT_FIELDS.length];
+            this._setSort(next, this._sortDir);
+        });
+        const nextBtn = new St.Button({
+            child: new St.Label({text: '›', y_align: Clutter.ActorAlign.CENTER}),
+            can_focus: true,
+            reactive: true,
+            style: pillInactive,
+            accessible_name: 'Next sort field',
+        });
+        nextBtn.connect('clicked', () => {
+            const next = SORT_FIELDS[(SORT_FIELDS.indexOf(this._sortBy) + 1) % SORT_FIELDS.length];
+            this._setSort(next, this._sortDir);
+        });
+        const dirBtn = new St.Button({
+            child: new St.Label({text: this._sortDir === 'desc' ? '↓ Desc' : '↑ Asc', y_align: Clutter.ActorAlign.CENTER}),
+            can_focus: true,
+            reactive: true,
+            style: pillInactive,
+            accessible_name: `Sort direction: ${this._sortDir}`,
+        });
+        dirBtn.connect('clicked', () => {
+            this._setSort(this._sortBy, this._sortDir === 'asc' ? 'desc' : 'asc');
+        });
+        sortRow.add_child(prevBtn);
+        sortRow.add_child(fieldBtn);
+        sortRow.add_child(nextBtn);
+        sortRow.add_child(dirBtn);
+        settingsSection.addMenuItem(sortRow);
+
+        const anonRow = new PopupMenu.PopupSwitchMenuItem('Anonymize', this._anonymize);
+        anonRow.connect('toggled', (_item, state) => this._setAnonymize(state));
+        settingsSection.addMenuItem(anonRow);
+    }
+
     _addFooter(summary, updatedAt) {
         this._footer = new PopupMenu.PopupMenuItem('', {reactive: false});
         this._footer.label.add_style_class_name('rtorrent-status-footer');
         this._footer.label.x_expand = true;
-        this._footer.add_child(this._buildDensitySwitch());
+        this._footer.add_child(this._buildSettingsButton());
         this._indicator.menu.addMenuItem(this._footer);
         this._updateFooter(summary, updatedAt);
     }
 
-    _buildDensitySwitch() {
+    _buildSettingsButton() {
         const icon = new St.Icon({icon_name: 'emblem-system-symbolic', icon_size: 16});
         const button = new St.Button({
             child: icon,
@@ -307,12 +572,17 @@ export default class RTorrentStatus extends Extension {
             reactive: true,
             x_align: Clutter.ActorAlign.END,
             y_align: Clutter.ActorAlign.CENTER,
-            accessible_name: `Density: ${this._density}`,
-            style: 'padding: 0; margin-right: 8px;',
-            opacity: 180,
+            accessible_name: this._settingsOpen ? 'Close settings' : 'Open settings',
+            style: this._settingsOpen
+                ? 'padding: 2px 4px; margin-right: 4px; border-radius: 4px; background-color: rgba(255, 255, 255, 0.14);'
+                : 'padding: 2px 4px; margin-right: 4px;',
+            opacity: this._settingsOpen ? 255 : 180,
         });
         button.connect('clicked', () => {
-            this._setDensity(DENSITIES[(DENSITIES.indexOf(this._density) + 1) % DENSITIES.length]);
+            this._settingsOpen = !this._settingsOpen;
+            if (!this._settingsOpen)
+                this._serverEditor = null;
+            this._scheduleRender(true);
         });
         return button;
     }
@@ -327,6 +597,7 @@ export default class RTorrentStatus extends Extension {
             const show = this._indicator.hover && this._indicator.visible && !this._indicator.menu.isOpen;
             tooltip.visible = show;
             if (show) {
+                Main.uiGroup.set_child_above_sibling(tooltip, null);
                 const [x, y] = this._indicator.get_transformed_position();
                 const monitor = Main.layoutManager.findMonitorForActor(this._indicator);
                 const [, natWidth] = tooltip.get_preferred_width(-1);
@@ -341,8 +612,13 @@ export default class RTorrentStatus extends Extension {
         this._indicator.connect('notify::hover', syncTooltip);
         this._indicator.connect('notify::mapped', () => tooltip.hide());
         this._indicator.menu.connect('open-state-changed', (_menu, isOpen) => {
-            if (isOpen)
+            if (isOpen) {
                 tooltip.hide();
+            } else if (this._settingsOpen || this._serverEditor) {
+                this._settingsOpen = false;
+                this._serverEditor = null;
+                this._scheduleRender(true);
+            }
         });
         this._indicator.connect('destroy', () => {
             if (this._panelTooltip === tooltip) {
@@ -383,6 +659,57 @@ export default class RTorrentStatus extends Extension {
         }
     }
 
+    _scheduleRender(force = false) {
+        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            if (this._indicator && this._lastData)
+                this._render(this._lastData, force);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _setServers(servers, activeServer) {
+        this._servers = servers;
+        this._activeServer = activeServer;
+        const current = servers[activeServer];
+        if (current)
+            this._config = {...this._config, host: current.host, port: current.port, servers, activeServer};
+        try {
+            saveServers(servers, activeServer);
+        } catch (error) {
+            console.error(`rTorrent Status: cannot save servers: ${error.message}`);
+        }
+        this._scheduleRender(true);
+        this._pollOnce();
+    }
+
+    _setAnonymize(anonymize) {
+        const next = Boolean(anonymize);
+        if (next === this._anonymize)
+            return;
+        this._anonymize = next;
+        try {
+            saveAnonymize(next);
+        } catch (error) {
+            console.error(`rTorrent Status: cannot save anonymize: ${error.message}`);
+        }
+        this._scheduleRender();
+    }
+
+    _setSort(sortBy, sortDir) {
+        if (!SORT_FIELDS.includes(sortBy) || !SORT_DIRS.includes(sortDir))
+            return;
+        if (sortBy === this._sortBy && sortDir === this._sortDir)
+            return;
+        this._sortBy = sortBy;
+        this._sortDir = sortDir;
+        try {
+            saveSort(sortBy, sortDir);
+        } catch (error) {
+            console.error(`rTorrent Status: cannot save sort: ${error.message}`);
+        }
+        this._scheduleRender();
+    }
+
     _setDensity(density) {
         if (density === this._density || !DENSITIES.includes(density))
             return;
@@ -392,11 +719,7 @@ export default class RTorrentStatus extends Extension {
         } catch (error) {
             console.error(`rTorrent Status: cannot save density: ${error.message}`);
         }
-        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-            if (this._indicator && this._lastData)
-                this._render(this._lastData);
-            return GLib.SOURCE_REMOVE;
-        });
+        this._scheduleRender();
     }
 
     _updateFooter(summary, updatedAt) {

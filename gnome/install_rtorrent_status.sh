@@ -26,7 +26,10 @@ if [[ ! -f "$config_file" ]]; then
   "host": "127.0.0.1",
   "port": 5000,
   "pollSeconds": 3,
-  "density": "large"
+  "density": "large",
+  "sortBy": "state",
+  "sortDir": "asc",
+  "anonymize": false
 }
 EOF
     chmod 644 "$config_file"

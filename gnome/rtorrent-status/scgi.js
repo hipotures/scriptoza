@@ -15,6 +15,11 @@ const MODERN_FIELDS = [
     'd.down.rate=',
     'd.up.rate=',
     'd.message=',
+    'd.peers_connected=',
+    'd.peers_complete=',
+    'd.peers_accounted=',
+    'd.up.total=',
+    'd.ratio=',
 ];
 
 const LEGACY_FIELDS = [
@@ -29,6 +34,11 @@ const LEGACY_FIELDS = [
     'd.get_down_rate=',
     'd.get_up_rate=',
     'd.get_message=',
+    'd.get_peers_connected=',
+    'd.get_peers_complete=',
+    'd.get_peers_accounted=',
+    'd.get_up_total=',
+    'd.get_ratio=',
 ];
 
 const MODES = ['jsonrpc', 'xmlrpc-v2', 'xmlrpc-v1'];

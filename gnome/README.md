@@ -29,12 +29,19 @@ The widget reads `~/.config/scriptoza/rtorrent-status.json` (or `$XDG_CONFIG_HOM
   "name": "rtorrent",
   "host": "127.0.0.1",
   "port": 5000,
+  "servers": [
+    { "host": "127.0.0.1", "port": 5000 }
+  ],
+  "activeServer": 0,
   "pollSeconds": 3,
-  "density": "large"
+  "density": "large",
+  "sortBy": "state",
+  "sortDir": "asc",
+  "anonymize": false
 }
 ```
 
-Change `name`, `host`, `port`, or `pollSeconds` when customizing the panel hover label or pointing the widget at a remote server (for example over a VPN or SSH tunnel). Changes take effect automatically on the next poll.
+Change `name`, `servers`, `activeServer`, `pollSeconds`, `density`, `sortBy` (`state`, `added`, `name`, `progress`, `size`, `down`, `up`, `eta`), `sortDir` (`asc`, `desc`), or `anonymize` (`true`/`false`) in the config file. Server list (add/edit/switch/remove), size, sort, and anonymize can also be changed live from the settings panel opened by the gear icon in the footer. Changes take effect automatically on the next poll.
 
 ### Installation
 
