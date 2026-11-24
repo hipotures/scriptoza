@@ -25,7 +25,8 @@ height = 520
 placement = "attached"
 position = "auto"
 
-# Read-only hover preview below the bar, wider and denser than the shell tooltip.
+# Read-only hover preview next to the bar, wider and denser than the shell tooltip.
+# Anchors are replaced at runtime to follow the bar position.
 [[layer]]
 id = "preview"
 entry = "preview.luau"

@@ -8,7 +8,8 @@ shell used with the niri compositor. Each directory is a Noctalia plugin written
 - `agentai-status/` - local and remote Herdr Codex, Claude Code, and Antigravity agent states
 
 Both plugins keep the GNOME look: Cairo-like colored dots in the bar and a list panel attached to the widget.
-Hovering over a widget shows a read-only preview under the bar, at the right edge of the output. The preview
+Hovering over a widget shows a read-only preview next to the bar, at the end where the status widgets sit (above a
+bottom bar, below a top bar, beside a vertical bar; it follows `bar.default.position`). The preview
 is a plugin-owned layer (`[[layer]] preview`), 640 px wide with smaller fonts, because the shell tooltip has a
 fixed width that truncates torrent and agent names. It ignores pointer input and disappears when the pointer leaves
 the widget or the widget is clicked. A left click opens the editable panel in the middle of the bar, like the
@@ -32,8 +33,8 @@ The installer:
 4. Puts the widgets at the start of the bar's `end` section, in the same order as the GNOME panel:
    rTorrent first, then Herdr.
 
-Set `NOCTALIA_BAR` to use a bar other than `default`. Noctalia watches plugin files and reloads changed
-entries automatically, so running the installer again applies updates without restarting the shell.
+Set `NOCTALIA_BAR` to use a bar other than `default`. Running the installer again applies updates
+without restarting the shell; it disables and re-enables each installed plugin to reload it.
 
 During development, register the checkout itself instead:
 `noctalia msg plugins source add scriptoza path "$PWD/niri"`. In that layout, the Herdr plugin reads the worker

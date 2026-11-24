@@ -66,6 +66,10 @@ fi
 
 widgets=()
 for component in "${components[@]}"; do
+    # Reinstalling replaces the files, which hot reload does not always pick up; reload explicitly.
+    if noctalia msg plugins list | grep -q "^scriptoza/$component .* enabled"; then
+        noctalia msg plugins disable "scriptoza/$component"
+    fi
     noctalia msg plugins enable "scriptoza/$component"
     widgets+=("scriptoza/$component:bar")
 done

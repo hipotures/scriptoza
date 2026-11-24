@@ -134,6 +134,29 @@ function M.formatUsage(usage, now)
   return table.concat(parts, "  ")
 end
 
+-- Places the hover preview on the bar's edge, at the end where the status widgets sit.
+function M.previewPlacement(outputName)
+  local position = noctalia.getSetting("bar.default.position") or "top"
+  local anchors = { "top", "right" }
+  local margins = { top = 4, right = 8 }
+  if position == "bottom" then
+    anchors = { "bottom", "right" }
+    margins = { bottom = 4, right = 8 }
+  elseif position == "left" then
+    anchors = { "left", "bottom" }
+    margins = { left = 4, bottom = 8 }
+  elseif position == "right" then
+    anchors = { "right", "bottom" }
+    margins = { right = 4, bottom = 8 }
+  end
+  return {
+    anchors = anchors,
+    margins = margins,
+    clickThrough = true,
+    output = outputName or "focused",
+  }
+end
+
 function M.clock(ms)
   if not ms then
     return "—"

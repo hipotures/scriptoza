@@ -91,11 +91,7 @@ end
 -- Hover shows the read-only preview layer under the bar; editing stays in the panel.
 function onHover(entered)
   if entered then
-    noctalia.layer.configure("preview", {
-      clickThrough = true,
-      margins = { top = 4, right = 8 },
-      output = barWidget.outputName() or "focused",
-    })
+    noctalia.layer.configure("preview", common.previewPlacement(barWidget.outputName()))
     noctalia.layer.show("preview")
   else
     noctalia.layer.hide("preview")
