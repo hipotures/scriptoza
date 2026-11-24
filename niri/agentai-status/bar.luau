@@ -52,50 +52,8 @@ local function render()
   barWidget.render(container({ gap = 5, align = "center", justify = "center" }, children))
 end
 
-local MAX_ROWS = 15
-
--- Read-only hover summary; actions stay in the panel opened by a click.
-local function tooltipRows()
-  if type(snapshot) ~= "table" then
-    return { { "Herdr", "Checking agents…" } }
-  end
-  if snapshot.waitingForServer and not snapshot.workerFailed then
-    return { { "Herdr", "Waiting for the Herdr server to start" } }
-  end
-  local rows = {}
-  local now = os.time()
-  for _, agentType in ipairs({ "claude", "codex" }) do
-    local usage = type(snapshot.usage) == "table" and snapshot.usage[agentType] or nil
-    local text = common.formatUsage(usage, now)
-    if text ~= "" then
-      table.insert(rows, { common.AGENT_TYPES[agentType].label, text })
-    end
-  end
-  local agents = common.sortAgents(snapshot.agents or {})
-  for index, agent in ipairs(agents) do
-    if index > MAX_ROWS then
-      table.insert(rows, { "…", `{#agents - MAX_ROWS} more` })
-      break
-    end
-    local info = common.STATES[agent.state] or common.STATES.unknown
-    local value = info.label
-    if type(agent.sessionTitle) == "string" and agent.sessionTitle ~= "" then
-      value = `{value} · {common.truncate(agent.sessionTitle, 40)}`
-    end
-    table.insert(rows, { agent.displayName or agent.location or "?", value })
-  end
-  if #agents == 0 then
-    table.insert(rows, { "Herdr", "No agents found" })
-  end
-  for _, err in ipairs(snapshot.errors or {}) do
-    table.insert(rows, { err.machine or "Herdr", snapshot.workerFailed and common.truncate(err.message, 60) or "unavailable" })
-  end
-  return rows
-end
-
 local function refresh()
   buildDots()
-  barWidget.setTooltip(tooltipRows())
   barWidget.setVisible(#dots > 0)
   noctalia.setUpdateInterval(mode == "steady" and 1000 or 100)
   render()
@@ -119,4 +77,24 @@ function update()
   end
 end
 
+function onClick()
+  noctalia.layer.hide("preview")
+  noctalia.togglePanel(common.PANEL_ID)
+end
+
+-- Hover shows the read-only preview layer under the bar; actions stay in the panel.
+function onHover(entered)
+  if entered then
+    noctalia.layer.configure("preview", {
+      clickThrough = true,
+      margins = { top = 4, right = 8 },
+      output = barWidget.outputName() or "focused",
+    })
+    noctalia.layer.show("preview")
+  else
+    noctalia.layer.hide("preview")
+  end
+end
+
+barWidget.clearTooltip()
 refresh()

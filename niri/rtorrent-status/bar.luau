@@ -55,48 +55,6 @@ local function render()
   barWidget.render(container({ gap = 5, align = "center", justify = "center" }, children))
 end
 
-local MAX_ROWS = 15
-
--- Read-only hover summary; editing stays in the panel opened by a click.
-local function tooltipRows()
-  if type(snapshot) ~= "table" then
-    return { { "rTorrent", "Checking…" } }
-  end
-  local server = `{snapshot.host}:{snapshot.port}`
-  if snapshot.error then
-    return { { server, "unavailable" }, { "Error", common.truncate(snapshot.error, 60) } }
-  end
-  local sorted = common.sortTorrents(snapshot.torrents or {}, snapshot.sortBy, snapshot.sortDir)
-  local summary = common.summarize(sorted)
-  local rows = {}
-  for index, torrent in ipairs(sorted) do
-    if index > MAX_ROWS then
-      table.insert(rows, { "…", `{#sorted - MAX_ROWS} more` })
-      break
-    end
-    local name = snapshot.anonymize and common.anonymize(torrent, snapshot.salt or 0) or torrent.name
-    local parts = { common.STATES[torrent.state].label, string.format("%.1f%%", torrent.percent) }
-    if torrent.downRate > 0 then
-      table.insert(parts, "↓ " .. common.formatRate(torrent.downRate))
-    end
-    if torrent.upRate > 0 then
-      table.insert(parts, "↑ " .. common.formatRate(torrent.upRate))
-    end
-    if torrent.eta ~= "" then
-      table.insert(parts, torrent.eta)
-    end
-    table.insert(rows, { common.truncate(name, 40), table.concat(parts, " · ") })
-  end
-  if #sorted == 0 then
-    table.insert(rows, { server, "No torrents" })
-  end
-  table.insert(rows, {
-    "Total",
-    `↓ {common.formatRate(summary.totalDownRate)}  ↑ {common.formatRate(summary.totalUpRate)} · {common.clock(snapshot.updatedAt)}`,
-  })
-  return rows
-end
-
 local function refresh()
   buildDots()
   if mode ~= "steady" then
@@ -104,7 +62,6 @@ local function refresh()
   else
     noctalia.setUpdateInterval(1000)
   end
-  barWidget.setTooltip(tooltipRows())
   render()
 end
 
@@ -126,4 +83,24 @@ function update()
   end
 end
 
+function onClick()
+  noctalia.layer.hide("preview")
+  noctalia.togglePanel(common.PANEL_ID)
+end
+
+-- Hover shows the read-only preview layer under the bar; editing stays in the panel.
+function onHover(entered)
+  if entered then
+    noctalia.layer.configure("preview", {
+      clickThrough = true,
+      margins = { top = 4, right = 8 },
+      output = barWidget.outputName() or "focused",
+    })
+    noctalia.layer.show("preview")
+  else
+    noctalia.layer.hide("preview")
+  end
+end
+
+barWidget.clearTooltip()
 refresh()

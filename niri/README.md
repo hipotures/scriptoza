@@ -8,11 +8,11 @@ shell used with the niri compositor. Each directory is a Noctalia plugin written
 - `agentai-status/` - local and remote Herdr Codex, Claude Code, and Antigravity agent states
 
 Both plugins keep the GNOME look: Cairo-like colored dots in the bar and a list panel attached to the widget.
-Hovering over a widget shows a read-only summary of its data. A left click opens the panel next to the widget,
-where torrents and agents can be acted on and settings changed. The click is bound in each manifest's
-`[widget.actions]` as `panel-toggle` with `open_near_click`, which anchors the panel at the widget. A plain
-`noctalia.togglePanel()` call opens attached panels in the middle of the bar instead.
-They also share configuration files with the GNOME extensions, so settings carry over between sessions.
+Hovering over a widget shows a read-only preview under the bar, at the right edge of the output. The preview
+is a plugin-owned layer (`[[layer]] preview`), 640 px wide with smaller fonts, because the shell tooltip has a
+fixed width that truncates torrent and agent names. It ignores pointer input and disappears when the pointer leaves
+the widget or the widget is clicked. A left click opens the editable panel in the middle of the bar, like the
+built-in Noctalia panels.
 
 ## Installation
 
@@ -64,7 +64,7 @@ Bar and panel states match the GNOME table:
 - A slowly pulsing yellow ring when the server is unreachable.
 - A blinking red dot for an error.
 
-The bar tooltip lists up to 15 torrents with their state, progress, rates, and ETA, followed by the total rates
+The hover preview lists up to 20 torrents with their progress, rates, ETA, and state, followed by the total rates
 and the last update time. Unreachable servers show the server and error instead. Hovering a torrent row in the
 panel shows peers, rates, uploaded bytes, and ratio. The footer shows total rates, the last
 update time, and the plugin version.
@@ -91,7 +91,7 @@ The bar shows:
 - A pulsing yellow ring while waiting for the local Herdr server.
 - A blinking dot for a `blocked` agent.
 
-The bar tooltip lists usage limits, up to 15 agents with their state and session title, and unavailable
+The hover preview lists usage limits, up to 20 agents with their session title and state, and unavailable
 machines. The panel lists usage limits (5-hour and weekly windows), agents sorted as in the GNOME extension, and
 unavailable machines. Hovering a row shows its machine/workspace/tab/pane location. The gear cycles the density;
 the setting is saved in `~/.config/ai-agent-status/config.json`, shared with GNOME.
@@ -106,4 +106,5 @@ pane in that Herdr client, and confirms that the same window still matches. Fina
 - Panel sizes are fixed in each `plugin.toml` because Noctalia owns panel geometry. Density changes font sizes
   and row spacing, not the panel width.
 - Row tooltips use Noctalia's hover delay instead of the fixed 600 ms delay.
+- The widget summary is a hover preview layer instead of a tooltip naming the widget.
 - The Codex icon follows Noctalia's dark-mode setting instead of the GNOME menu text color.
