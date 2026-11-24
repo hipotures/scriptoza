@@ -137,3 +137,15 @@ universfield-new-notification-066-494545.mp3
 !gnome/agentai-status/assets/
 !gnome/agentai-status/assets/icons/
 !gnome/agentai-status/assets/icons/*.svg
+
+# Allow Noctalia (niri) plugins
+!niri/
+!niri/README.md
+!niri/*.sh
+!niri/rtorrent-status/
+!niri/rtorrent-status/*.luau
+!niri/rtorrent-status/*.toml
+!niri/rtorrent-status/*.py
+!niri/agentai-status/
+!niri/agentai-status/*.luau
+!niri/agentai-status/*.toml

@@ -1,6 +1,6 @@
 # GNOME Extensions
 
-Install both extensions with `bash gnome/install.sh`, or pass `rtorrent-status` or `agentai-status` to install one.
+Install both extensions with `bash gnome/install.sh`, or pass `rtorrent-status` or `agentai-status` to install one. Noctalia (niri) ports of both widgets live in [`niri/`](../niri/README.md).
 
 ## rTorrent Status
 

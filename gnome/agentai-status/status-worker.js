@@ -13,9 +13,22 @@ const loop = new GLib.MainLoop(null, false);
 const cancellable = new Gio.Cancellable();
 const input = new GioUnix.InputStream({fd: 0, close_fd: false});
 const output = new GioUnix.OutputStream({fd: 1, close_fd: false});
+// Hosts such as Noctalia connect stdin to /dev/null; watch the parent process instead.
+const detachedStdin = System.programArgs.includes('--detached-stdin');
 let stopped = false;
 let failed = false;
 let signalSource = 0;
+let parentSource = 0;
+
+function parentPid() {
+    try {
+        const [, bytes] = GLib.file_get_contents('/proc/self/stat');
+        const stat = new TextDecoder().decode(bytes);
+        return Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
+    } catch {
+        return 0;
+    }
+}
 let writing = false;
 let pending = null;
 let latest = null;
@@ -30,6 +43,9 @@ function stop() {
     if (signalSource)
         GLib.Source.remove(signalSource);
     signalSource = 0;
+    if (parentSource)
+        GLib.Source.remove(parentSource);
+    parentSource = 0;
     loop.quit();
 }
 
@@ -67,11 +83,22 @@ signalSource = GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, 15, () => {
     stop();
     return GLib.SOURCE_REMOVE;
 });
-// The parent owns stdin. EOF also stops bridges if the Shell disappears.
-input.read_bytes_async(1, GLib.PRIORITY_DEFAULT, cancellable, (source, result) => {
-    try { source.read_bytes_finish(result); } catch {}
-    stop();
-});
+if (detachedStdin) {
+    const initialParent = parentPid();
+    parentSource = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
+        if (parentPid() === initialParent)
+            return GLib.SOURCE_CONTINUE;
+        parentSource = 0;
+        stop();
+        return GLib.SOURCE_REMOVE;
+    });
+} else {
+    // The parent owns stdin. EOF also stops bridges if the Shell disappears.
+    input.read_bytes_async(1, GLib.PRIORITY_DEFAULT, cancellable, (source, result) => {
+        try { source.read_bytes_finish(result); } catch {}
+        stop();
+    });
+}
 monitor.start();
 usage.start();
 loop.run();

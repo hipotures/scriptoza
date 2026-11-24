@@ -51,6 +51,12 @@ Collection of small utility scripts organized by category. Each category has its
 - `rtorrent-status/` - GNOME top panel indicator for local and remote `rtorrent` states, transfer rates, sorting, anonymization, and multi-server switching
 - `agentai-status/` - GNOME top panel indicator for local and remote Herdr Codex, Claude Code, and Antigravity agent states
 
+### niri (niri/)
+
+- `install.sh` - Installs the Noctalia plugins below and adds them to the bar
+- `rtorrent-status/` - Noctalia bar widget and panel port of the GNOME rTorrent indicator
+- `agentai-status/` - Noctalia bar widget and panel port of the GNOME Herdr agent indicator
+
 ### Firefox (firefox-yt/)
 
 - `firefox-yt` - Minimal Firefox toolbar extension and native `yt-dlp` downloader

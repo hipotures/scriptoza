@@ -1,0 +1,26 @@
+id = "scriptoza/agentai-status"
+name = "Herdr Agent Status"
+version = "0.1.0"
+plugin_api = 53
+author = "scriptoza"
+license = "MIT"
+dependencies = ["gjs", "herdr"]
+tags = ["ai", "agents", "status"]
+icon = "robot"
+description = "Show local and remote Herdr Codex, Claude Code and Antigravity agent states in the bar."
+
+[[service]]
+id = "service"
+entry = "service.luau"
+
+[[widget]]
+id = "bar"
+entry = "bar.luau"
+
+[[panel]]
+id = "panel"
+entry = "panel.luau"
+width = 460
+height = 520
+placement = "attached"
+position = "auto"

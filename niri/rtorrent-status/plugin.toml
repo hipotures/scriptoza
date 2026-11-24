@@ -1,0 +1,26 @@
+id = "scriptoza/rtorrent-status"
+name = "rTorrent Status"
+version = "0.1.0"
+plugin_api = 53
+author = "scriptoza"
+license = "MIT"
+dependencies = ["python3"]
+tags = ["torrent", "status"]
+icon = "download"
+description = "Show local or remote rTorrent states and transfer rates in the bar."
+
+[[service]]
+id = "service"
+entry = "service.luau"
+
+[[widget]]
+id = "bar"
+entry = "bar.luau"
+
+[[panel]]
+id = "panel"
+entry = "panel.luau"
+width = 460
+height = 560
+placement = "attached"
+position = "auto"
