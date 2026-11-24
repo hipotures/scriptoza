@@ -8,6 +8,10 @@ shell used with the niri compositor. Each directory is a Noctalia plugin written
 - `agentai-status/` - local and remote Herdr Codex, Claude Code, and Antigravity agent states
 
 Both plugins keep the GNOME look: Cairo-like colored dots in the bar and a list panel attached to the widget.
+Hovering over a widget shows a read-only summary of its data. A left click opens the panel next to the widget,
+where torrents and agents can be acted on and settings changed. The click is bound in each manifest's
+`[widget.actions]` as `panel-toggle` with `open_near_click`, which anchors the panel at the widget. A plain
+`noctalia.togglePanel()` call opens attached panels in the middle of the bar instead.
 They also share configuration files with the GNOME extensions, so settings carry over between sessions.
 
 ## Installation
@@ -60,7 +64,9 @@ Bar and panel states match the GNOME table:
 - A slowly pulsing yellow ring when the server is unreachable.
 - A blinking red dot for an error.
 
-Hovering a torrent row shows peers, rates, uploaded bytes, and ratio. The footer shows total rates, the last
+The bar tooltip lists up to 15 torrents with their state, progress, rates, and ETA, followed by the total rates
+and the last update time. Unreachable servers show the server and error instead. Hovering a torrent row in the
+panel shows peers, rates, uploaded bytes, and ratio. The footer shows total rates, the last
 update time, and the plugin version.
 
 ```bash
@@ -85,7 +91,8 @@ The bar shows:
 - A pulsing yellow ring while waiting for the local Herdr server.
 - A blinking dot for a `blocked` agent.
 
-The panel lists usage limits (5-hour and weekly windows), agents sorted as in the GNOME extension, and
+The bar tooltip lists usage limits, up to 15 agents with their state and session title, and unavailable
+machines. The panel lists usage limits (5-hour and weekly windows), agents sorted as in the GNOME extension, and
 unavailable machines. Hovering a row shows its machine/workspace/tab/pane location. The gear cycles the density;
 the setting is saved in `~/.config/ai-agent-status/config.json`, shared with GNOME.
 

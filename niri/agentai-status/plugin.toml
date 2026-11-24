@@ -17,6 +17,10 @@ entry = "service.luau"
 id = "bar"
 entry = "bar.luau"
 
+  # Hover shows a read-only summary; left click opens the editable panel next to the widget.
+  [widget.actions]
+  left = "panel-toggle scriptoza/agentai-status:panel"
+
 [[panel]]
 id = "panel"
 entry = "panel.luau"
@@ -24,3 +28,4 @@ width = 460
 height = 520
 placement = "attached"
 position = "auto"
+open_near_click = true

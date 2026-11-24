@@ -5,7 +5,6 @@ local M = {}
 
 M.VERSION = "0.1.0"
 M.PANEL_ID = "scriptoza/agentai-status:panel"
-M.TOOLTIP = "herdr"
 
 M.STATES = {
   blocked = { label = "Needs attention", color = "#f66151", glyph = "alert-triangle" },
@@ -133,6 +132,16 @@ function M.formatUsage(usage, now)
     end
   end
   return table.concat(parts, "  ")
+end
+
+-- Shortens text to at most `limit` characters, counted in UTF-8 code points.
+function M.truncate(text, limit)
+  text = tostring(text or "")
+  local length = utf8.len(text)
+  if not length or length <= limit then
+    return text
+  end
+  return string.sub(text, 1, utf8.offset(text, limit) - 1) .. "…"
 end
 
 function M.clock(ms)
