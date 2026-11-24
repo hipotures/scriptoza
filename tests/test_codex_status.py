@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 
-EXTENSION = Path(__file__).resolve().parents[1] / "ai" / "agentai-status"
+EXTENSION = Path(__file__).resolve().parents[1] / "gnome" / "agentai-status"
 
 
 @unittest.skipUnless(shutil.which("gjs"), "GJS is required")

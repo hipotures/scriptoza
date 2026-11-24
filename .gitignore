@@ -43,13 +43,6 @@ tests/data/
 !ai/*.py
 !ai/*.service
 !ai/*.js
-!ai/agentai-status/
-!ai/agentai-status/*.js
-!ai/agentai-status/*.json
-!ai/agentai-status/*.css
-!ai/agentai-status/assets/
-!ai/agentai-status/assets/icons/
-!ai/agentai-status/assets/icons/*.svg
 
 # Allow the Firefox yt-dlp downloader
 !firefox-yt/
@@ -136,3 +129,11 @@ universfield-new-notification-066-494545.mp3
 !gnome/rtorrent-status/*.js
 !gnome/rtorrent-status/*.json
 !gnome/rtorrent-status/*.css
+!gnome/*.js
+!gnome/agentai-status/
+!gnome/agentai-status/*.js
+!gnome/agentai-status/*.json
+!gnome/agentai-status/*.css
+!gnome/agentai-status/assets/
+!gnome/agentai-status/assets/icons/
+!gnome/agentai-status/assets/icons/*.svg
