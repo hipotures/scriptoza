@@ -9,9 +9,10 @@ shell used with the niri compositor. Each directory is a Noctalia plugin written
 - `agent-accounts/` - read-only Claude, Antigravity, and Codex account usage from the homestack Agent Accounts service
 
 The rTorrent and Herdr plugins keep the GNOME look: Cairo-like colored dots in the bar and a list panel attached to the widget.
-Hovering over a widget shows a read-only preview next to the bar, at the end where the status widgets sit (above a
-bottom bar, below a top bar, beside a vertical bar; it follows the `position` of the bar whose `start`, `center`, or `end`
-list holds the widget, found through `bar.order`). The preview
+Hovering over a widget shows a read-only preview next to the bar (above a bottom bar, below a top bar, beside a
+vertical bar). It follows the `position` of the bar whose `start`, `center`, or `end` list holds the widget, found
+through `bar.order`, and sits at the start, the middle, or the end of the bar according to that section. It is not
+placed exactly under the widget, because plugins cannot read the widget's position. The preview
 is a plugin-owned layer (`[[layer]] preview`), sized to its content between 360 and 640 px with smaller fonts, because the shell tooltip has a
 fixed width that truncates torrent and agent names. It ignores pointer input and disappears when the pointer leaves
 the widget or the widget is clicked. A left click opens the editable panel in the middle of the bar, like the

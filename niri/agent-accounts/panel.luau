@@ -186,7 +186,7 @@ local function settingsSection()
   local barControls = {
     pill("Auto", config.previewBar == "auto", function()
       common.updateConfig({ previewBar = "auto" })
-    end, `Bar holding the widget ({common.barPosition("auto")})`),
+    end, `Bar holding the widget ({(common.barPosition("auto"))})`),
   }
   local bars = noctalia.getSetting("bar.order")
   if type(bars) == "table" then

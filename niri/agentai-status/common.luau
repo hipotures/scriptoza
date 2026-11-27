@@ -135,54 +135,55 @@ function M.formatUsage(usage, now)
   return table.concat(parts, "  ")
 end
 
--- Position of the bar that holds this widget (or of the chosen bar), from the Noctalia config.
+-- Position of the bar that holds this widget (or of the chosen bar), and the bar section ("start", "center" or
+-- "end") the widget is in, from the Noctalia config.
 function M.barPosition(chosen)
   local function position(name)
     local value = noctalia.getSetting(`bar.{name}.position`)
     return type(value) == "string" and value or nil
   end
-  if type(chosen) == "string" and chosen ~= "" and chosen ~= "auto" then
-    local value = position(chosen)
-    if value then
-      return value
-    end
-  end
   local order = noctalia.getSetting("bar.order")
-  if type(order) ~= "table" then
-    return "top"
-  end
-  for _, name in ipairs(order) do
-    for _, section in ipairs({ "start", "center", "end" }) do
-      local items = noctalia.getSetting(`bar.{name}.{section}`)
-      if type(items) == "table" and table.find(items, M.WIDGET_ID) then
-        return position(name) or "top"
+  local first
+  if type(order) == "table" then
+    for _, name in ipairs(order) do
+      for _, section in ipairs({ "start", "center", "end" }) do
+        local items = noctalia.getSetting(`bar.{name}.{section}`)
+        if type(items) == "table" and table.find(items, M.WIDGET_ID) then
+          first = first or { name = name, section = section }
+        end
       end
     end
   end
-  return order[1] and position(order[1]) or "top"
+  if type(chosen) == "string" and chosen ~= "" and chosen ~= "auto" then
+    local value = position(chosen)
+    if value then
+      return value, first and first.section or "end"
+    end
+  end
+  if first then
+    return position(first.name) or "top", first.section
+  end
+  return type(order) == "table" and order[1] and position(order[1]) or "top", "end"
 end
 
--- Places the hover preview on the bar's edge, at the end where the status widgets sit.
+-- Places the hover preview on the bar's edge, above the section that holds the widget: at the start, the middle
+-- or the end of the bar.
 function M.previewPlacement(outputName, chosenBar)
-  local position = M.barPosition(chosenBar)
-  local anchors = { "top", "right" }
-  local margins = { top = 4, right = 8 }
-  if position == "bottom" then
-    anchors = { "bottom", "right" }
-    margins = { bottom = 4, right = 8 }
-  elseif position == "left" then
-    anchors = { "left", "bottom" }
-    margins = { left = 4, bottom = 8 }
-  elseif position == "right" then
-    anchors = { "right", "bottom" }
-    margins = { right = 4, bottom = 8 }
+  local position, section = M.barPosition(chosenBar)
+  local edge = position == "bottom" and "bottom" or position == "left" and "left" or position == "right" and "right" or "top"
+  local vertical = edge == "left" or edge == "right"
+  local anchors = { edge }
+  local margins = { [edge] = 4 }
+  if section == "start" then
+    local side = vertical and "top" or "left"
+    table.insert(anchors, side)
+    margins[side] = 8
+  elseif section ~= "center" then
+    local side = vertical and "bottom" or "right"
+    table.insert(anchors, side)
+    margins[side] = 8
   end
-  return {
-    anchors = anchors,
-    margins = margins,
-    clickThrough = true,
-    output = outputName or "focused",
-  }
+  return { anchors = anchors, margins = margins, clickThrough = true, output = outputName or "focused" }
 end
 
 function M.clock(ms)
