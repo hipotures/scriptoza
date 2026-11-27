@@ -5,7 +5,8 @@
 
 local common = require("./common.luau")
 
-local WIDTH = 640
+local MIN_WIDTH = 360
+local MAX_WIDTH = 640
 local MAX_ROWS = 20
 local NAME_SIZE = 12
 local DETAIL_SIZE = 11
@@ -68,7 +69,8 @@ end
 
 local function render()
   layer.render(ui.column({
-    width = WIDTH,
+    minWidth = MIN_WIDTH,
+    maxWidth = MAX_WIDTH,
     gap = 4,
     padding = 10,
     radius = 10,
