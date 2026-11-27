@@ -1,0 +1,37 @@
+id = "scriptoza/agent-accounts"
+name = "Agent Accounts"
+version = "0.1.0"
+plugin_api = 53
+author = "scriptoza"
+license = "MIT"
+dependencies = ["curl"]
+tags = ["ai", "accounts", "usage"]
+icon = "gauge"
+description = "Show read-only Claude, Antigravity and Codex account usage from the homestack Agent Accounts service."
+
+[[service]]
+id = "service"
+entry = "service.luau"
+
+[[widget]]
+id = "bar"
+entry = "bar.luau"
+
+[[panel]]
+id = "panel"
+entry = "panel.luau"
+width = 480
+height = 640
+placement = "attached"
+position = "auto"
+
+# Read-only hover preview next to the bar, wider and denser than the shell tooltip.
+# Anchors are replaced at runtime to follow the bar position.
+[[layer]]
+id = "preview"
+entry = "preview.luau"
+layer = "overlay"
+anchors = ["top", "right"]
+exclusive_zone = 0
+keyboard = "none"
+output = "focused"

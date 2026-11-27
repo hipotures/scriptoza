@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Install the Noctalia (niri) plugins: rtorrent-status and agentai-status.
-# Usage: niri/install.sh [rtorrent-status] [agentai-status]   (default: both)
+# Install the Noctalia (niri) plugins: rtorrent-status, agentai-status and agent-accounts.
+# Usage: niri/install.sh [rtorrent-status] [agentai-status] [agent-accounts]   (default: all)
 # Set NOCTALIA_BAR to target a bar other than "default".
 set -euo pipefail
 
@@ -20,7 +20,7 @@ fi
 
 components=("$@")
 if [[ ${#components[@]} -eq 0 ]]; then
-    components=(rtorrent-status agentai-status)
+    components=(rtorrent-status agentai-status agent-accounts)
 fi
 
 install_rtorrent_status() {
@@ -44,12 +44,21 @@ install_agentai_status() {
     install -m 644 "$worker_source"/assets/icons/*.svg "$target_dir/worker/assets/icons/"
 }
 
+install_agent_accounts() {
+    local source_dir="$repo_dir/niri/agent-accounts"
+    local target_dir="$plugins_dir/agent-accounts"
+    rm -rf "$target_dir"
+    install -d "$target_dir"
+    install -m 644 "$source_dir"/plugin.toml "$source_dir"/*.luau "$target_dir/"
+}
+
 for component in "${components[@]}"; do
     case "$component" in
         rtorrent-status) install_rtorrent_status ;;
         agentai-status) install_agentai_status ;;
+        agent-accounts) install_agent_accounts ;;
         *)
-            echo "Unknown component: $component (expected rtorrent-status or agentai-status)" >&2
+            echo "Unknown component: $component (expected rtorrent-status, agentai-status or agent-accounts)" >&2
             exit 1
             ;;
     esac
@@ -82,7 +91,7 @@ import json
 import sys
 
 current = ast.literal_eval(sys.argv[1].strip() or "[]")
-order = ["scriptoza/rtorrent-status:bar", "scriptoza/agentai-status:bar"]
+order = ["scriptoza/rtorrent-status:bar", "scriptoza/agentai-status:bar", "scriptoza/agent-accounts:bar"]
 wanted = set(sys.argv[2:]) | {item for item in current if item in order}
 pinned = [item for item in order if item in wanted]
 print(json.dumps(pinned + [item for item in current if item not in pinned]))

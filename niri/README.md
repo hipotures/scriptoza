@@ -6,8 +6,9 @@ shell used with the niri compositor. Each directory is a Noctalia plugin written
 - `rtorrent-status/` - local or remote `rtorrent` states, transfer rates, sorting, anonymization, and
   multi-server switching
 - `agentai-status/` - local and remote Herdr Codex, Claude Code, and Antigravity agent states
+- `agent-accounts/` - read-only Claude, Antigravity, and Codex account usage from the homestack Agent Accounts service
 
-Both plugins keep the GNOME look: Cairo-like colored dots in the bar and a list panel attached to the widget.
+The rTorrent and Herdr plugins keep the GNOME look: Cairo-like colored dots in the bar and a list panel attached to the widget.
 Hovering over a widget shows a read-only preview next to the bar, at the end where the status widgets sit (above a
 bottom bar, below a top bar, beside a vertical bar; it follows `bar.default.position`). The preview
 is a plugin-owned layer (`[[layer]] preview`), 640 px wide with smaller fonts, because the shell tooltip has a
@@ -20,7 +21,7 @@ built-in Noctalia panels.
 Run this from a niri session with Noctalia running:
 
 ```bash
-bash niri/install.sh                   # both plugins
+bash niri/install.sh                   # all plugins
 bash niri/install.sh rtorrent-status   # one plugin
 ```
 
@@ -31,7 +32,7 @@ The installer:
 2. Registers that directory as the `scriptoza` path source (`noctalia msg plugins source list`).
 3. Enables the plugins.
 4. Puts the widgets at the start of the bar's `end` section, in the same order as the GNOME panel:
-   rTorrent first, then Herdr.
+   rTorrent first, then Herdr, then Agent Accounts.
 
 Set `NOCTALIA_BAR` to use a bar other than `default`. Running the installer again applies updates
 without restarting the shell; it disables and re-enables each installed plugin to reload it.
@@ -101,6 +102,37 @@ Clicking an agent row first checks the target with `herdr agent focus --check`. 
 whose title contains the client's unique `[herdr-client:<ID>]` marker in `niri msg --json windows`, focuses the
 pane in that Herdr client, and confirms that the same window still matches. Finally, it focuses the window with
 `niri msg action focus-window`. Failures are shown as notifications.
+
+## Agent Accounts
+
+`agent-accounts` shows the state of the accounts kept by the homestack Agent Accounts service. It is read-only:
+the service entry sends only `GET /health/ready` and `GET /api/v1/profiles` with `curl` every `pollSeconds`
+(default 60). It never starts checks, usage windows, authentication, or other provider calls, and it does not
+change account data such as the last payment. Requirement: `curl`.
+
+The bar shows one ring per shown account in the provider color (Claude orange, Antigravity blue, Codex green). A
+center disc grows with the highest used percentage among the account's windows, so an empty ring means unused and a
+full dot means exhausted. Accounts with errors, stale data, or disabled checks are dimmed. A pulsing yellow ring
+means the service cannot be reached (for example HTTP 401 behind Pangolin authentication); a pulsing red ring means
+its health check fails.
+
+The hover preview lists each account with its plan, subscription end, and windows. The panel shows one card per
+account, one below another: provider, email, plan, `Ends in` (last payment plus one month, else the provider
+period end), each window with used/left percentages, a bar, and its reset time, and the last successful check. The
+footer shows the service health.
+
+Settings live in `~/.config/scriptoza/agent-accounts.json` and in the panel's gear:
+
+- Connection: switch, edit, add, or remove service addresses (`http://limits.homestack.app:8080/` and
+  `https://limits.hs.armum.eu/` by default).
+- Show free accounts (`plan` equal to `free`); hidden by default.
+- Account order (up/down).
+- Antigravity quota group per account (Gemini by default, or Claude & GPT).
+
+```bash
+noctalia msg plugin scriptoza/agent-accounts:service all refresh   # poll now
+noctalia msg panel-toggle scriptoza/agent-accounts:panel            # open the cards
+```
 
 ## Differences from GNOME
 

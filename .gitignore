@@ -153,3 +153,6 @@ universfield-new-notification-066-494545.mp3
 !niri/agentai-status/
 !niri/agentai-status/*.luau
 !niri/agentai-status/*.toml
+!niri/agent-accounts/
+!niri/agent-accounts/*.luau
+!niri/agent-accounts/*.toml
