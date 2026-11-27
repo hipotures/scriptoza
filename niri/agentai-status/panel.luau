@@ -145,22 +145,6 @@ local function focusAgent(agent)
   end)
 end
 
-local function usageRows(profile)
-  local rows = {}
-  local now = os.time()
-  local usage = snapshot.usage
-  for _, agentType in ipairs({ "claude", "codex" }) do
-    local text = common.formatUsage(type(usage) == "table" and usage[agentType] or nil, now)
-    if text ~= "" then
-      table.insert(rows, ui.row({ gap = 8, align = "center", paddingH = 8, paddingV = profile.usagePadV }, {
-        ui.image({ path = common.iconPath(agentType), width = 16, height = 16, fit = "contain" }),
-        ui.label({ text = text, fontSize = 12, color = "on_surface" }),
-      }))
-    end
-  end
-  return rows
-end
-
 local function agentRow(agent, profile)
   local info = common.STATES[agent.state] or common.STATES.unknown
   local key = agent.id or agent.location
@@ -221,11 +205,6 @@ function render()
     table.insert(children, ui.label({ text = "Waiting for the Herdr server to start", color = common.WAITING_COLOR }))
     table.insert(children, ui.spacer({ flexGrow = 1 }))
   else
-    local usage = usageRows(profile)
-    if #usage > 0 then
-      table.insert(children, ui.column({ gap = 0 }, usage))
-      table.insert(children, ui.separator({}))
-    end
     local agents = common.sortAgents(snapshot.agents or {})
     local rows = table.create(#agents)
     for _, agent in ipairs(agents) do

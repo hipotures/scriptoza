@@ -95,9 +95,8 @@ The bar shows:
 - An empty pulsing yellow ring while waiting for the local Herdr server.
 - A blinking ring while an agent is `blocked`.
 
-The hover preview lists usage limits, up to 20 agents with their session title and state, and unavailable
-machines. The panel lists usage limits (5-hour and weekly windows), agents sorted as in the GNOME extension, and
-unavailable machines. Hovering a row shows its machine/workspace/tab/pane location. The gear cycles the density;
+The hover preview lists up to 20 agents with their session title and state, and unavailable machines. The panel
+lists agents sorted as in the GNOME extension and unavailable machines. Usage limits are shown by Agent Accounts. Hovering a row shows its machine/workspace/tab/pane location. The gear cycles the density;
 the setting is saved in `~/.config/ai-agent-status/config.json`, shared with GNOME.
 
 Clicking an agent row first checks the target with `herdr agent focus --check`. It then finds the terminal window

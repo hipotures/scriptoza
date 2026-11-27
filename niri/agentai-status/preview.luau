@@ -1,7 +1,6 @@
 --!nonstrict
 -- Read-only hover preview shown under the bar while the pointer is over the
--- widget: usage limits, agents with state and session title, and unavailable
--- machines in a dense list.
+-- widget: agents with state and session title, and unavailable machines in a dense list.
 
 local common = require("./common.luau")
 
@@ -29,60 +28,6 @@ end
 
 local function message(text, color)
   return line({ ui.label({ text = text, color = color, fontSize = NAME_SIZE, maxLines = 2, flexGrow = 1 }) })
-end
-
-local function resetShort(seconds, now)
-  if seconds - now < 86400 then
-    return os.date("%H:%M", math.floor(seconds))
-  end
-  return os.date("%m-%d %H:%M", math.floor(seconds))
-end
-
--- Fixed-width, right-aligned cell so the columns and the line ends match across providers.
-local function cell(text, width)
-  return ui.row({ width = width, justify = "end" }, {
-    ui.label({ text = text, color = "on_surface_variant", fontSize = DETAIL_SIZE, maxLines = 1 }),
-  })
-end
-
--- Horizontal usage bar; flex weights avoid depending on the container width.
-local function usageBar(color, used, height)
-  used = math.max(0, math.min(100, tonumber(used) or 0))
-  local children = {}
-  if used > 0 then
-    table.insert(children, ui.box({ flexGrow = used, height = height, radius = 2, fill = color }))
-  end
-  if used < 100 then
-    table.insert(children, ui.spacer({ flexGrow = 100 - used }))
-  end
-  return ui.row({ height = height, radius = 2, fill = "on_surface/0.12", align = "stretch" }, children)
-end
-
-local function usageBlock(agentType, usage, now)
-  local info = providerInfo(agentType)
-  local windows = {}
-  for _, pair in ipairs({ { "five", "5h" }, { "week", "7d" } }) do
-    local window = usage[pair[1]]
-    if type(window) == "table" and window.resetsAt and window.resetsAt > now then
-      local used = math.max(0, math.min(100, tonumber(window.usedPercent) or 0))
-      table.insert(windows, ui.row({ gap = 6, align = "center" }, {
-        ui.label({ text = pair[2], width = 22, color = "on_surface_variant", fontSize = DETAIL_SIZE }),
-        ui.column({ width = 90 }, { usageBar(info.color, used, 5) }),
-        cell(string.format("%.1f%% used", used), 72),
-        cell(resetShort(window.resetsAt, now), 72),
-      }))
-    end
-  end
-  if #windows == 0 then
-    return nil
-  end
-  return ui.column({ gap = 2 }, {
-    line({
-      ui.label({ text = info.label, color = info.color, fontWeight = "bold", fontSize = NAME_SIZE }),
-      ui.label({ text = "Usage limits", color = "on_surface", fontWeight = "semibold", fontSize = NAME_SIZE, maxLines = 1 }),
-    }),
-    ui.row({ gap = 16, align = "center" }, windows),
-  })
 end
 
 local function agentName(agent)
@@ -124,17 +69,6 @@ local function rows()
     return { message("Waiting for the Herdr server to start", common.WAITING_COLOR) }
   end
   local out = {}
-  local now = os.time()
-  for _, agentType in ipairs({ "claude", "codex" }) do
-    local usage = type(snapshot.usage) == "table" and snapshot.usage[agentType] or nil
-    local block = type(usage) == "table" and usageBlock(agentType, usage, now) or nil
-    if block then
-      if #out > 0 then
-        table.insert(out, ui.separator({}))
-      end
-      table.insert(out, block)
-    end
-  end
   local agents = common.sortAgents(snapshot.agents or {})
   for index, agent in ipairs(agents) do
     if #out > 0 then

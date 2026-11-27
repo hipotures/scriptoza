@@ -27,9 +27,9 @@ M.IDLE_COLOR = "#b0b0b0"
 
 M.DENSITIES = { "large", "medium", "compact" }
 M.PROFILES = {
-  large = { name = 14, sub = 12, padV = 6, gap = 12, usagePadV = 3 },
-  medium = { name = 13, sub = 11, padV = 4, gap = 10, usagePadV = 2 },
-  compact = { name = 12, sub = 10, padV = 2, gap = 8, usagePadV = 1 },
+  large = { name = 14, sub = 12, padV = 6, gap = 12 },
+  medium = { name = 13, sub = 11, padV = 4, gap = 10 },
+  compact = { name = 12, sub = 10, padV = 2, gap = 8 },
 }
 
 local PRIORITIES = { blocked = 1, working = 2, done = 3, unknown = 4, offline = 5, idle = 6 }
@@ -108,31 +108,6 @@ function M.sortAgents(agents)
     return (left.location or "") < (right.location or "")
   end)
   return sorted
-end
-
-local function formatRemaining(seconds)
-  local minutes = math.max(1, math.ceil(seconds / 60))
-  if minutes >= 1440 then
-    return `{math.floor(minutes / 1440)}d`
-  elseif minutes >= 60 then
-    return string.format("%dh%02dm", math.floor(minutes / 60), minutes % 60)
-  end
-  return `{minutes}m`
-end
-
-function M.formatUsage(usage, now)
-  if type(usage) ~= "table" then
-    return ""
-  end
-  local parts = {}
-  for _, pair in ipairs({ { "five", "5h" }, { "week", "wk" } }) do
-    local window = usage[pair[1]]
-    if type(window) == "table" and window.resetsAt and window.resetsAt > now then
-      local left = math.max(0, math.min(100, math.floor(100 - (window.usedPercent or 0) + 0.5)))
-      table.insert(parts, string.format("%s %d%% · %-5s", pair[2], left, formatRemaining(window.resetsAt - now)))
-    end
-  end
-  return table.concat(parts, "  ")
 end
 
 -- Position of the bar that holds this widget (or of the chosen bar), and the bar section ("start", "center" or
