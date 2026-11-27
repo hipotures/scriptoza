@@ -1,81 +1,8 @@
-# Ignore everything by default
-*
-
-# But allow these:
-!.gitignore
-!README.md
-!*.sh
-
-# Allow conf directory and config files
-!conf/
-!conf/*.conf
-!conf/*.yaml
-
-# Allow video directory and its contents
-!video/
-!video/README.md
-!video/*.py
-!video/*.sh
-
-# Allow tests but ignore binary data
-!tests/
-!tests/*.py
+# Ignore test data
 tests/data/
 
-# Allow photo directory and its contents
-!photo/
-!photo/README.md
-!photo/*.py
-!photo/*.sh
-
-# Allow utils directory and its contents
-!utils/
-!utils/README.md
-!utils/*.py
-!utils/*.js
-!utils/*.sh
-!utils/*.yaml
-!utils/*.env.example
-
-# Allow AI utilities
-!ai/
-!ai/README.md
-!ai/*.py
-!ai/*.service
-!ai/*.js
-
-# Allow the Firefox yt-dlp downloader
-!firefox-yt/
-!firefox-yt/README.md
-!firefox-yt/install.sh
-!firefox-yt/uninstall.sh
-!firefox-yt/package.sh
-!firefox-yt/extension/
-!firefox-yt/extension/*.js
-!firefox-yt/extension/*.json
-!firefox-yt/extension/icons/
-!firefox-yt/extension/icons/*.svg
-!firefox-yt/native/
-!firefox-yt/native/*.py
-!firefox-yt/native/*.json
+# Ignore Firefox extension archives
 firefox-yt/*.xpi
-
-# Allow the new modular package
-!vbc/
-!vbc/**/
-!vbc/**/*.py
-
-# Allow documentation
-!docs/
-!docs/**/
-!docs/**/*.md
-!mkdocs.yml
-!pyproject.toml
-
-# Allow new tests
-!tests/
-!tests/**/
-!tests/**/*.py
 
 # Ignore environment files
 .env
@@ -103,56 +30,6 @@ build/
 site/
 .cache/
 
-# Allow YubiKey notification service
-!utils/yubikey-touch-sound.service
-
 # Keep third-party YubiKey notification audio local
 universfield-new-notification-064-494547.mp3
 universfield-new-notification-066-494545.mp3
-
-# Allow SRM certificate renewal units and example config
-!utils/srm-cert-renew.service
-!utils/srm-cert-renew.timer
-!utils/srm-cert-renew.conf.example
-
-# Allow bk backup units
-!utils/bk.service
-!utils/bk.timer
-
-# Allow Zabbix template generators
-!zabbix/
-!zabbix/README.md
-!zabbix/*.py
-!zabbix/*.json
-
-# Allow GNOME extensions
-!gnome/
-!gnome/README.md
-!gnome/*.sh
-!gnome/rtorrent-status/
-!gnome/rtorrent-status/*.js
-!gnome/rtorrent-status/*.json
-!gnome/rtorrent-status/*.css
-!gnome/*.js
-!gnome/agentai-status/
-!gnome/agentai-status/*.js
-!gnome/agentai-status/*.json
-!gnome/agentai-status/*.css
-!gnome/agentai-status/assets/
-!gnome/agentai-status/assets/icons/
-!gnome/agentai-status/assets/icons/*.svg
-
-# Allow Noctalia (niri) plugins
-!niri/
-!niri/README.md
-!niri/*.sh
-!niri/rtorrent-status/
-!niri/rtorrent-status/*.luau
-!niri/rtorrent-status/*.toml
-!niri/rtorrent-status/*.py
-!niri/agentai-status/
-!niri/agentai-status/*.luau
-!niri/agentai-status/*.toml
-!niri/agent-accounts/
-!niri/agent-accounts/*.luau
-!niri/agent-accounts/*.toml

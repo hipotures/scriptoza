@@ -4,7 +4,7 @@
 
 Scriptoza is a collection of standalone utilities grouped by purpose. Put video tools in `video/`, photo tools in `photo/`, and general-purpose scripts in `utils/`. Each category has its own `README.md`; update it when behavior or requirements change. `firefox-yt/` contains the Firefox extension, native helper, and packaging scripts. Automated checks are in `tests/`, with test modules named `test_*.py`.
 
-The root `.gitignore` ignores files by default and allow-lists supported paths and extensions. When adding a new directory or file type, add an explicit allow rule.
+The root `.gitignore` is a classic ignore list: everything is tracked unless a rule ignores it. Add an ignore rule for generated or local-only files.
 
 ## Build, Test, and Development Commands
 
