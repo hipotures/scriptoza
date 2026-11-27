@@ -192,28 +192,4 @@ function M.clock(ms)
   return os.date("%H:%M:%S", math.floor(ms / 1000))
 end
 
--- kind: "solid", "ring" or "ring-dot"; size in logical px.
-function M.dot(kind, color, opacity, size)
-  size = size or 12
-  local ringSize = math.floor(size * 0.9 + 0.5)
-  if kind == "solid" then
-    return ui.box({ width = ringSize, height = ringSize, radius = ringSize / 2, fill = color, opacity = opacity })
-  end
-  local children = {}
-  if kind == "ring-dot" then
-    local inner = math.max(3, math.floor(size * 0.32 + 0.5))
-    children = { ui.box({ width = inner, height = inner, radius = inner / 2, fill = color }) }
-  end
-  return ui.row({
-    width = ringSize,
-    height = ringSize,
-    radius = ringSize / 2,
-    border = color,
-    borderWidth = math.max(1, size * 0.11),
-    align = "center",
-    justify = "center",
-    opacity = opacity,
-  }, children)
-end
-
 return M

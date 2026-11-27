@@ -88,11 +88,11 @@ coreutils `timeout`.
 
 The bar shows:
 
-- One dot for each non-idle agent.
-- A ring with a center dot when all agents are idle.
-- An empty ring when there are no agents.
-- A pulsing yellow ring while waiting for the local Herdr server.
-- A blinking dot for a `blocked` agent.
+- The number of non-idle agents, colored by the most urgent state among them (blocked, working, done, unknown,
+  offline).
+- A grey `idle` when no agent is running or there are no agents.
+- A pulsing yellow `...` while waiting for the local Herdr server.
+- A blinking number while an agent is `blocked`.
 
 The hover preview lists usage limits, up to 20 agents with their session title and state, and unavailable
 machines. The panel lists usage limits (5-hour and weekly windows), agents sorted as in the GNOME extension, and
@@ -111,10 +111,11 @@ the service entry sends only `GET /health/ready` and `GET /api/v1/profiles` with
 (default 60). It never starts checks, usage windows, authentication, or other provider calls, and it does not
 change account data such as the last payment. Requirement: `curl`.
 
-The bar shows one ring per shown account in the provider color (Claude orange, Antigravity blue, Codex green). The
-ring fills clockwise from 12 o'clock like a pie chart, in 1/8 (12.5%) steps, with the highest used percentage among
-the account's windows: an empty ring means unused, a full disc means exhausted, and any use shows at least one step.
-The pie images are generated once in `~/.cache/scriptoza/agent-accounts/`. Accounts with errors, stale data, or disabled checks are dimmed. A pulsing yellow ring
+The bar shows one gauge per shown account in the provider color (Claude orange, Antigravity blue, Codex green). The
+outer arc fills clockwise from 12 o'clock with the used percentage of the account's longest window (for example
+weekly), and the inner pie with that of its shortest window (for example 5 hours); with a single window both show
+it. Values are rounded to 2%, any use shows at least one step, and only 100% is full. The gauge images are generated
+once in `~/.cache/scriptoza/agent-accounts/`. Accounts with errors, stale data, or disabled checks are dimmed. A pulsing yellow ring
 means the service cannot be reached (for example HTTP 401 behind Pangolin authentication); a pulsing red ring means
 its health check fails.
 

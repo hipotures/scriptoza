@@ -1,60 +1,60 @@
 --!nonstrict
--- Bar indicator: one dot per non-idle agent; a ring with a center dot when all
--- agents are idle; an empty ring with no agents; a pulsing yellow ring while
--- waiting for the local Herdr server. Blocked agents blink.
+-- Bar indicator: the number of non-idle agents, colored by the most urgent state among them
+-- (blocked, working, done, unknown, offline); "idle" in grey when none are running; a pulsing
+-- yellow "..." while waiting for the local Herdr server. A blocked state blinks.
 
 local common = require("./common.luau")
 
 local snapshot = noctalia.state.get("snapshot")
-local dots = {}
+local label = { text = "", color = common.IDLE_COLOR, state = "idle" }
 local mode = "steady"
 local blinkDim = false
 local lastBlinkMs = 0
 
-local function buildDots()
-  dots = {}
+local function buildLabel()
   mode = "steady"
+  label = { text = "idle", color = common.IDLE_COLOR, state = "idle" }
   if type(snapshot) ~= "table" then
     return
   end
   if snapshot.waitingForServer or snapshot.workerFailed then
-    table.insert(dots, { kind = "ring", color = common.WAITING_COLOR, state = "waiting" })
+    label = { text = "...", color = common.WAITING_COLOR, state = "waiting" }
     mode = "waiting"
     return
   end
-  local sorted = common.sortAgents(snapshot.agents or {})
-  for _, agent in ipairs(sorted) do
+  local count = 0
+  for _, agent in ipairs(common.sortAgents(snapshot.agents or {})) do
     if agent.state ~= "idle" and common.STATES[agent.state] then
-      table.insert(dots, { kind = "solid", color = common.STATES[agent.state].color, state = agent.state })
-      if agent.state == "blocked" then
-        mode = "blink"
+      if count == 0 then
+        label = { color = common.STATES[agent.state].color, state = agent.state }
       end
+      count += 1
     end
   end
-  if #dots == 0 then
-    table.insert(dots, { kind = #sorted > 0 and "ring-dot" or "ring", color = common.IDLE_COLOR, state = "idle" })
+  if count > 0 then
+    label.text = tostring(count)
+    if label.state == "blocked" then
+      mode = "blink"
+    end
   end
 end
 
 local function render()
   local now = noctalia.nowMs()
-  local children = table.create(#dots)
-  for _, dot in ipairs(dots) do
-    local opacity = 1
-    if dot.state == "waiting" then
-      opacity = 0.64 + 0.36 * math.cos((now % 3000) / 3000 * 2 * math.pi)
-    elseif dot.state == "blocked" and blinkDim then
-      opacity = 0.27
-    end
-    table.insert(children, common.dot(dot.kind, dot.color, opacity, 12))
+  local opacity = 1
+  if label.state == "waiting" then
+    opacity = 0.64 + 0.36 * math.cos((now % 3000) / 3000 * 2 * math.pi)
+  elseif label.state == "blocked" and blinkDim then
+    opacity = 0.27
   end
-  local container = barWidget.isVertical() and ui.column or ui.row
-  barWidget.render(container({ gap = 5, align = "center", justify = "center" }, children))
+  barWidget.render(ui.row({ align = "center", justify = "center", opacity = opacity }, {
+    ui.label({ text = label.text, color = label.color, fontWeight = "bold", fontSize = 13, maxLines = 1 }),
+  }))
 end
 
 local function refresh()
-  buildDots()
-  barWidget.setVisible(#dots > 0)
+  buildLabel()
+  barWidget.setVisible(type(snapshot) == "table")
   noctalia.setUpdateInterval(mode == "steady" and 1000 or 100)
   render()
 end
