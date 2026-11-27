@@ -108,8 +108,10 @@ local function agentBlock(agent)
       ui.label({ text = state.label, color = state.color, fontSize = DETAIL_SIZE, maxLines = 1 }),
     }),
   }
-  if type(agent.sessionTitle) == "string" and agent.sessionTitle ~= "" then
-    table.insert(children, ui.label({ text = agent.sessionTitle, color = "on_surface_variant", fontSize = DETAIL_SIZE, maxLines = 1 }))
+  local typeInfo = common.AGENT_TYPES[agent.agentType]
+  local title = type(agent.sessionTitle) == "string" and agent.sessionTitle or ""
+  if title ~= "" and not (typeInfo and title == typeInfo.label) then
+    table.insert(children, ui.label({ text = title, color = "on_surface_variant", fontSize = DETAIL_SIZE, maxLines = 1 }))
   end
   return ui.column({ gap = 2 }, children)
 end
