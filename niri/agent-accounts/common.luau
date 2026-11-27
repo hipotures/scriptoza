@@ -405,22 +405,11 @@ function M.barPosition(chosen)
   return order[1] and position(order[1]) or "top"
 end
 
--- Places the hover preview on the bar's edge, at the end where the status widgets sit.
+-- Places the hover preview on the bar's edge, centered along it (the widget sits in the bar's center section).
 function M.previewPlacement(outputName, chosenBar)
   local position = M.barPosition(chosenBar)
-  local anchors = { "top", "right" }
-  local margins = { top = 4, right = 8 }
-  if position == "bottom" then
-    anchors = { "bottom", "right" }
-    margins = { bottom = 4, right = 8 }
-  elseif position == "left" then
-    anchors = { "left", "bottom" }
-    margins = { left = 4, bottom = 8 }
-  elseif position == "right" then
-    anchors = { "right", "bottom" }
-    margins = { right = 4, bottom = 8 }
-  end
-  return { anchors = anchors, margins = margins, clickThrough = true, output = outputName or "focused" }
+  local edge = position == "bottom" and "bottom" or position == "left" and "left" or position == "right" and "right" or "top"
+  return { anchors = { edge }, margins = { [edge] = 4 }, clickThrough = true, output = outputName or "focused" }
 end
 
 M.GAUGE_STEP = 2
@@ -491,7 +480,7 @@ end
 
 -- Concentric gauge: outer arc = longest window, inner pie = shortest window; size in logical px.
 function M.usageDot(color, outerUsed, innerUsed, opacity, size)
-  local gaugeSize = size or 14
+  local gaugeSize = size or 20
   return ui.row({ width = gaugeSize, height = gaugeSize, align = "center", justify = "center", opacity = opacity }, {
     ui.image({ path = M.gaugeImage(color, outerUsed, innerUsed), width = gaugeSize, height = gaugeSize, fit = "contain" }),
   })
