@@ -391,7 +391,17 @@ function M.barPosition(chosen)
     for _, name in ipairs(order) do
       for _, section in ipairs({ "start", "center", "end" }) do
         local items = noctalia.getSetting(`bar.{name}.{section}`)
-        if type(items) == "table" and table.find(items, M.WIDGET_ID) then
+        local found = type(items) == "table" and table.find(items, M.WIDGET_ID) ~= nil
+        if type(items) == "table" and not found then
+          local groups = noctalia.getSetting(`bar.{name}.capsule_group`)
+          for _, group in ipairs(type(groups) == "table" and groups or {}) do
+            if type(group) == "table" and type(group.members) == "table" and table.find(group.members, M.WIDGET_ID)
+              and table.find(items, `group:{group.id}`) then
+              found = true
+            end
+          end
+        end
+        if found then
           first = first or { name = name, section = section }
         end
       end
