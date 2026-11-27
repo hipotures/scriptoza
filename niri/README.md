@@ -90,7 +90,7 @@ The bar shows:
 
 - A ring with the number of non-idle agents inside, both colored by the most urgent state among them (blocked,
   working, done, unknown, offline).
-- An empty grey ring when no agent is running or there are no agents.
+- A grey ring with the number of idle agents when none is running; empty when there are no agents.
 - An empty pulsing yellow ring while waiting for the local Herdr server.
 - A blinking ring while an agent is `blocked`.
 

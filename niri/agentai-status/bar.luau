@@ -1,7 +1,7 @@
 --!nonstrict
 -- Bar indicator: a ring with the number of non-idle agents inside, both colored by the most urgent
--- state among them (blocked, working, done, unknown, offline); an empty grey ring when none are
--- running; an empty pulsing yellow ring while waiting for the local Herdr server. A blocked state blinks.
+-- state among them (blocked, working, done, unknown, offline); a grey ring with the number of idle agents when
+-- none are running (empty without agents); an empty pulsing yellow ring while waiting for the local Herdr server. A blocked state blinks.
 
 local common = require("./common.luau")
 
@@ -23,7 +23,11 @@ local function buildLabel()
     return
   end
   local count = 0
+  local idle = 0
   for _, agent in ipairs(common.sortAgents(snapshot.agents or {})) do
+    if agent.state == "idle" then
+      idle += 1
+    end
     if agent.state ~= "idle" and common.STATES[agent.state] then
       if count == 0 then
         label = { color = common.STATES[agent.state].color, state = agent.state }
@@ -36,6 +40,8 @@ local function buildLabel()
     if label.state == "blocked" then
       mode = "blink"
     end
+  elseif idle > 0 then
+    label.text = tostring(idle)
   end
 end
 
