@@ -491,7 +491,7 @@ end
 
 -- Concentric gauge: outer arc = longest window, inner pie = shortest window; size in logical px.
 function M.usageDot(color, outerUsed, innerUsed, opacity, size)
-  local gaugeSize = size or 20
+  local gaugeSize = size or 14
   return ui.row({ width = gaugeSize, height = gaugeSize, align = "center", justify = "center", opacity = opacity }, {
     ui.image({ path = M.gaugeImage(color, outerUsed, innerUsed), width = gaugeSize, height = gaugeSize, fit = "contain" }),
   })
