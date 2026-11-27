@@ -454,23 +454,22 @@ local function gaugeStep(used)
 end
 
 local function gaugeSvg(color, outer, inner)
+  if outer >= 100 or inner >= 100 then
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9.5" fill="{color}"/></svg>\n`
+  end
   local circumference = 2 * math.pi * 8.2
   local parts = {
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">',
     `<circle cx="10" cy="10" r="8.2" fill="none" stroke="{color}" stroke-width="2.6" opacity="0.22"/>`,
   }
-  if outer >= 100 then
-    table.insert(parts, `<circle cx="10" cy="10" r="8.2" fill="none" stroke="{color}" stroke-width="2.6"/>`)
-  elseif outer > 0 then
+  if outer > 0 then
     table.insert(parts, string.format(
       '<circle cx="10" cy="10" r="8.2" fill="none" stroke="%s" stroke-width="2.6" stroke-dasharray="%.2f %.2f" transform="rotate(-90 10 10)"/>',
       color, outer / 100 * circumference, circumference
     ))
   end
   table.insert(parts, `<circle cx="10" cy="10" r="5.2" fill="{color}" opacity="0.12"/>`)
-  if inner >= 100 then
-    table.insert(parts, `<circle cx="10" cy="10" r="5.2" fill="{color}"/>`)
-  elseif inner > 0 then
+  if inner > 0 then
     local angle = inner / 100 * 2 * math.pi
     local large = inner > 50 and 1 or 0
     table.insert(parts, string.format(
@@ -484,10 +483,11 @@ end
 
 local gaugeCache = {}
 
--- Path of a cached SVG gauge: outer arc and inner pie, both filled clockwise from 12 o'clock.
+-- Path of a cached SVG gauge: outer arc and inner pie, both filled clockwise from 12 o'clock, or a solid disc when either is full.
 function M.gaugeImage(color, outerUsed, innerUsed)
   local outer, inner = gaugeStep(outerUsed), gaugeStep(innerUsed)
-  local key = `{color}-{outer}-{inner}`
+  local suffix = (outer >= 100 or inner >= 100) and "full" or `{outer}-{inner}`
+  local key = `{color}-{suffix}`
   if gaugeCache[key] then
     return gaugeCache[key]
   end
@@ -496,7 +496,7 @@ function M.gaugeImage(color, outerUsed, innerUsed)
     base = noctalia.expandPath("~/.cache")
   end
   local dir = base .. "/scriptoza/agent-accounts"
-  local path = `{dir}/gauge-{(string.gsub(color, "#", ""))}-{outer}-{inner}.svg`
+  local path = `{dir}/gauge-{(string.gsub(color, "#", ""))}-{suffix}.svg`
   if not noctalia.fileExists(path) then
     noctalia.mkdirAll(dir)
     noctalia.writeFile(path, gaugeSvg(color, outer, inner))

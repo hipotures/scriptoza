@@ -1,8 +1,9 @@
 --!nonstrict
 -- Bar indicator: one gauge per shown account; the outer arc shows the used percentage of its
--- longest window and the inner pie that of its shortest, both filled clockwise. Accounts with stale data, errors or
--- disabled checks are dimmed. A pulsing yellow ring means the service cannot be
--- reached; a pulsing red ring means its health check fails.
+-- longest window and the inner pie that of its shortest, both filled clockwise, collapsing to a
+-- solid disc when either window is exhausted. Accounts with stale data, errors or disabled checks
+-- are dimmed. A pulsing yellow ring means the service cannot be reached; a pulsing red ring means
+-- its health check fails.
 
 local common = require("./common.luau")
 

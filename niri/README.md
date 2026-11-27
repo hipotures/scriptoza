@@ -114,7 +114,8 @@ change account data such as the last payment. Requirement: `curl`.
 The bar shows one gauge per shown account in the provider color (Claude orange, Antigravity blue, Codex green). The
 outer arc fills clockwise from 12 o'clock with the used percentage of the account's longest window (for example
 weekly), and the inner pie with that of its shortest window (for example 5 hours); with a single window both show
-it. Values are rounded to 2%, any use shows at least one step, and only 100% is full. The gauge images are generated
+it. When either window reaches 100% (or is reported exhausted), the gauge becomes a solid filled circle. Values are
+rounded to 2%, any use shows at least one step, and only 100% is full. The gauge images are generated
 once in `~/.cache/scriptoza/agent-accounts/`. Accounts with errors, stale data, or disabled checks are dimmed. A pulsing yellow ring
 means the service cannot be reached (for example HTTP 401 behind Pangolin authentication); a pulsing red ring means
 its health check fails.
