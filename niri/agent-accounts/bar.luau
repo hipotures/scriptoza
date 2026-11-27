@@ -46,7 +46,7 @@ local function render()
     if pulsing then
       opacity = 0.64 + 0.36 * math.cos((now % 3000) / 3000 * 2 * math.pi)
     end
-    table.insert(children, common.usageDot(dot.color, dot.outer, dot.inner, opacity, 20))
+    table.insert(children, common.usageDot(dot.color, dot.outer, dot.inner, opacity, 17))
   end
   local container = barWidget.isVertical() and ui.column or ui.row
   barWidget.render(container({ gap = 5, align = "center", justify = "center" }, children))
