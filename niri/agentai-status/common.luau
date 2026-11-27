@@ -10,7 +10,7 @@ M.WIDGET_ID = "scriptoza/agentai-status:bar"
 M.STATES = {
   blocked = { label = "Needs attention", color = "#f66151", glyph = "alert-triangle" },
   done = { label = "Done", color = "#57e389", glyph = "check" },
-  working = { label = "Working", color = "#62a0ea", glyph = "player-play" },
+  working = { label = "Working", color = "#c061cb", glyph = "player-play" },
   unknown = { label = "Unknown", color = "#f8e45c", glyph = "help" },
   idle = { label = "Idle", color = "#b0b0b0", glyph = "player-pause" },
   offline = { label = "Disconnected", color = "#777777", glyph = "wifi-off" },
