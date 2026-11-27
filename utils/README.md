@@ -19,6 +19,7 @@ The `utils/` directory contains only non-pipeline helpers. The event workflow pi
 - `musescore_export_mp3_with_tags.py` - Exports MuseScore `.mscz` files to tagged MP3s named from `workTitle`
 - `wav_to_mp3.py` - Recursively converts WAV files to high-quality VBR MP3 next to the originals without overwriting or deleting anything
 - `srm_cert_renew.py` - Keeps a Let's Encrypt certificate current on a Synology SRM router
+- `bk.py` - Installed as `bk`: configurable workspace backup into rotating `.tgz` archives (`bk list|edit|run|status`); configured sources that no longer exist are skipped with a warning in the status and log instead of failing the backup
 - `install.py` - Installs selected utility scripts into a local bin directory
   and copies the optional `codex-resume` systemd user unit to
   `~/.config/systemd/user/`

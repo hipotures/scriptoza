@@ -32,6 +32,7 @@ def main():
     scripts = [
         ("utils/yubikey_touch_sound.py", "yubikey_touch_sound.py"),
         ("utils/srm_cert_renew.py", "srm-cert-renew"),
+        ("utils/bk.py", "bk"),
         ("video/rename_video_univ.py", "rename-video-univ"),
         ("video/rename_video_by_tags.py", "rename-video-by-tags"),
         ("video/rename_video_by_tags.py", "rename-video"),
