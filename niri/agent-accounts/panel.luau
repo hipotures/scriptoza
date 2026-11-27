@@ -206,9 +206,14 @@ end
 
 local function limitRows(profile, color)
   local rows = {}
+  local now = os.time()
   for _, limit in ipairs(common.limitsOf(profile, config)) do
-    local used = math.max(0, math.min(100, tonumber(limit.used_percent) or 0))
-    local reset = limit.resets_at and `Resets {common.dateTime(limit.resets_at)}` or "Not started"
+    local state = common.windowState(profile, limit, now)
+    local used = state.used
+    local reset = "Not started"
+    if not state.notStarted then
+      reset = state.resetsAt and `Resets {common.dateTime(state.resetsAt)}` or "Reset time unknown"
+    end
     table.insert(rows, ui.column({ gap = 3 }, {
       ui.row({ gap = 8, align = "center" }, {
         ui.label({ text = common.windowLabel(limit.window_minutes), color = "on_surface", fontWeight = "semibold", fontSize = 13, flexGrow = 1 }),

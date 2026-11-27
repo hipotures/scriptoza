@@ -74,12 +74,13 @@ if [[ -z "$registered" ]]; then
 fi
 
 widgets=()
+# Captured first: with pipefail, "list | grep -q" fails when grep closes the pipe early.
+installed="$(noctalia msg plugins list)"
 for component in "${components[@]}"; do
     # Reinstalling replaces the files, which hot reload does not always pick up; reload explicitly.
-    if noctalia msg plugins list | grep -q "^scriptoza/$component .* enabled"; then
+    if grep -q "^scriptoza/$component .* enabled" <<<"$installed"; then
         noctalia msg plugins disable "scriptoza/$component"
-        # Enabling right after disabling can keep the old required modules (common.luau) loaded.
-        sleep 2
+        sleep 1
     fi
     noctalia msg plugins enable "scriptoza/$component"
     widgets+=("scriptoza/$component:bar")

@@ -21,7 +21,7 @@ end
 
 local function resetShort(seconds, now)
   if not seconds then
-    return "not started"
+    return "reset unknown"
   end
   if seconds - now < 86400 then
     return os.date("%H:%M", math.floor(seconds))
@@ -51,12 +51,13 @@ local function accountBlock(profile, now)
   local header = line(headerChildren)
   local windows = {}
   for _, limit in ipairs(common.limitsOf(profile, config)) do
-    local used = tonumber(limit.used_percent) or 0
+    local state = common.windowState(profile, limit, now)
+    local used = state.used
     table.insert(windows, ui.row({ gap = 6, align = "center" }, {
       ui.label({ text = common.shortWindow(limit.window_minutes), color = "on_surface_variant", fontSize = DETAIL_SIZE }),
       ui.column({ width = 90 }, { common.usageBar(info.color, used, 5) }),
       ui.label({
-        text = `{common.percent(used)} used · {resetShort(limit.resets_at, now)}`,
+        text = `{common.percent(used)} used · {state.notStarted and "not started" or resetShort(state.resetsAt, now)}`,
         color = "on_surface_variant",
         fontSize = DETAIL_SIZE,
         maxLines = 1,

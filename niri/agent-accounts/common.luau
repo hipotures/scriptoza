@@ -216,14 +216,44 @@ function M.limitsOf(profile, config)
   return out
 end
 
+-- Same rules as the Agent Accounts web UI: a window whose reset is unknown, or a full window away, has not
+-- started; a reported reset that already passed has ended. A window started on request (window_started_at)
+-- counts as started until it would end, and its reset follows from the start while the provider still
+-- reports the pre-start state. Returns { used, notStarted, resetsAt }.
+function M.windowState(profile, limit, now)
+  local span = (tonumber(limit.window_minutes) or 0) * 60
+  local used = limit.exhausted == true and 100 or math.max(0, math.min(100, tonumber(limit.used_percent) or 0))
+  local snapshot = type(profile.snapshot) == "table" and profile.snapshot or {}
+  local observed = tonumber(snapshot.observed_at) or now
+  local started = tonumber(profile.window_started_at)
+  local startedReset = span > 0 and started and started + span > now and started + span or nil
+  local resetsAt = tonumber(limit.resets_at)
+  local fullWindowAway = not resetsAt or resetsAt - observed >= span - 120
+  local notStarted = false
+  if span > 0 and not startedReset then
+    if resetsAt and resetsAt <= now then
+      notStarted = true
+    else
+      notStarted = used == 0 and fullWindowAway
+    end
+  end
+  if notStarted then
+    return { used = 0, notStarted = true, resetsAt = nil }
+  end
+  if used == 0 and startedReset and fullWindowAway then
+    resetsAt = startedReset
+  end
+  return { used = used, notStarted = false, resetsAt = resetsAt }
+end
+
 -- Highest used percentage among the shown windows, 0..100.
 function M.maxUsed(profile, config)
   local used = 0
+  local now = os.time()
   for _, limit in ipairs(M.limitsOf(profile, config)) do
-    local value = limit.exhausted == true and 100 or tonumber(limit.used_percent) or 0
-    used = math.max(used, value)
+    used = math.max(used, M.windowState(profile, limit, now).used)
   end
-  return math.max(0, math.min(100, used))
+  return used
 end
 
 -- Profiles filtered by the free toggle and sorted by the configured order (unknown ones keep API order).
