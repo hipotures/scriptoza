@@ -28,6 +28,13 @@ local function resetShort(seconds, now)
   return os.date("%m-%d %H:%M", math.floor(seconds))
 end
 
+-- Fixed-width, right-aligned cell so the columns and the line ends match across accounts.
+local function cell(text, width)
+  return ui.row({ width = width, justify = "end" }, {
+    ui.label({ text = text, color = "on_surface_variant", fontSize = DETAIL_SIZE, maxLines = 1 }),
+  })
+end
+
 local function accountBlock(profile, now)
   local info = common.providerInfo(profile)
   local account = type(profile.account) == "table" and profile.account or {}
@@ -58,14 +65,10 @@ local function accountBlock(profile, now)
     local state = common.windowState(profile, limit, now)
     local used = state.used
     table.insert(windows, ui.row({ gap = 6, align = "center" }, {
-      ui.label({ text = common.shortWindow(limit.window_minutes), color = "on_surface_variant", fontSize = DETAIL_SIZE }),
+      ui.label({ text = common.shortWindow(limit.window_minutes), width = 22, color = "on_surface_variant", fontSize = DETAIL_SIZE }),
       ui.column({ width = 90 }, { common.usageBar(info.color, used, 5) }),
-      ui.label({
-        text = `{common.percent(used)} used · {state.notStarted and "not started" or resetShort(state.resetsAt, now)}`,
-        color = "on_surface_variant",
-        fontSize = DETAIL_SIZE,
-        maxLines = 1,
-      }),
+      cell(`{common.percent(used)} used`, 72),
+      cell(state.notStarted and "not started" or resetShort(state.resetsAt, now), 72),
     }))
   end
   if #windows == 0 then
