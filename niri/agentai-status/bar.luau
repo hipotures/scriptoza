@@ -53,10 +53,10 @@ local function render()
   elseif label.state == "blocked" and blinkDim then
     opacity = 0.27
   end
-  local size = 17
+  local size = 16
   local children = {}
   if label.text ~= "" then
-    local fontSize = #label.text > 1 and 9 or 11
+    local fontSize = #label.text > 1 and 8 or 10
     children = { ui.label({ text = label.text, color = label.color, fontWeight = "bold", fontSize = fontSize, maxLines = 1 }) }
   end
   barWidget.render(ui.row({
@@ -64,7 +64,7 @@ local function render()
     height = size,
     radius = size / 2,
     border = label.color,
-    borderWidth = 1.6,
+    borderWidth = 2.2,
     align = "center",
     justify = "center",
     opacity = opacity,
