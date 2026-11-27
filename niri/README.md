@@ -88,11 +88,11 @@ coreutils `timeout`.
 
 The bar shows:
 
-- The number of non-idle agents, colored by the most urgent state among them (blocked, working, done, unknown,
-  offline).
-- A grey `idle` when no agent is running or there are no agents.
-- A pulsing yellow `...` while waiting for the local Herdr server.
-- A blinking number while an agent is `blocked`.
+- A ring with the number of non-idle agents inside, both colored by the most urgent state among them (blocked,
+  working, done, unknown, offline).
+- An empty grey ring when no agent is running or there are no agents.
+- An empty pulsing yellow ring while waiting for the local Herdr server.
+- A blinking ring while an agent is `blocked`.
 
 The hover preview lists usage limits, up to 20 agents with their session title and state, and unavailable
 machines. The panel lists usage limits (5-hour and weekly windows), agents sorted as in the GNOME extension, and

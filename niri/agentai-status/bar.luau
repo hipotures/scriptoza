@@ -1,7 +1,7 @@
 --!nonstrict
--- Bar indicator: the number of non-idle agents, colored by the most urgent state among them
--- (blocked, working, done, unknown, offline); "idle" in grey when none are running; a pulsing
--- yellow "..." while waiting for the local Herdr server. A blocked state blinks.
+-- Bar indicator: a ring with the number of non-idle agents inside, both colored by the most urgent
+-- state among them (blocked, working, done, unknown, offline); an empty grey ring when none are
+-- running; an empty pulsing yellow ring while waiting for the local Herdr server. A blocked state blinks.
 
 local common = require("./common.luau")
 
@@ -13,12 +13,12 @@ local lastBlinkMs = 0
 
 local function buildLabel()
   mode = "steady"
-  label = { text = "idle", color = common.IDLE_COLOR, state = "idle" }
+  label = { text = "", color = common.IDLE_COLOR, state = "idle" }
   if type(snapshot) ~= "table" then
     return
   end
   if snapshot.waitingForServer or snapshot.workerFailed then
-    label = { text = "...", color = common.WAITING_COLOR, state = "waiting" }
+    label = { text = "", color = common.WAITING_COLOR, state = "waiting" }
     mode = "waiting"
     return
   end
@@ -47,9 +47,22 @@ local function render()
   elseif label.state == "blocked" and blinkDim then
     opacity = 0.27
   end
-  barWidget.render(ui.row({ align = "center", justify = "center", opacity = opacity }, {
-    ui.label({ text = label.text, color = label.color, fontWeight = "bold", fontSize = 13, maxLines = 1 }),
-  }))
+  local size = 17
+  local children = {}
+  if label.text ~= "" then
+    local fontSize = #label.text > 1 and 9 or 11
+    children = { ui.label({ text = label.text, color = label.color, fontWeight = "bold", fontSize = fontSize, maxLines = 1 }) }
+  end
+  barWidget.render(ui.row({
+    width = size,
+    height = size,
+    radius = size / 2,
+    border = label.color,
+    borderWidth = 1.6,
+    align = "center",
+    justify = "center",
+    opacity = opacity,
+  }, children))
 end
 
 local function refresh()
