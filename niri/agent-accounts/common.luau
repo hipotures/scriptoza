@@ -246,14 +246,16 @@ function M.windowState(profile, limit, now)
   return { used = used, notStarted = false, resetsAt = resetsAt }
 end
 
--- Highest used percentage among the shown windows, 0..100.
-function M.maxUsed(profile, config)
-  local used = 0
-  local now = os.time()
-  for _, limit in ipairs(M.limitsOf(profile, config)) do
-    used = math.max(used, M.windowState(profile, limit, now).used)
+-- Used percentage of the longest and the shortest shown window, 0..100 each; equal for a single window.
+function M.windowsUsed(profile, config)
+  local limits = M.limitsOf(profile, config)
+  if #limits == 0 then
+    return 0, 0
   end
-  return used
+  local now = os.time()
+  local longest = M.windowState(profile, limits[#limits], now).used
+  local shortest = M.windowState(profile, limits[1], now).used
+  return longest, shortest
 end
 
 -- Profiles filtered by the free toggle and sorted by the configured order (unknown ones keep API order).
@@ -421,67 +423,77 @@ function M.previewPlacement(outputName, chosenBar)
   return { anchors = anchors, margins = margins, clickThrough = true, output = outputName or "focused" }
 end
 
-M.PIE_STEPS = 8
+M.GAUGE_STEP = 2
 
--- Pie step for a used percentage: any use shows at least one step, and only 100% is a full disc.
-function M.pieStep(used)
+local function gaugeStep(used)
   used = math.max(0, math.min(100, tonumber(used) or 0))
-  local step = math.floor(used / 100 * M.PIE_STEPS + 0.5)
+  local step = math.floor(used / M.GAUGE_STEP + 0.5) * M.GAUGE_STEP
   if used > 0 then
-    step = math.max(1, step)
+    step = math.max(M.GAUGE_STEP, step)
   end
   if used < 100 then
-    step = math.min(M.PIE_STEPS - 1, step)
+    step = math.min(100 - M.GAUGE_STEP, step)
   end
   return step
 end
 
-local function pieSvg(color, step)
+local function gaugeSvg(color, outer, inner)
+  local circumference = 2 * math.pi * 8.2
   local parts = {
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">',
-    `<circle cx="12" cy="12" r="10.5" fill="none" stroke="{color}" stroke-width="2"/>`,
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">',
+    `<circle cx="10" cy="10" r="8.2" fill="none" stroke="{color}" stroke-width="2.6" opacity="0.22"/>`,
   }
-  if step >= M.PIE_STEPS then
-    table.insert(parts, `<circle cx="12" cy="12" r="9" fill="{color}"/>`)
-  elseif step > 0 then
-    local angle = step / M.PIE_STEPS * 2 * math.pi
-    local x = 12 + 9 * math.sin(angle)
-    local y = 12 - 9 * math.cos(angle)
-    local large = step > M.PIE_STEPS / 2 and 1 or 0
-    table.insert(parts, string.format('<path d="M12 12 L12 3 A9 9 0 %d 1 %.3f %.3f Z" fill="%s"/>', large, x, y, color))
+  if outer >= 100 then
+    table.insert(parts, `<circle cx="10" cy="10" r="8.2" fill="none" stroke="{color}" stroke-width="2.6"/>`)
+  elseif outer > 0 then
+    table.insert(parts, string.format(
+      '<circle cx="10" cy="10" r="8.2" fill="none" stroke="%s" stroke-width="2.6" stroke-dasharray="%.2f %.2f" transform="rotate(-90 10 10)"/>',
+      color, outer / 100 * circumference, circumference
+    ))
+  end
+  table.insert(parts, `<circle cx="10" cy="10" r="5.2" fill="{color}" opacity="0.12"/>`)
+  if inner >= 100 then
+    table.insert(parts, `<circle cx="10" cy="10" r="5.2" fill="{color}"/>`)
+  elseif inner > 0 then
+    local angle = inner / 100 * 2 * math.pi
+    local large = inner > 50 and 1 or 0
+    table.insert(parts, string.format(
+      '<path d="M10 10 L10 4.8 A5.2 5.2 0 %d 1 %.2f %.2f Z" fill="%s"/>',
+      large, 10 + 5.2 * math.sin(angle), 10 - 5.2 * math.cos(angle), color
+    ))
   end
   table.insert(parts, "</svg>\n")
   return table.concat(parts)
 end
 
-local pieCache = {}
+local gaugeCache = {}
 
--- Path of a cached SVG ring filled clockwise from 12 o'clock in 1/PIE_STEPS steps.
-function M.pieImage(color, used)
-  local step = M.pieStep(used)
-  local key = `{color}-{step}`
-  if pieCache[key] then
-    return pieCache[key]
+-- Path of a cached SVG gauge: outer arc and inner pie, both filled clockwise from 12 o'clock.
+function M.gaugeImage(color, outerUsed, innerUsed)
+  local outer, inner = gaugeStep(outerUsed), gaugeStep(innerUsed)
+  local key = `{color}-{outer}-{inner}`
+  if gaugeCache[key] then
+    return gaugeCache[key]
   end
   local base = noctalia.getenv("XDG_CACHE_HOME")
   if not base or base == "" then
     base = noctalia.expandPath("~/.cache")
   end
   local dir = base .. "/scriptoza/agent-accounts"
-  local path = `{dir}/pie-{(string.gsub(color, "#", ""))}-{step}of{M.PIE_STEPS}.svg`
+  local path = `{dir}/gauge-{(string.gsub(color, "#", ""))}-{outer}-{inner}.svg`
   if not noctalia.fileExists(path) then
     noctalia.mkdirAll(dir)
-    noctalia.writeFile(path, pieSvg(color, step))
+    noctalia.writeFile(path, gaugeSvg(color, outer, inner))
   end
-  pieCache[key] = path
+  gaugeCache[key] = path
   return path
 end
 
--- A ring filled like a pie chart by the used percentage; size in logical px.
-function M.usageDot(color, used, opacity, size)
-  local ringSize = math.floor((size or 12) * 0.9 + 0.5)
-  return ui.row({ width = ringSize, height = ringSize, align = "center", justify = "center", opacity = opacity }, {
-    ui.image({ path = M.pieImage(color, used), width = ringSize, height = ringSize, fit = "contain" }),
+-- Concentric gauge: outer arc = longest window, inner pie = shortest window; size in logical px.
+function M.usageDot(color, outerUsed, innerUsed, opacity, size)
+  local gaugeSize = size or 20
+  return ui.row({ width = gaugeSize, height = gaugeSize, align = "center", justify = "center", opacity = opacity }, {
+    ui.image({ path = M.gaugeImage(color, outerUsed, innerUsed), width = gaugeSize, height = gaugeSize, fit = "contain" }),
   })
 end
 

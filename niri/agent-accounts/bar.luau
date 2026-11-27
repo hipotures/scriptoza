@@ -1,6 +1,6 @@
 --!nonstrict
--- Bar indicator: one ring per shown account, filled clockwise like a pie chart
--- (1/8 steps) by the highest used percentage of its windows. Accounts with stale data, errors or
+-- Bar indicator: one gauge per shown account; the outer arc shows the used percentage of its
+-- longest window and the inner pie that of its shortest, both filled clockwise. Accounts with stale data, errors or
 -- disabled checks are dimmed. A pulsing yellow ring means the service cannot be
 -- reached; a pulsing red ring means its health check fails.
 
@@ -15,24 +15,26 @@ local function buildDots()
   dots = {}
   pulsing = false
   if type(snapshot) ~= "table" or snapshot.error then
-    table.insert(dots, { color = common.WAITING_COLOR, used = 0 })
+    table.insert(dots, { color = common.WAITING_COLOR, outer = 0, inner = 0 })
     pulsing = true
     return
   end
   if snapshot.health ~= "pass" then
-    table.insert(dots, { color = common.ERROR_COLOR, used = 0 })
+    table.insert(dots, { color = common.ERROR_COLOR, outer = 0, inner = 0 })
     pulsing = true
     return
   end
   for _, profile in ipairs(common.visibleProfiles(snapshot.profiles, config)) do
+    local outer, inner = common.windowsUsed(profile, config)
     table.insert(dots, {
       color = common.providerInfo(profile).color,
-      used = common.maxUsed(profile, config),
+      outer = outer,
+      inner = inner,
       dim = common.problem(profile) ~= nil,
     })
   end
   if #dots == 0 then
-    table.insert(dots, { color = common.IDLE_COLOR, used = 0 })
+    table.insert(dots, { color = common.IDLE_COLOR, outer = 0, inner = 0 })
   end
 end
 
@@ -44,7 +46,7 @@ local function render()
     if pulsing then
       opacity = 0.64 + 0.36 * math.cos((now % 3000) / 3000 * 2 * math.pi)
     end
-    table.insert(children, common.usageDot(dot.color, dot.used, opacity, 14))
+    table.insert(children, common.usageDot(dot.color, dot.outer, dot.inner, opacity, 20))
   end
   local container = barWidget.isVertical() and ui.column or ui.row
   barWidget.render(container({ gap = 5, align = "center", justify = "center" }, children))
