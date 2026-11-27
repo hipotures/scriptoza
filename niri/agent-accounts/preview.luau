@@ -41,16 +41,18 @@ local function accountBlock(profile, now)
     title ..= ` · {common.groupLabel(group)}`
   end
   local problem = common.problem(profile)
-  local right = problem or common.periodLeft(profile, now) or ""
-  local header = line({
+  local headerChildren = {
     ui.label({ text = info.label, color = info.color, fontWeight = "bold", fontSize = NAME_SIZE }),
-    ui.label({ text = title, color = "on_surface", fontWeight = "semibold", fontSize = NAME_SIZE, maxLines = 1, flexGrow = 1 }),
-    ui.label({ text = right, color = problem and common.WAITING_COLOR or "on_surface_variant", fontSize = DETAIL_SIZE, maxLines = 1 }),
-  })
+    ui.label({ text = title, color = "on_surface", fontWeight = "semibold", fontSize = NAME_SIZE, maxLines = 1 }),
+  }
+  if problem then
+    table.insert(headerChildren, ui.label({ text = problem, color = common.WAITING_COLOR, fontSize = DETAIL_SIZE, maxLines = 1 }))
+  end
+  local header = line(headerChildren)
   local windows = {}
   for _, limit in ipairs(common.limitsOf(profile, config)) do
     local used = tonumber(limit.used_percent) or 0
-    table.insert(windows, ui.row({ gap = 6, align = "center", flexGrow = 1 }, {
+    table.insert(windows, ui.row({ gap = 6, align = "center" }, {
       ui.label({ text = common.shortWindow(limit.window_minutes), color = "on_surface_variant", fontSize = DETAIL_SIZE }),
       ui.column({ width = 90 }, { common.usageBar(info.color, used, 5) }),
       ui.label({
@@ -64,7 +66,14 @@ local function accountBlock(profile, now)
   if #windows == 0 then
     table.insert(windows, ui.label({ text = "No usage data", color = "on_surface_variant", fontSize = DETAIL_SIZE }))
   end
-  return ui.column({ gap = 2, opacity = problem and 0.7 or 1 }, { header, line(windows) })
+  local ends = common.periodLeft(profile, now)
+  if ends then
+    table.insert(windows, ui.label({ text = `· {ends}`, color = "on_surface_variant", fontSize = DETAIL_SIZE, maxLines = 1 }))
+  end
+  return ui.column({ gap = 2, opacity = problem and 0.7 or 1 }, {
+    header,
+    ui.row({ gap = 16, align = "center" }, windows),
+  })
 end
 
 local function rows()

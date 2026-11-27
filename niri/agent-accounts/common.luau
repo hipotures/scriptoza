@@ -361,27 +361,68 @@ function M.previewPlacement(outputName)
   return { anchors = anchors, margins = margins, clickThrough = true, output = outputName or "focused" }
 end
 
--- A ring whose center disc grows with the used fraction (area-proportional); size in logical px.
-function M.usageDot(color, used, opacity, size)
-  size = size or 12
-  local ringSize = math.floor(size * 0.9 + 0.5)
-  local border = math.max(1, size * 0.11)
-  local innerMax = ringSize - 2 * border - 2
-  local inner = math.floor(innerMax * math.sqrt(math.max(0, math.min(100, used)) / 100) + 0.5)
-  local children = {}
-  if inner >= 2 then
-    children = { ui.box({ width = inner, height = inner, radius = inner / 2, fill = color }) }
+M.PIE_STEPS = 8
+
+-- Pie step for a used percentage: any use shows at least one step, and only 100% is a full disc.
+function M.pieStep(used)
+  used = math.max(0, math.min(100, tonumber(used) or 0))
+  local step = math.floor(used / 100 * M.PIE_STEPS + 0.5)
+  if used > 0 then
+    step = math.max(1, step)
   end
-  return ui.row({
-    width = ringSize,
-    height = ringSize,
-    radius = ringSize / 2,
-    border = color,
-    borderWidth = border,
-    align = "center",
-    justify = "center",
-    opacity = opacity,
-  }, children)
+  if used < 100 then
+    step = math.min(M.PIE_STEPS - 1, step)
+  end
+  return step
+end
+
+local function pieSvg(color, step)
+  local parts = {
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">',
+    `<circle cx="12" cy="12" r="10.5" fill="none" stroke="{color}" stroke-width="2"/>`,
+  }
+  if step >= M.PIE_STEPS then
+    table.insert(parts, `<circle cx="12" cy="12" r="9" fill="{color}"/>`)
+  elseif step > 0 then
+    local angle = step / M.PIE_STEPS * 2 * math.pi
+    local x = 12 + 9 * math.sin(angle)
+    local y = 12 - 9 * math.cos(angle)
+    local large = step > M.PIE_STEPS / 2 and 1 or 0
+    table.insert(parts, string.format('<path d="M12 12 L12 3 A9 9 0 %d 1 %.3f %.3f Z" fill="%s"/>', large, x, y, color))
+  end
+  table.insert(parts, "</svg>\n")
+  return table.concat(parts)
+end
+
+local pieCache = {}
+
+-- Path of a cached SVG ring filled clockwise from 12 o'clock in 1/PIE_STEPS steps.
+function M.pieImage(color, used)
+  local step = M.pieStep(used)
+  local key = `{color}-{step}`
+  if pieCache[key] then
+    return pieCache[key]
+  end
+  local base = noctalia.getenv("XDG_CACHE_HOME")
+  if not base or base == "" then
+    base = noctalia.expandPath("~/.cache")
+  end
+  local dir = base .. "/scriptoza/agent-accounts"
+  local path = `{dir}/pie-{(string.gsub(color, "#", ""))}-{step}of{M.PIE_STEPS}.svg`
+  if not noctalia.fileExists(path) then
+    noctalia.mkdirAll(dir)
+    noctalia.writeFile(path, pieSvg(color, step))
+  end
+  pieCache[key] = path
+  return path
+end
+
+-- A ring filled like a pie chart by the used percentage; size in logical px.
+function M.usageDot(color, used, opacity, size)
+  local ringSize = math.floor((size or 12) * 0.9 + 0.5)
+  return ui.row({ width = ringSize, height = ringSize, align = "center", justify = "center", opacity = opacity }, {
+    ui.image({ path = M.pieImage(color, used), width = ringSize, height = ringSize, fit = "contain" }),
+  })
 end
 
 -- Horizontal usage bar; flex weights avoid depending on the container width.

@@ -1,6 +1,6 @@
 --!nonstrict
--- Bar indicator: one ring per shown account, filled from the center by the
--- highest used percentage of its windows. Accounts with stale data, errors or
+-- Bar indicator: one ring per shown account, filled clockwise like a pie chart
+-- (1/8 steps) by the highest used percentage of its windows. Accounts with stale data, errors or
 -- disabled checks are dimmed. A pulsing yellow ring means the service cannot be
 -- reached; a pulsing red ring means its health check fails.
 
@@ -44,7 +44,7 @@ local function render()
     if pulsing then
       opacity = 0.64 + 0.36 * math.cos((now % 3000) / 3000 * 2 * math.pi)
     end
-    table.insert(children, common.usageDot(dot.color, dot.used, opacity, 12))
+    table.insert(children, common.usageDot(dot.color, dot.used, opacity, 14))
   end
   local container = barWidget.isVertical() and ui.column or ui.row
   barWidget.render(container({ gap = 5, align = "center", justify = "center" }, children))

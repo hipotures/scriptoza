@@ -78,6 +78,8 @@ for component in "${components[@]}"; do
     # Reinstalling replaces the files, which hot reload does not always pick up; reload explicitly.
     if noctalia msg plugins list | grep -q "^scriptoza/$component .* enabled"; then
         noctalia msg plugins disable "scriptoza/$component"
+        # Enabling right after disabling can keep the old required modules (common.luau) loaded.
+        sleep 2
     fi
     noctalia msg plugins enable "scriptoza/$component"
     widgets+=("scriptoza/$component:bar")
