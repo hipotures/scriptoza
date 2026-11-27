@@ -1,10 +1,9 @@
 --!nonstrict
 -- Read-only hover preview shown next to the bar while the pointer is over the
--- widget: one compact block per shown account and the service status.
+-- widget, sized to its content: one compact block per shown account and the service status.
 
 local common = require("./common.luau")
 
-local WIDTH = 640
 local NAME_SIZE = 12
 local DETAIL_SIZE = 11
 
@@ -48,6 +47,11 @@ local function accountBlock(profile, now)
   if problem then
     table.insert(headerChildren, ui.label({ text = problem, color = common.WAITING_COLOR, fontSize = DETAIL_SIZE, maxLines = 1 }))
   end
+  table.insert(headerChildren, ui.spacer({ flexGrow = 1 }))
+  local ends = common.periodLeft(profile, now)
+  if ends then
+    table.insert(headerChildren, ui.label({ text = ends, color = "on_surface_variant", fontSize = DETAIL_SIZE, maxLines = 1 }))
+  end
   local header = line(headerChildren)
   local windows = {}
   for _, limit in ipairs(common.limitsOf(profile, config)) do
@@ -66,10 +70,6 @@ local function accountBlock(profile, now)
   end
   if #windows == 0 then
     table.insert(windows, ui.label({ text = "No usage data", color = "on_surface_variant", fontSize = DETAIL_SIZE }))
-  end
-  local ends = common.periodLeft(profile, now)
-  if ends then
-    table.insert(windows, ui.label({ text = `· {ends}`, color = "on_surface_variant", fontSize = DETAIL_SIZE, maxLines = 1 }))
   end
   return ui.column({ gap = 2, opacity = problem and 0.7 or 1 }, {
     header,
@@ -105,7 +105,6 @@ end
 
 local function render()
   layer.render(ui.column({
-    width = WIDTH,
     gap = 6,
     padding = 10,
     radius = 10,
