@@ -183,6 +183,21 @@ local function settingsSection()
       end,
     }),
   }))
+  local barControls = {
+    pill("Auto", config.previewBar == "auto", function()
+      common.updateConfig({ previewBar = "auto" })
+    end, `Bar holding the widget ({common.barPosition("auto")})`),
+  }
+  local bars = noctalia.getSetting("bar.order")
+  if type(bars) == "table" then
+    for _, name in ipairs(bars) do
+      local position = noctalia.getSetting(`bar.{name}.position`)
+      table.insert(barControls, pill(`{name} ({position or "?"})`, config.previewBar == name, function()
+        common.updateConfig({ previewBar = name })
+      end, "Show the hover preview at this bar"))
+    end
+  end
+  table.insert(rows, settingsRow("Preview bar", barControls))
   for _, row in ipairs(accountSection()) do
     table.insert(rows, row)
   end

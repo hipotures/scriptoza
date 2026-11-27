@@ -79,7 +79,7 @@ end
 
 function onHover(entered)
   if entered then
-    noctalia.layer.configure("preview", common.previewPlacement(barWidget.outputName()))
+    noctalia.layer.configure("preview", common.previewPlacement(barWidget.outputName(), config.previewBar))
     noctalia.layer.show("preview")
   else
     noctalia.layer.hide("preview")

@@ -5,6 +5,7 @@ local M = {}
 
 M.VERSION = "0.1.0"
 M.PANEL_ID = "scriptoza/agent-accounts:panel"
+M.WIDGET_ID = "scriptoza/agent-accounts:bar"
 
 M.WAITING_COLOR = "#f8e45c"
 M.ERROR_COLOR = "#f66151"
@@ -26,6 +27,7 @@ M.DEFAULT_CONFIG = {
   activeServer = 0,
   pollSeconds = 60,
   showFree = false,
+  previewBar = "auto",
   order = {},
   groups = {},
 }
@@ -124,6 +126,7 @@ local function normalizeConfig(raw)
     url = servers[active + 1],
     pollSeconds = math.floor(poll + 0.5),
     showFree = raw.showFree == true,
+    previewBar = type(raw.previewBar) == "string" and raw.previewBar ~= "" and raw.previewBar or "auto",
     order = order,
     groups = groups,
   }
@@ -343,9 +346,36 @@ function M.problem(profile)
   return nil
 end
 
+-- Position of the bar that holds this widget (or of the chosen bar), from the Noctalia config.
+function M.barPosition(chosen)
+  local function position(name)
+    local value = noctalia.getSetting(`bar.{name}.position`)
+    return type(value) == "string" and value or nil
+  end
+  if type(chosen) == "string" and chosen ~= "" and chosen ~= "auto" then
+    local value = position(chosen)
+    if value then
+      return value
+    end
+  end
+  local order = noctalia.getSetting("bar.order")
+  if type(order) ~= "table" then
+    return "top"
+  end
+  for _, name in ipairs(order) do
+    for _, section in ipairs({ "start", "center", "end" }) do
+      local items = noctalia.getSetting(`bar.{name}.{section}`)
+      if type(items) == "table" and table.find(items, M.WIDGET_ID) then
+        return position(name) or "top"
+      end
+    end
+  end
+  return order[1] and position(order[1]) or "top"
+end
+
 -- Places the hover preview on the bar's edge, at the end where the status widgets sit.
-function M.previewPlacement(outputName)
-  local position = noctalia.getSetting("bar.default.position") or "top"
+function M.previewPlacement(outputName, chosenBar)
+  local position = M.barPosition(chosenBar)
   local anchors = { "top", "right" }
   local margins = { top = 4, right = 8 }
   if position == "bottom" then

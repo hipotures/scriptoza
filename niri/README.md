@@ -10,7 +10,8 @@ shell used with the niri compositor. Each directory is a Noctalia plugin written
 
 The rTorrent and Herdr plugins keep the GNOME look: Cairo-like colored dots in the bar and a list panel attached to the widget.
 Hovering over a widget shows a read-only preview next to the bar, at the end where the status widgets sit (above a
-bottom bar, below a top bar, beside a vertical bar; it follows `bar.default.position`). The preview
+bottom bar, below a top bar, beside a vertical bar; it follows the `position` of the bar whose `start`, `center`, or `end`
+list holds the widget, found through `bar.order`). The preview
 is a plugin-owned layer (`[[layer]] preview`), 640 px wide with smaller fonts, because the shell tooltip has a
 fixed width that truncates torrent and agent names. It ignores pointer input and disappears when the pointer leaves
 the widget or the widget is clicked. A left click opens the editable panel in the middle of the bar, like the
@@ -127,6 +128,8 @@ Settings live in `~/.config/scriptoza/agent-accounts.json` and in the panel's ge
 - Connection: switch, edit, add, or remove service addresses (`http://limits.homestack.app:8080/` and
   `https://limits.hs.armum.eu/` by default).
 - Show free accounts (`plan` equal to `free`); hidden by default.
+- Preview bar: `Auto` (the bar holding the widget) or a bar from `bar.order`, whose position places the hover
+  preview.
 - Account order (up/down).
 - Antigravity quota group per account (Gemini by default, or Claude & GPT).
 
